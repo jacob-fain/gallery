@@ -111,8 +111,9 @@ export const updatePhoto = async (
   id: string,
   data: UpdatePhotoInput
 ): Promise<Photo | null> => {
+  // Column names are from a fixed set of if conditions, not user input - safe from SQL injection
   const updates: string[] = [];
-  const values: (boolean | number)[] = [];
+  const values: (boolean | number | string)[] = [];
   let paramIndex = 1;
 
   if (data.is_featured !== undefined) {
@@ -128,10 +129,10 @@ export const updatePhoto = async (
     return getPhotoById(id);
   }
 
-  values.push(id as unknown as number); // Cast for type safety, it's actually a string
+  values.push(id);
   const result = await query(
     `UPDATE photos SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-    values as unknown[]
+    values
   );
   return result.rows[0] || null;
 };

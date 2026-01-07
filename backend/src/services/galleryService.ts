@@ -83,6 +83,7 @@ export const updateGallery = async (
   data: UpdateGalleryInput
 ): Promise<Gallery | null> => {
   // Build dynamic update query based on provided fields
+  // Column names are from a fixed set of if conditions, not user input - safe from SQL injection
   const updates: string[] = [];
   const values: (string | boolean | null)[] = [];
   let paramIndex = 1;
@@ -183,7 +184,7 @@ export const getStats = async (): Promise<{
   views: { galleries: number; photos: number };
   downloads: number;
 }> => {
-  const [galleriesResult, photosResult, viewsResult] = await Promise.all([
+  const [galleriesResult, photosResult, galleryViewsResult, photoStatsResult] = await Promise.all([
     query(`
       SELECT
         COUNT(*) as total,
@@ -197,36 +198,24 @@ export const getStats = async (): Promise<{
         COUNT(*) FILTER (WHERE is_featured = true) as featured
       FROM photos
     `),
-    query(`
-      SELECT
-        COALESCE(SUM(g.view_count), 0) as gallery_views,
-        COALESCE(SUM(p.view_count), 0) as photo_views,
-        COALESCE(SUM(p.download_count), 0) as downloads
-      FROM galleries g
-      LEFT JOIN photos p ON true
-    `),
-  ]);
-
-  // Get accurate totals with separate queries to avoid cross-join issues
-  const [galleryViewsResult, photoStatsResult] = await Promise.all([
     query(`SELECT COALESCE(SUM(view_count), 0) as total FROM galleries`),
     query(`SELECT COALESCE(SUM(view_count), 0) as views, COALESCE(SUM(download_count), 0) as downloads FROM photos`),
   ]);
 
   return {
     galleries: {
-      total: parseInt(galleriesResult.rows[0].total),
-      public: parseInt(galleriesResult.rows[0].public),
-      private: parseInt(galleriesResult.rows[0].private),
+      total: parseInt(galleriesResult.rows[0].total, 10),
+      public: parseInt(galleriesResult.rows[0].public, 10),
+      private: parseInt(galleriesResult.rows[0].private, 10),
     },
     photos: {
-      total: parseInt(photosResult.rows[0].total),
-      featured: parseInt(photosResult.rows[0].featured),
+      total: parseInt(photosResult.rows[0].total, 10),
+      featured: parseInt(photosResult.rows[0].featured, 10),
     },
     views: {
-      galleries: parseInt(galleryViewsResult.rows[0].total),
-      photos: parseInt(photoStatsResult.rows[0].views),
+      galleries: parseInt(galleryViewsResult.rows[0].total, 10),
+      photos: parseInt(photoStatsResult.rows[0].views, 10),
     },
-    downloads: parseInt(photoStatsResult.rows[0].downloads),
+    downloads: parseInt(photoStatsResult.rows[0].downloads, 10),
   };
 };
