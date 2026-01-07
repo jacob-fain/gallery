@@ -12,9 +12,9 @@ export const getPhoto = async (req: Request, res: Response) => {
     }
 
     // Check if photo's gallery is public
-    const gallery = await galleryService.getGalleryBySlug(photo.gallery_id);
+    const gallery = await galleryService.getGalleryById(photo.gallery_id);
     if (gallery && !gallery.is_public) {
-      return res.status(401).json({
+      return res.status(403).json({
         success: false,
         error: 'Password required to view this photo',
       });

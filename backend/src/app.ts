@@ -19,4 +19,13 @@ app.use((_req, res) => {
   res.status(404).json({ success: false, error: 'Not found' });
 });
 
+// Global error handler
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({
+    success: false,
+    error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
+  });
+});
+
 export default app;
