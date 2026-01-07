@@ -6,11 +6,20 @@ import {
   generateGalleryAccessToken,
   verifyGalleryAccessToken,
 } from '../services/authService';
+import { Gallery } from '../types';
+
+/**
+ * Strip sensitive fields (password_hash) from gallery objects before returning to client
+ */
+const sanitizeGallery = (gallery: Gallery) => {
+  const { password_hash, ...safe } = gallery;
+  return safe;
+};
 
 export const listGalleries = async (_req: Request, res: Response) => {
   try {
     const galleries = await galleryService.getPublicGalleries();
-    res.json({ success: true, data: galleries });
+    res.json({ success: true, data: galleries.map(sanitizeGallery) });
   } catch (err) {
     console.error('Error fetching galleries:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch galleries' });
@@ -44,7 +53,7 @@ export const getGallery = async (req: Request, res: Response) => {
     // Increment view count for public galleries
     await galleryService.incrementGalleryViews(gallery.id);
 
-    res.json({ success: true, data: gallery });
+    res.json({ success: true, data: sanitizeGallery(gallery) });
   } catch (err) {
     console.error('Error fetching gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch gallery' });
@@ -111,7 +120,7 @@ export const getStats = async (_req: Request, res: Response) => {
 export const listAllGalleries = async (_req: Request, res: Response) => {
   try {
     const galleries = await galleryService.getAllGalleries();
-    res.json({ success: true, data: galleries });
+    res.json({ success: true, data: galleries.map(sanitizeGallery) });
   } catch (err) {
     console.error('Error fetching all galleries:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch galleries' });
@@ -132,11 +141,11 @@ export const createGallery = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate slug format (lowercase, alphanumeric, hyphens)
-    if (!/^[a-z0-9-]+$/.test(slug)) {
+    // Validate slug format (lowercase alphanumeric, hyphens between words, no leading/trailing hyphens)
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
       return res.status(400).json({
         success: false,
-        error: 'Slug must be lowercase alphanumeric with hyphens only',
+        error: 'Slug must be lowercase alphanumeric with hyphens only (no leading/trailing hyphens)',
       });
     }
 
@@ -156,7 +165,7 @@ export const createGallery = async (req: Request, res: Response) => {
       password,
     });
 
-    res.status(201).json({ success: true, data: gallery });
+    res.status(201).json({ success: true, data: sanitizeGallery(gallery) });
   } catch (err) {
     console.error('Error creating gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to create gallery' });
@@ -179,10 +188,10 @@ export const updateGallery = async (req: Request, res: Response) => {
 
     // If changing slug, validate and check uniqueness
     if (slug !== undefined && slug !== existing.slug) {
-      if (!/^[a-z0-9-]+$/.test(slug)) {
+      if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
         return res.status(400).json({
           success: false,
-          error: 'Slug must be lowercase alphanumeric with hyphens only',
+          error: 'Slug must be lowercase alphanumeric with hyphens only (no leading/trailing hyphens)',
         });
       }
       if (await galleryService.isSlugTaken(slug, id)) {
@@ -201,7 +210,7 @@ export const updateGallery = async (req: Request, res: Response) => {
       password,
     });
 
-    res.json({ success: true, data: gallery });
+    res.json({ success: true, data: gallery ? sanitizeGallery(gallery) : null });
   } catch (err) {
     console.error('Error updating gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to update gallery' });
@@ -265,7 +274,7 @@ export const setCoverImage = async (req: Request, res: Response) => {
     }
 
     const updated = await galleryService.setCoverImage(id, photoId || null);
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: updated ? sanitizeGallery(updated) : null });
   } catch (err) {
     console.error('Error setting cover image:', err);
     res.status(500).json({ success: false, error: 'Failed to set cover image' });

@@ -194,10 +194,10 @@ export const reorderPhotos = async (req: Request, res: Response) => {
   try {
     const { gallery_id, photo_ids } = req.body;
 
-    if (!gallery_id || !Array.isArray(photo_ids)) {
+    if (!gallery_id || !Array.isArray(photo_ids) || photo_ids.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'gallery_id and photo_ids array are required',
+        error: 'gallery_id and a non-empty photo_ids array are required',
       });
     }
 
