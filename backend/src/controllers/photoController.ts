@@ -131,3 +131,88 @@ export const uploadPhoto = async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Failed to upload photo' });
   }
 };
+
+// ============ Admin Controllers ============
+
+/**
+ * Update a photo's metadata (featured, sort_order)
+ */
+export const updatePhoto = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { is_featured, sort_order } = req.body;
+
+    // Check if photo exists
+    const existing = await photoService.getPhotoById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Photo not found' });
+    }
+
+    const photo = await photoService.updatePhoto(id, {
+      is_featured,
+      sort_order,
+    });
+
+    const photoWithUrls = await photoService.enrichPhotoWithUrls(photo!);
+    res.json({ success: true, data: photoWithUrls });
+  } catch (err) {
+    console.error('Error updating photo:', err);
+    res.status(500).json({ success: false, error: 'Failed to update photo' });
+  }
+};
+
+/**
+ * Delete a photo and its S3 files
+ */
+export const deletePhoto = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Check if photo exists and get gallery_id for S3 path
+    const photo = await photoService.getPhotoById(id);
+    if (!photo) {
+      return res.status(404).json({ success: false, error: 'Photo not found' });
+    }
+
+    // Delete from S3 first (best effort)
+    await s3Service.deletePhotoFiles(photo.gallery_id, id);
+
+    // Delete from database
+    await photoService.deletePhoto(id);
+
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    console.error('Error deleting photo:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete photo' });
+  }
+};
+
+/**
+ * Reorder photos in a gallery
+ */
+export const reorderPhotos = async (req: Request, res: Response) => {
+  try {
+    const { gallery_id, photo_ids } = req.body;
+
+    if (!gallery_id || !Array.isArray(photo_ids) || photo_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'gallery_id and a non-empty photo_ids array are required',
+      });
+    }
+
+    // Verify gallery exists
+    const gallery = await galleryService.getGalleryById(gallery_id);
+    if (!gallery) {
+      return res.status(404).json({ success: false, error: 'Gallery not found' });
+    }
+
+    // Reorder photos
+    await photoService.reorderPhotos(gallery_id, photo_ids);
+
+    res.json({ success: true, data: { reordered: true } });
+  } catch (err) {
+    console.error('Error reordering photos:', err);
+    res.status(500).json({ success: false, error: 'Failed to reorder photos' });
+  }
+};

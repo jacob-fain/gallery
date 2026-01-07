@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../config/db';
-import type { User, JwtPayload } from '../types';
+import type { User, JwtPayload, GalleryAccessPayload } from '../types';
 
 const BCRYPT_ROUNDS = 10;
 const JWT_EXPIRY = '7d';
+const GALLERY_ACCESS_EXPIRY = '24h'; // Gallery access tokens expire in 24 hours
 
 // Validate JWT_SECRET is configured
 const getJwtSecret = (): string => {
@@ -67,4 +68,31 @@ export const getUserByEmail = async (email: string): Promise<User | null> => {
 export const getUserById = async (id: string): Promise<User | null> => {
   const result = await query('SELECT * FROM users WHERE id = $1', [id]);
   return result.rows[0] || null;
+};
+
+/**
+ * Generate a signed access token for a private gallery
+ * This token proves the user has verified the gallery password
+ */
+export const generateGalleryAccessToken = (
+  galleryId: string,
+  slug: string
+): string => {
+  const payload: GalleryAccessPayload = { galleryId, slug };
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: GALLERY_ACCESS_EXPIRY });
+};
+
+/**
+ * Verify and decode a gallery access token
+ * Returns the payload if valid, null if invalid or expired
+ */
+export const verifyGalleryAccessToken = (
+  token: string
+): GalleryAccessPayload | null => {
+  try {
+    const decoded = jwt.verify(token, getJwtSecret());
+    return decoded as GalleryAccessPayload;
+  } catch {
+    return null;
+  }
 };
