@@ -73,6 +73,30 @@ export interface CreatePhotoInput {
   file_size: number;
 }
 
+// Input type for creating a gallery
+export interface CreateGalleryInput {
+  title: string;
+  slug: string;
+  description?: string;
+  is_public?: boolean;
+  password?: string; // Plain text, will be hashed
+}
+
+// Input type for updating a gallery
+export interface UpdateGalleryInput {
+  title?: string;
+  slug?: string;
+  description?: string | null;
+  is_public?: boolean;
+  password?: string | null; // null to remove password
+}
+
+// Input type for updating a photo
+export interface UpdatePhotoInput {
+  is_featured?: boolean;
+  sort_order?: number;
+}
+
 // Extend Express Request type to include user from auth middleware
 declare global {
   namespace Express {

@@ -1,5 +1,5 @@
 import { query } from '../config/db';
-import { Photo, PhotoWithUrls, CreatePhotoInput } from '../types';
+import { Photo, PhotoWithUrls, CreatePhotoInput, UpdatePhotoInput } from '../types';
 import { getSignedUrl } from './s3Service';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
@@ -89,4 +89,84 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> => {
     ]
   );
   return result.rows[0];
+};
+
+/**
+ * Get all photos in a gallery ordered by sort_order
+ */
+export const getPhotosByGalleryId = async (galleryId: string): Promise<Photo[]> => {
+  const result = await query(
+    `SELECT * FROM photos
+     WHERE gallery_id = $1
+     ORDER BY sort_order ASC, uploaded_at ASC`,
+    [galleryId]
+  );
+  return result.rows;
+};
+
+/**
+ * Update a photo's metadata
+ */
+export const updatePhoto = async (
+  id: string,
+  data: UpdatePhotoInput
+): Promise<Photo | null> => {
+  const updates: string[] = [];
+  const values: (boolean | number)[] = [];
+  let paramIndex = 1;
+
+  if (data.is_featured !== undefined) {
+    updates.push(`is_featured = $${paramIndex++}`);
+    values.push(data.is_featured);
+  }
+  if (data.sort_order !== undefined) {
+    updates.push(`sort_order = $${paramIndex++}`);
+    values.push(data.sort_order);
+  }
+
+  if (updates.length === 0) {
+    return getPhotoById(id);
+  }
+
+  values.push(id as unknown as number); // Cast for type safety, it's actually a string
+  const result = await query(
+    `UPDATE photos SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+    values as unknown[]
+  );
+  return result.rows[0] || null;
+};
+
+/**
+ * Delete a photo from the database
+ * Note: S3 files must be deleted separately before calling this
+ * Returns the gallery_id for S3 cleanup
+ */
+export const deletePhoto = async (id: string): Promise<{ galleryId: string } | null> => {
+  const result = await query(
+    `DELETE FROM photos WHERE id = $1 RETURNING gallery_id`,
+    [id]
+  );
+  if (result.rows[0]) {
+    return { galleryId: result.rows[0].gallery_id };
+  }
+  return null;
+};
+
+/**
+ * Reorder photos in a gallery
+ * @param galleryId - Gallery ID to verify ownership
+ * @param photoIds - Array of photo IDs in desired order
+ */
+export const reorderPhotos = async (
+  galleryId: string,
+  photoIds: string[]
+): Promise<void> => {
+  // Update each photo's sort_order based on its position in the array
+  const updates = photoIds.map((photoId, index) =>
+    query(
+      `UPDATE photos SET sort_order = $1 WHERE id = $2 AND gallery_id = $3`,
+      [index, photoId, galleryId]
+    )
+  );
+  await Promise.all(updates);
 };
