@@ -1,5 +1,6 @@
 import { query } from '../config/db';
-import { Photo } from '../types';
+import { Photo, PhotoWithUrls } from '../types';
+import { getSignedUrl } from './s3Service';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
   const result = await query(
@@ -32,4 +33,31 @@ export const incrementPhotoDownloads = async (photoId: string): Promise<void> =>
     `UPDATE photos SET download_count = download_count + 1 WHERE id = $1`,
     [photoId]
   );
+};
+
+/**
+ * Enrich a photo with signed S3 URLs
+ * Converts raw S3 keys into temporary accessible URLs
+ */
+export const enrichPhotoWithUrls = async (photo: Photo): Promise<PhotoWithUrls> => {
+  const [url, webUrl, thumbnailUrl] = await Promise.all([
+    getSignedUrl(photo.s3_key),
+    getSignedUrl(photo.s3_web_key),
+    getSignedUrl(photo.s3_thumbnail_key),
+  ]);
+
+  return {
+    ...photo,
+    url,
+    webUrl,
+    thumbnailUrl,
+  };
+};
+
+/**
+ * Enrich multiple photos with signed URLs
+ * Uses Promise.all for parallel URL generation
+ */
+export const enrichPhotosWithUrls = async (photos: Photo[]): Promise<PhotoWithUrls[]> => {
+  return Promise.all(photos.map(enrichPhotoWithUrls));
 };
