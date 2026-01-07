@@ -1,15 +1,21 @@
 import sharp from 'sharp';
 
-// Image size configurations
+// Image size configurations optimized for photography portfolio
 const IMAGE_SIZES = {
   web: {
-    maxWidth: 1600,
-    quality: 85,
+    maxWidth: 1920,      // Full HD width for modern displays
+    quality: 92,         // High quality for portfolio display
   },
   thumbnail: {
-    maxWidth: 400,
-    quality: 80,
+    maxWidth: 600,       // Larger thumbnails for retina displays
+    quality: 85,
   },
+} as const;
+
+// JPEG options optimized for photography
+const JPEG_OPTIONS = {
+  chromaSubsampling: '4:4:4', // No color downsampling - preserves color detail
+  mozjpeg: true,              // Use mozjpeg encoder for better quality/size ratio
 } as const;
 
 export interface ProcessedImage {
@@ -27,11 +33,12 @@ export interface ProcessedImageSet {
 
 /**
  * Process an uploaded image into three sizes:
- * - Original: Preserved as-is (converted to JPEG if needed)
- * - Web: Max 1600px wide, 85% quality (for lightbox viewing)
- * - Thumbnail: Max 400px wide, 80% quality (for grid display)
+ * - Original: Preserved EXACTLY as uploaded (no re-encoding, no quality loss)
+ * - Web: Max 1920px wide, 92% quality with 4:4:4 chroma (for lightbox viewing)
+ * - Thumbnail: Max 600px wide, 85% quality (for grid display)
  *
- * All images maintain aspect ratio and are converted to JPEG.
+ * Web and thumbnail versions use high-quality JPEG encoding optimized for
+ * photography with no chroma subsampling.
  *
  * @param buffer - Raw image buffer from upload
  * @returns Object containing all three processed versions with metadata
@@ -42,10 +49,9 @@ export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> =
   const originalWidth = metadata.width || 0;
   const originalHeight = metadata.height || 0;
 
-  // Process original - convert to JPEG, strip metadata for privacy
-  const originalProcessed = await sharp(buffer)
-    .jpeg({ quality: 95 })
-    .toBuffer({ resolveWithObject: true });
+  // IMPORTANT: Keep original EXACTLY as uploaded - no re-encoding!
+  // This preserves full quality for downloads and future use.
+  // We just need the metadata, the buffer stays unchanged.
 
   // Process web version - resize if larger than max width
   const webProcessed = await sharp(buffer)
@@ -54,7 +60,10 @@ export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> =
       withoutEnlargement: true, // Don't upscale small images
       fit: 'inside',
     })
-    .jpeg({ quality: IMAGE_SIZES.web.quality })
+    .jpeg({
+      quality: IMAGE_SIZES.web.quality,
+      ...JPEG_OPTIONS,
+    })
     .toBuffer({ resolveWithObject: true });
 
   // Process thumbnail
@@ -64,15 +73,18 @@ export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> =
       withoutEnlargement: true,
       fit: 'inside',
     })
-    .jpeg({ quality: IMAGE_SIZES.thumbnail.quality })
+    .jpeg({
+      quality: IMAGE_SIZES.thumbnail.quality,
+      ...JPEG_OPTIONS,
+    })
     .toBuffer({ resolveWithObject: true });
 
   return {
     original: {
-      buffer: originalProcessed.data,
+      buffer: buffer, // Keep original unchanged - no quality loss!
       width: originalWidth,
       height: originalHeight,
-      size: originalProcessed.info.size,
+      size: buffer.length,
     },
     web: {
       buffer: webProcessed.data,
