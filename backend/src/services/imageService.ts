@@ -127,7 +127,7 @@ export const getImageMetadata = async (
 export const isValidImage = async (buffer: Buffer): Promise<boolean> => {
   try {
     const metadata = await sharp(buffer).metadata();
-    const supportedFormats = ['jpeg', 'jpg', 'png', 'webp', 'tiff', 'heif'];
+    const supportedFormats = ['jpeg', 'png', 'webp', 'tiff', 'heif'];
     return supportedFormats.includes(metadata.format || '');
   } catch {
     return false;
