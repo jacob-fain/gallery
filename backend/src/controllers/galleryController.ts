@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import * as galleryService from '../services/galleryService';
+import * as photoService from '../services/photoService';
 
 export const listGalleries = async (_req: Request, res: Response) => {
   try {
@@ -62,7 +63,8 @@ export const getGalleryPhotos = async (req: Request, res: Response) => {
     }
 
     const photos = await galleryService.getGalleryPhotos(gallery.id);
-    res.json({ success: true, data: photos });
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
   } catch (err) {
     console.error('Error fetching gallery photos:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch photos' });
