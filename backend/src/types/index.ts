@@ -60,6 +60,12 @@ export interface JwtPayload {
   email: string;
 }
 
+// Gallery access token payload (for private gallery password verification)
+export interface GalleryAccessPayload {
+  galleryId: string;
+  slug: string;
+}
+
 // Input type for creating a photo record
 export interface CreatePhotoInput {
   gallery_id: string;
