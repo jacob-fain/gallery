@@ -4,6 +4,11 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 async function fetchApi<T>(endpoint: string): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`);
+
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+  }
+
   const data: ApiResponse<T> = await response.json();
 
   if (!data.success || !data.data) {
