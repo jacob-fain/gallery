@@ -301,6 +301,10 @@ If you want to move off self-hosted later (for uptime or learning), you can migr
 - [ ] Download tracking analytics
 - [ ] Multiple admin users
 - [ ] Bulk download as ZIP
+- [ ] Batch upload with progress tracking
+  - Per-file and overall progress bars
+  - Estimated time remaining
+  - Pause/resume/cancel support
 
 ---
 
