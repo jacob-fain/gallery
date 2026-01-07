@@ -1,5 +1,5 @@
 import { query } from '../config/db';
-import { Photo, PhotoWithUrls } from '../types';
+import { Photo, PhotoWithUrls, CreatePhotoInput } from '../types';
 import { getSignedUrl } from './s3Service';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
@@ -60,4 +60,33 @@ export const enrichPhotoWithUrls = async (photo: Photo): Promise<PhotoWithUrls> 
  */
 export const enrichPhotosWithUrls = async (photos: Photo[]): Promise<PhotoWithUrls[]> => {
   return Promise.all(photos.map(enrichPhotoWithUrls));
+};
+
+/**
+ * Create a new photo record in the database
+ * @param data - Photo creation input
+ * @returns Created photo record
+ */
+export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> => {
+  const result = await query(
+    `INSERT INTO photos (
+      gallery_id, filename, original_filename,
+      s3_key, s3_thumbnail_key, s3_web_key,
+      width, height, file_size
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    RETURNING *`,
+    [
+      data.gallery_id,
+      data.filename,
+      data.original_filename,
+      data.s3_key,
+      data.s3_thumbnail_key,
+      data.s3_web_key,
+      data.width,
+      data.height,
+      data.file_size,
+    ]
+  );
+  return result.rows[0];
 };
