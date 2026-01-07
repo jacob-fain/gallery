@@ -1,0 +1,38 @@
+# Git
+.git/
+.gitignore
+
+# Dependencies (rebuilt in container)
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Documentation
+*.md
+
+# Docker
+docker-compose.yml
+Dockerfile*
+
+# Database
+db/
+postgres_data/
+
+# Testing
+coverage/
+*.test.ts
+*.spec.ts
