@@ -53,3 +53,18 @@ export interface ApiResponse<T> {
   data?: T;
   error?: string;
 }
+
+// Auth types
+export interface JwtPayload {
+  userId: string;
+  email: string;
+}
+
+// Extend Express Request type to include user from auth middleware
+declare global {
+  namespace Express {
+    interface Request {
+      user?: JwtPayload;
+    }
+  }
+}
