@@ -47,6 +47,10 @@ export const getSignedUrl = async (
   expiresIn: number = DEFAULT_EXPIRES_IN
 ): Promise<string> => {
   if (!isS3Configured()) {
+    // Fail fast in production - S3 must be configured
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('S3 is not configured. Check AWS environment variables.');
+    }
     // Return placeholder URL in dev when S3 isn't configured
     return `https://placehold.co/800x600/1a1a1a/ffffff?text=S3+Not+Configured`;
   }
@@ -98,6 +102,9 @@ export const generatePhotoKeys = (
 
 /**
  * Delete all versions of a photo from S3
+ * Uses Promise.allSettled to attempt all deletions even if some fail
+ * (prevents orphaned files in S3)
+ *
  * @param galleryId - Gallery UUID
  * @param photoId - Photo UUID
  */
@@ -105,11 +112,20 @@ export const deletePhotoFiles = async (
   galleryId: string,
   photoId: string
 ): Promise<void> => {
+  if (!isS3Configured()) {
+    return; // Nothing to delete if S3 not configured
+  }
+
   const keys = generatePhotoKeys(galleryId, photoId);
 
-  await Promise.all([
+  const results = await Promise.allSettled([
     deleteFile(keys.original),
     deleteFile(keys.web),
     deleteFile(keys.thumbnail),
   ]);
+
+  const failures = results.filter((r) => r.status === 'rejected');
+  if (failures.length > 0) {
+    console.error(`Failed to delete ${failures.length}/3 files for photo ${photoId}`);
+  }
 };
