@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:15
+    container_name: gallery-db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_USER=gallery
+      - POSTGRES_PASSWORD=gallery_dev_password
+      - POSTGRES_DB=gallery
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
