@@ -2,6 +2,10 @@ import { Request, Response } from 'express';
 import * as galleryService from '../services/galleryService';
 import * as photoService from '../services/photoService';
 import * as s3Service from '../services/s3Service';
+import {
+  generateGalleryAccessToken,
+  verifyGalleryAccessToken,
+} from '../services/authService';
 
 export const listGalleries = async (_req: Request, res: Response) => {
   try {
@@ -23,11 +27,12 @@ export const getGallery = async (req: Request, res: Response) => {
     }
 
     // If gallery is private and no session, return limited info
+    // NOTE: Do NOT expose gallery.id here - it was previously used as an access token
+    // which allowed authentication bypass. Now we use signed JWT tokens instead.
     if (!gallery.is_public) {
       return res.json({
         success: true,
         data: {
-          id: gallery.id,
           title: gallery.title,
           slug: gallery.slug,
           is_public: false,
@@ -49,7 +54,7 @@ export const getGallery = async (req: Request, res: Response) => {
 export const getGalleryPhotos = async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
-    const { access } = req.query; // Gallery ID as proof of password verification
+    const { access } = req.query; // Signed JWT access token from password verification
 
     const gallery = await galleryService.getGalleryBySlug(slug);
 
@@ -57,12 +62,21 @@ export const getGalleryPhotos = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Gallery not found' });
     }
 
-    // For private galleries, require proof of verification (gallery ID)
+    // For private galleries, require a valid signed access token
     if (!gallery.is_public) {
-      if (access !== gallery.id) {
+      if (!access || typeof access !== 'string') {
         return res.status(403).json({
           success: false,
           error: 'Password required to view this gallery',
+        });
+      }
+
+      // Verify the signed access token
+      const tokenPayload = verifyGalleryAccessToken(access);
+      if (!tokenPayload || tokenPayload.galleryId !== gallery.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Invalid or expired access token. Please verify the password again.',
         });
       }
     }
@@ -292,17 +306,21 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, error: 'Invalid password' });
     }
 
-    // Return gallery data (password verified)
-    // The frontend can store the gallery ID to indicate access was granted
+    // Generate a signed access token for this gallery
+    // This token is cryptographically signed and time-limited (24 hours)
+    const accessToken = generateGalleryAccessToken(gallery.id, gallery.slug);
+
+    // Return gallery data with signed access token
+    // The frontend should include this token in ?access= query param when fetching photos
     res.json({
       success: true,
       data: {
-        id: gallery.id,
         title: gallery.title,
         slug: gallery.slug,
         description: gallery.description,
         is_public: gallery.is_public,
         verified: true,
+        accessToken, // Signed JWT token for accessing photos
       },
     });
   } catch (err) {
