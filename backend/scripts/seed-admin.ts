@@ -12,12 +12,11 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { Pool } from 'pg';
-import bcrypt from 'bcryptjs';
 
 // Load environment variables from root .env
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
-const BCRYPT_ROUNDS = 10;
+import { hashPassword } from '../src/services/authService';
 
 async function seedAdmin() {
   const email = process.env.ADMIN_EMAIL;
@@ -41,7 +40,7 @@ async function seedAdmin() {
     console.log(`Seeding admin user: ${email}`);
 
     // Hash the password
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const passwordHash = await hashPassword(password);
 
     // Upsert the admin user
     const result = await pool.query(
