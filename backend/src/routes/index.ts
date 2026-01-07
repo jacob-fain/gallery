@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import authRouter from './auth';
 import galleriesRouter from './galleries';
 import photosRouter from './photos';
 import * as photoController from '../controllers/photoController';
@@ -14,6 +15,7 @@ router.get('/health', (_req, res) => {
 router.get('/featured', photoController.getFeatured);
 
 // Mount route modules
+router.use('/auth', authRouter);
 router.use('/galleries', galleriesRouter);
 router.use('/photos', photosRouter);
 
