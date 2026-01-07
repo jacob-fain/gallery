@@ -60,6 +60,19 @@ export interface JwtPayload {
   email: string;
 }
 
+// Input type for creating a photo record
+export interface CreatePhotoInput {
+  gallery_id: string;
+  filename: string;
+  original_filename: string;
+  s3_key: string;
+  s3_thumbnail_key: string;
+  s3_web_key: string;
+  width: number;
+  height: number;
+  file_size: number;
+}
+
 // Extend Express Request type to include user from auth middleware
 declare global {
   namespace Express {
