@@ -1,0 +1,12 @@
+.grid {
+  width: 100%;
+}
+
+.grid img {
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.grid img:hover {
+  opacity: 0.9;
+}
