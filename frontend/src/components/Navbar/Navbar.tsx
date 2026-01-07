@@ -17,14 +17,6 @@ export default function Navbar() {
           >
             Galleries
           </NavLink>
-          <NavLink
-            to="/about"
-            className={({ isActive }) =>
-              isActive ? `${styles.link} ${styles.active}` : styles.link
-            }
-          >
-            About
-          </NavLink>
         </div>
       </div>
     </nav>
