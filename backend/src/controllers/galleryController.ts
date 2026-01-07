@@ -55,7 +55,7 @@ export const getGalleryPhotos = async (req: Request, res: Response) => {
 
     // Block access to private gallery photos without auth (for now)
     if (!gallery.is_public) {
-      return res.status(401).json({
+      return res.status(403).json({
         success: false,
         error: 'Password required to view this gallery',
       });

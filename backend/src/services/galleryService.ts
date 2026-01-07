@@ -18,6 +18,14 @@ export const getGalleryBySlug = async (slug: string): Promise<Gallery | null> =>
   return result.rows[0] || null;
 };
 
+export const getGalleryById = async (id: string): Promise<Gallery | null> => {
+  const result = await query(
+    `SELECT * FROM galleries WHERE id = $1`,
+    [id]
+  );
+  return result.rows[0] || null;
+};
+
 export const getGalleryPhotos = async (galleryId: string): Promise<Photo[]> => {
   const result = await query(
     `SELECT * FROM photos
