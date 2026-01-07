@@ -21,7 +21,8 @@ export const getPhoto = async (req: Request, res: Response) => {
     }
 
     await photoService.incrementPhotoViews(id);
-    res.json({ success: true, data: photo });
+    const photoWithUrls = await photoService.enrichPhotoWithUrls(photo);
+    res.json({ success: true, data: photoWithUrls });
   } catch (err) {
     console.error('Error fetching photo:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch photo' });
@@ -31,7 +32,8 @@ export const getPhoto = async (req: Request, res: Response) => {
 export const getFeatured = async (_req: Request, res: Response) => {
   try {
     const photos = await photoService.getFeaturedPhotos();
-    res.json({ success: true, data: photos });
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
   } catch (err) {
     console.error('Error fetching featured photos:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch featured photos' });
@@ -49,12 +51,12 @@ export const downloadPhoto = async (req: Request, res: Response) => {
 
     await photoService.incrementPhotoDownloads(id);
 
-    // For now, return the S3 key - actual S3 signed URL generation comes later
+    const photoWithUrls = await photoService.enrichPhotoWithUrls(photo);
     res.json({
       success: true,
       data: {
         filename: photo.original_filename,
-        s3_key: photo.s3_key,
+        downloadUrl: photoWithUrls.url,
       },
     });
   } catch (err) {

@@ -36,6 +36,13 @@ export interface Photo {
   uploaded_at: Date;
 }
 
+// Photo with signed S3 URLs for frontend consumption
+export interface PhotoWithUrls extends Photo {
+  url: string;          // Signed URL for original (downloads)
+  webUrl: string;       // Signed URL for web version (lightbox)
+  thumbnailUrl: string; // Signed URL for thumbnail (grid)
+}
+
 // API response types
 export interface GalleryWithCover extends Gallery {
   cover_photo?: Photo;
