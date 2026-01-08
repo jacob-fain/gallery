@@ -124,18 +124,22 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       });
     }
 
-    // Process image into 3 sizes
-    const processed = await imageService.processImage(req.file.buffer);
+    // Process image into 3 sizes and extract EXIF in parallel
+    const [processed, exifData] = await Promise.all([
+      imageService.processImage(req.file.buffer),
+      imageService.extractExifData(req.file.buffer),
+    ]);
 
     // Generate unique ID and S3 keys
     const photoId = crypto.randomUUID();
     const keys = s3Service.generatePhotoKeys(galleryId, photoId);
 
     // Upload all 3 versions to S3 in parallel
+    // Original stays as JPEG, web/thumbnail are WebP for smaller size
     await Promise.all([
       s3Service.uploadFile(processed.original.buffer, keys.original, 'image/jpeg'),
-      s3Service.uploadFile(processed.web.buffer, keys.web, 'image/jpeg'),
-      s3Service.uploadFile(processed.thumbnail.buffer, keys.thumbnail, 'image/jpeg'),
+      s3Service.uploadFile(processed.web.buffer, keys.web, 'image/webp'),
+      s3Service.uploadFile(processed.thumbnail.buffer, keys.thumbnail, 'image/webp'),
     ]);
 
     // Create photo record in database
@@ -149,6 +153,7 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       width: processed.original.width,
       height: processed.original.height,
       file_size: processed.original.size,
+      exif_data: exifData || undefined,
     });
 
     // Return photo with signed URLs
@@ -242,5 +247,42 @@ export const reorderPhotos = async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error reordering photos:', err);
     res.status(500).json({ success: false, error: 'Failed to reorder photos' });
+  }
+};
+
+/**
+ * Move photos to a different gallery
+ */
+export const movePhotos = async (req: Request, res: Response) => {
+  try {
+    const { photo_ids, target_gallery_id } = req.body;
+
+    if (!Array.isArray(photo_ids) || photo_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'photo_ids array is required',
+      });
+    }
+
+    if (!target_gallery_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'target_gallery_id is required',
+      });
+    }
+
+    // Verify target gallery exists
+    const targetGallery = await galleryService.getGalleryById(target_gallery_id);
+    if (!targetGallery) {
+      return res.status(404).json({ success: false, error: 'Target gallery not found' });
+    }
+
+    // Move photos
+    const movedCount = await photoService.movePhotos(photo_ids, target_gallery_id);
+
+    res.json({ success: true, data: { moved: movedCount } });
+  } catch (err) {
+    console.error('Error moving photos:', err);
+    res.status(500).json({ success: false, error: 'Failed to move photos' });
   }
 };

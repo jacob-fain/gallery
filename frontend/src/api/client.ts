@@ -14,6 +14,45 @@ import type {
 const API_BASE = import.meta.env.VITE_API_URL ||
   `http://${window.location.hostname}:3001/api`;
 
+// ============ Simple In-Memory Cache ============
+// Cache TTL: 5 minutes - makes back navigation instant
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CacheEntry<T> {
+  data: T;
+  expires: number;
+}
+
+const cache = new Map<string, CacheEntry<unknown>>();
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (entry && Date.now() < entry.expires) {
+    return entry.data as T;
+  }
+  if (entry) {
+    cache.delete(key);
+  }
+  return null;
+}
+
+function setCache<T>(key: string, data: T): void {
+  cache.set(key, { data, expires: Date.now() + CACHE_TTL_MS });
+}
+
+// Clear cache for a specific prefix (used when data is modified)
+export function clearCache(prefix?: string): void {
+  if (!prefix) {
+    cache.clear();
+    return;
+  }
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) {
+      cache.delete(key);
+    }
+  }
+}
+
 // ============ Public API ============
 
 async function fetchApi<T>(endpoint: string): Promise<T> {
@@ -33,22 +72,46 @@ async function fetchApi<T>(endpoint: string): Promise<T> {
 }
 
 export async function getFeaturedPhotos(): Promise<Photo[]> {
-  return fetchApi<Photo[]>('/featured');
+  const cacheKey = 'featured';
+  const cached = getCached<Photo[]>(cacheKey);
+  if (cached) return cached;
+
+  const data = await fetchApi<Photo[]>('/featured');
+  setCache(cacheKey, data);
+  return data;
 }
 
 export async function getGalleries(): Promise<Gallery[]> {
-  return fetchApi<Gallery[]>('/galleries');
+  const cacheKey = 'galleries';
+  const cached = getCached<Gallery[]>(cacheKey);
+  if (cached) return cached;
+
+  const data = await fetchApi<Gallery[]>('/galleries');
+  setCache(cacheKey, data);
+  return data;
 }
 
 export async function getGallery(slug: string): Promise<Gallery | PrivateGalleryResponse> {
-  return fetchApi<Gallery | PrivateGalleryResponse>(`/galleries/${slug}`);
+  const cacheKey = `gallery:${slug}`;
+  const cached = getCached<Gallery | PrivateGalleryResponse>(cacheKey);
+  if (cached) return cached;
+
+  const data = await fetchApi<Gallery | PrivateGalleryResponse>(`/galleries/${slug}`);
+  setCache(cacheKey, data);
+  return data;
 }
 
 export async function getGalleryPhotos(slug: string, accessToken?: string): Promise<Photo[]> {
+  const cacheKey = accessToken ? `photos:${slug}:${accessToken}` : `photos:${slug}`;
+  const cached = getCached<Photo[]>(cacheKey);
+  if (cached) return cached;
+
   const url = accessToken
     ? `/galleries/${slug}/photos?access=${encodeURIComponent(accessToken)}`
     : `/galleries/${slug}/photos`;
-  return fetchApi<Photo[]>(url);
+  const data = await fetchApi<Photo[]>(url);
+  setCache(cacheKey, data);
+  return data;
 }
 
 export async function verifyGalleryPassword(
@@ -152,11 +215,13 @@ export async function getAllGalleries(token: string): Promise<Gallery[]> {
 }
 
 export async function createGallery(token: string, data: CreateGalleryInput): Promise<Gallery> {
-  return fetchApiAuth<Gallery>('/galleries', token, {
+  const result = await fetchApiAuth<Gallery>('/galleries', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
+  clearCache('galleries');
+  return result;
 }
 
 export async function updateGallery(
@@ -164,17 +229,37 @@ export async function updateGallery(
   id: string,
   data: UpdateGalleryInput
 ): Promise<Gallery> {
-  return fetchApiAuth<Gallery>(`/galleries/${id}`, token, {
+  const result = await fetchApiAuth<Gallery>(`/galleries/${id}`, token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
+  clearCache('galleries');
+  clearCache('gallery:');
+  return result;
 }
 
 export async function deleteGallery(token: string, id: string): Promise<{ deleted: boolean }> {
-  return fetchApiAuth<{ deleted: boolean }>(`/galleries/${id}`, token, {
+  const result = await fetchApiAuth<{ deleted: boolean }>(`/galleries/${id}`, token, {
     method: 'DELETE',
   });
+  clearCache('galleries');
+  clearCache('gallery:');
+  clearCache('photos:');
+  return result;
+}
+
+export async function reorderGalleries(
+  token: string,
+  galleryIds: string[]
+): Promise<{ reordered: boolean }> {
+  const result = await fetchApiAuth<{ reordered: boolean }>('/galleries/reorder', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gallery_ids: galleryIds }),
+  });
+  clearCache('galleries');
+  return result;
 }
 
 export async function setCoverImage(
@@ -182,11 +267,13 @@ export async function setCoverImage(
   galleryId: string,
   photoId: string | null
 ): Promise<Gallery> {
-  return fetchApiAuth<Gallery>(`/galleries/${galleryId}/cover`, token, {
+  const result = await fetchApiAuth<Gallery>(`/galleries/${galleryId}/cover`, token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photoId }),
   });
+  clearCache('galleries');
+  return result;
 }
 
 // Photo Management
@@ -247,9 +334,13 @@ export async function updatePhoto(
 }
 
 export async function deletePhoto(token: string, id: string): Promise<{ deleted: boolean }> {
-  return fetchApiAuth<{ deleted: boolean }>(`/photos/${id}`, token, {
+  const result = await fetchApiAuth<{ deleted: boolean }>(`/photos/${id}`, token, {
     method: 'DELETE',
   });
+  clearCache('photos:');
+  clearCache('featured');
+  clearCache('galleries');
+  return result;
 }
 
 export async function reorderPhotos(
@@ -262,6 +353,35 @@ export async function reorderPhotos(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gallery_id: galleryId, photo_ids: photoIds }),
   });
+}
+
+export async function movePhotos(
+  token: string,
+  photoIds: string[],
+  targetGalleryId: string
+): Promise<{ moved: number }> {
+  const result = await fetchApiAuth<{ moved: number }>('/photos/move', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photo_ids: photoIds, target_gallery_id: targetGalleryId }),
+  });
+  clearCache('photos:');
+  clearCache('galleries');
+  return result;
+}
+
+// ============ Gallery ZIP Download ============
+
+/**
+ * Get the URL for downloading a gallery as ZIP
+ * For private galleries, include the access token
+ */
+export function getGalleryDownloadUrl(slug: string, accessToken?: string): string {
+  const url = `${API_BASE}/galleries/${slug}/download`;
+  if (accessToken) {
+    return `${url}?access=${encodeURIComponent(accessToken)}`;
+  }
+  return url;
 }
 
 // ============ Analytics Tracking (Public, fire-and-forget) ============
@@ -281,5 +401,33 @@ export function trackPhotoView(photoId: string): void {
 export function trackPhotoDownload(photoId: string): void {
   fetch(`${API_BASE}/photos/${photoId}/download-track`, { method: 'POST' }).catch(() => {
     // Silently ignore errors - tracking should not affect UX
+  });
+}
+
+// ============ Site Settings ============
+
+export interface SiteSettings {
+  site_title: string;
+  meta_description: string;
+}
+
+/**
+ * Get site settings (public)
+ */
+export async function getSettings(): Promise<SiteSettings> {
+  return fetchApi<SiteSettings>('/settings');
+}
+
+/**
+ * Update site settings (admin only)
+ */
+export async function updateSettings(
+  token: string,
+  settings: Partial<SiteSettings>
+): Promise<SiteSettings> {
+  return fetchApiAuth<SiteSettings>('/settings/admin', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
   });
 }

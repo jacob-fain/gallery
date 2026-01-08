@@ -1,21 +1,22 @@
 import sharp from 'sharp';
+import exifReader from 'exif-reader';
 
 // Image size configurations optimized for photography portfolio
+// Using WebP for ~30% smaller files at equivalent visual quality
 const IMAGE_SIZES = {
   web: {
     maxWidth: 1920,      // Full HD width for modern displays
-    quality: 92,         // High quality for portfolio display
+    quality: 88,         // WebP 88% ≈ JPEG 92% visual quality
   },
   thumbnail: {
     maxWidth: 600,       // Larger thumbnails for retina displays
-    quality: 85,
+    quality: 82,         // WebP 82% ≈ JPEG 85% visual quality
   },
 } as const;
 
-// JPEG options optimized for photography
-const JPEG_OPTIONS = {
-  chromaSubsampling: '4:4:4', // No color downsampling - preserves color detail
-  mozjpeg: true,              // Use mozjpeg encoder for better quality/size ratio
+// WebP options optimized for photography
+const WEBP_OPTIONS = {
+  effort: 4,  // Compression effort 0-6 (4 is good balance of speed/size)
 } as const;
 
 export interface ProcessedImage {
@@ -29,6 +30,17 @@ export interface ProcessedImageSet {
   original: ProcessedImage;
   web: ProcessedImage;
   thumbnail: ProcessedImage;
+}
+
+export interface ExifData {
+  cameraMake?: string;
+  cameraModel?: string;
+  lensModel?: string;
+  iso?: number;
+  aperture?: number;
+  shutterSpeed?: number;
+  focalLength?: number;
+  dateTaken?: string;
 }
 
 /**
@@ -60,9 +72,9 @@ export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> =
       withoutEnlargement: true, // Don't upscale small images
       fit: 'inside',
     })
-    .jpeg({
+    .webp({
       quality: IMAGE_SIZES.web.quality,
-      ...JPEG_OPTIONS,
+      ...WEBP_OPTIONS,
     })
     .toBuffer({ resolveWithObject: true });
 
@@ -73,9 +85,9 @@ export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> =
       withoutEnlargement: true,
       fit: 'inside',
     })
-    .jpeg({
+    .webp({
       quality: IMAGE_SIZES.thumbnail.quality,
-      ...JPEG_OPTIONS,
+      ...WEBP_OPTIONS,
     })
     .toBuffer({ resolveWithObject: true });
 
@@ -131,5 +143,64 @@ export const isValidImage = async (buffer: Buffer): Promise<boolean> => {
     return supportedFormats.includes(metadata.format || '');
   } catch {
     return false;
+  }
+};
+
+/**
+ * Extract EXIF metadata from an image buffer
+ * Returns null if no EXIF data is present or parsing fails
+ */
+export const extractExifData = async (buffer: Buffer): Promise<ExifData | null> => {
+  try {
+    const metadata = await sharp(buffer).metadata();
+
+    if (!metadata.exif) {
+      return null;
+    }
+
+    const exif = exifReader(metadata.exif);
+    const result: ExifData = {};
+
+    // Camera info
+    if (exif.Image?.Make) {
+      result.cameraMake = exif.Image.Make;
+    }
+    if (exif.Image?.Model) {
+      result.cameraModel = exif.Image.Model;
+    }
+
+    // Lens info
+    if (exif.Photo?.LensModel) {
+      result.lensModel = exif.Photo.LensModel;
+    }
+
+    // Exposure settings
+    if (exif.Photo?.ISOSpeedRatings) {
+      result.iso = exif.Photo.ISOSpeedRatings;
+    }
+    if (exif.Photo?.FNumber) {
+      result.aperture = exif.Photo.FNumber;
+    }
+    if (exif.Photo?.ExposureTime) {
+      result.shutterSpeed = exif.Photo.ExposureTime;
+    }
+    if (exif.Photo?.FocalLength) {
+      result.focalLength = exif.Photo.FocalLength;
+    }
+
+    // Date taken
+    if (exif.Photo?.DateTimeOriginal) {
+      result.dateTaken = exif.Photo.DateTimeOriginal.toISOString();
+    }
+
+    // Only return if we got at least some data
+    if (Object.keys(result).length === 0) {
+      return null;
+    }
+
+    return result;
+  } catch {
+    // EXIF parsing failed - not a critical error
+    return null;
   }
 };

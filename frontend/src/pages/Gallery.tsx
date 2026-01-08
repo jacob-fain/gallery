@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
-import { getGallery, getGalleryPhotos, verifyGalleryPassword } from '../api/client';
+import { getGallery, getGalleryPhotos, verifyGalleryPassword, getGalleryDownloadUrl } from '../api/client';
 import type { Gallery as GalleryType, Photo, PrivateGalleryResponse } from '../types';
 import styles from './Gallery.module.css';
 
@@ -35,13 +35,21 @@ export default function Gallery() {
 
       try {
         setLoading(true);
-        const galleryData = await getGallery(slug);
+
+        // Start both requests in parallel for speed
+        // Photos request will fail for private galleries without token, which is fine
+        const galleryPromise = getGallery(slug);
+        const photosPromise = getGalleryPhotos(slug).catch(() => null);
+
+        const galleryData = await galleryPromise;
         setGallery(galleryData);
 
-        // If public gallery, fetch photos immediately
+        // If public gallery, use the photos we already started fetching
         if (!isPrivateGallery(galleryData)) {
-          const photosData = await getGalleryPhotos(slug);
-          setPhotos(photosData);
+          const photosData = await photosPromise;
+          if (photosData) {
+            setPhotos(photosData);
+          }
         } else {
           // Private gallery - check for stored access token
           const storedToken = sessionStorage.getItem(getStorageKey(slug));
@@ -56,7 +64,7 @@ export default function Gallery() {
                 ...galleryData,
                 title: galleryData.title,
                 slug: galleryData.slug,
-              } as GalleryType);
+              } as unknown as GalleryType);
             } catch {
               // Token expired or invalid, clear it
               sessionStorage.removeItem(getStorageKey(slug));
@@ -154,8 +162,37 @@ export default function Gallery() {
     );
   }
 
+  const handleDownload = () => {
+    if (!slug) return;
+    const url = getGalleryDownloadUrl(slug, accessToken || undefined);
+    window.open(url, '_blank');
+  };
+
   return (
     <div className={styles.container}>
+      {photos.length > 0 && (
+        <button
+          className={styles.downloadBtn}
+          onClick={handleDownload}
+          title="Download all photos as ZIP"
+          aria-label="Download all photos as ZIP"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+        </button>
+      )}
       {photos.length === 0 ? (
         <div className="loading">No photos in this gallery yet.</div>
       ) : (
