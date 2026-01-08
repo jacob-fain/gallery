@@ -93,3 +93,23 @@ export interface GalleryAccessResponse {
   verified: true;
   accessToken: string;
 }
+
+// Analytics types
+export interface AnalyticsData {
+  viewsOverTime: { date: string; views: number }[];
+  uploadActivity: { date: string; count: number }[];
+  topGalleries: { id: string; title: string; slug: string; view_count: number }[];
+  topPhotos: {
+    id: string;
+    filename: string;
+    gallery_id: string;
+    gallery_title: string;
+    thumbnailUrl: string;
+    view_count: number;
+    download_count: number;
+  }[];
+  storage: {
+    total_bytes: number;
+    galleries: { id: string; title: string; bytes: number }[];
+  };
+}

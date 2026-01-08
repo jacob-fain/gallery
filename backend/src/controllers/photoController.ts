@@ -68,6 +68,34 @@ export const downloadPhoto = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Track a photo view (lightweight endpoint for analytics)
+ */
+export const trackView = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await photoService.incrementPhotoViews(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error tracking view:', err);
+    res.status(500).json({ success: false, error: 'Failed to track view' });
+  }
+};
+
+/**
+ * Track a photo download (lightweight endpoint for analytics)
+ */
+export const trackDownload = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await photoService.incrementPhotoDownloads(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error tracking download:', err);
+    res.status(500).json({ success: false, error: 'Failed to track download' });
+  }
+};
+
 export const uploadPhoto = async (req: Request, res: Response) => {
   try {
     // Validate file exists
