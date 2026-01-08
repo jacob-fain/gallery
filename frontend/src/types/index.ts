@@ -4,6 +4,7 @@ export interface Gallery {
   slug: string;
   description: string | null;
   cover_image_id: string | null;
+  coverUrl: string | null;
   is_public: boolean;
   view_count: number;
   created_at: string;

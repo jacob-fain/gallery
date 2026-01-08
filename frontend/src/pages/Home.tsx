@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react';
-import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
-import { getFeaturedPhotos } from '../api/client';
-import type { Photo } from '../types';
+import GalleryCard from '../components/GalleryCard/GalleryCard';
+import { getGalleries } from '../api/client';
+import type { Gallery } from '../types';
+import styles from './Home.module.css';
 
 export default function Home() {
-  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [galleries, setGalleries] = useState<Gallery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
       try {
-        const data = await getFeaturedPhotos();
-        setPhotos(data);
+        const data = await getGalleries();
+        setGalleries(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load photos');
+        setError(err instanceof Error ? err.message : 'Failed to load galleries');
       } finally {
         setLoading(false);
       }
@@ -30,13 +31,21 @@ export default function Home() {
     return <div className="error">{error}</div>;
   }
 
-  if (photos.length === 0) {
+  if (galleries.length === 0) {
     return (
       <div className="loading">
-        No featured photos yet. Check back soon!
+        No galleries yet. Check back soon!
       </div>
     );
   }
 
-  return <PhotoGrid photos={photos} />;
+  return (
+    <div className={styles.container}>
+      <div className={styles.grid}>
+        {galleries.map((gallery) => (
+          <GalleryCard key={gallery.id} gallery={gallery} />
+        ))}
+      </div>
+    </div>
+  );
 }

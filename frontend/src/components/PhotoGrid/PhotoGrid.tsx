@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { RowsPhotoAlbum } from 'react-photo-album';
-import 'react-photo-album/rows.css';
+import { MasonryPhotoAlbum } from 'react-photo-album';
+import 'react-photo-album/masonry.css';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import Counter from 'yet-another-react-lightbox/plugins/counter';
@@ -47,10 +47,14 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
 
   return (
     <div className={styles.grid}>
-      <RowsPhotoAlbum
+      <MasonryPhotoAlbum
         photos={albumPhotos}
-        targetRowHeight={300}
-        spacing={6}
+        columns={(containerWidth) => {
+          if (containerWidth < 500) return 1;
+          if (containerWidth < 900) return 2;
+          return 3;
+        }}
+        spacing={12}
         onClick={({ index }) => setLightboxIndex(index)}
       />
 

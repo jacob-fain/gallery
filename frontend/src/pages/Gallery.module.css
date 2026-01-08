@@ -1,18 +1,19 @@
 .container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 48px 24px;
+  width: 100%;
 }
 
 .header {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
+  padding: 0 48px;
+  text-align: center;
 }
 
 .title {
-  font-size: 2rem;
-  font-weight: 600;
+  font-size: 1.5rem;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.1em;
+  color: var(--color-text-light);
 }
 
 .description {
@@ -20,6 +21,8 @@
   color: var(--color-text-light);
   font-size: 1rem;
   max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Password Protected Gallery */
@@ -86,15 +89,12 @@
 }
 
 @media (max-width: 640px) {
-  .container {
-    padding: 32px 16px;
+  .header {
+    padding: 0 24px;
+    margin-bottom: 16px;
   }
 
   .title {
-    font-size: 1.5rem;
-  }
-
-  .header {
-    margin-bottom: 24px;
+    font-size: 1.25rem;
   }
 }

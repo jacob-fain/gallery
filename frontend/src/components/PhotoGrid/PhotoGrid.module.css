@@ -1,5 +1,6 @@
 .grid {
   width: 100%;
+  padding: 0 48px;
 }
 
 .grid img {
@@ -9,4 +10,10 @@
 
 .grid img:hover {
   opacity: 0.9;
+}
+
+@media (max-width: 640px) {
+  .grid {
+    padding: 0 24px;
+  }
 }

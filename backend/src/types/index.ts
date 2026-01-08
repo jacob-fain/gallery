@@ -48,6 +48,11 @@ export interface GalleryWithCover extends Gallery {
   cover_photo?: Photo;
 }
 
+// Gallery with cover photo URL for frontend display
+export interface GalleryWithCoverUrl extends Gallery {
+  coverUrl: string | null;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;

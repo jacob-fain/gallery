@@ -18,7 +18,7 @@ const sanitizeGallery = (gallery: Gallery) => {
 
 export const listGalleries = async (_req: Request, res: Response) => {
   try {
-    const galleries = await galleryService.getPublicGalleries();
+    const galleries = await galleryService.getPublicGalleriesWithCovers();
     res.json({ success: true, data: galleries.map(sanitizeGallery) });
   } catch (err) {
     console.error('Error fetching galleries:', err);
