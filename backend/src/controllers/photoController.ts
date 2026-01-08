@@ -124,8 +124,11 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       });
     }
 
-    // Process image into 3 sizes
-    const processed = await imageService.processImage(req.file.buffer);
+    // Process image into 3 sizes and extract EXIF in parallel
+    const [processed, exifData] = await Promise.all([
+      imageService.processImage(req.file.buffer),
+      imageService.extractExifData(req.file.buffer),
+    ]);
 
     // Generate unique ID and S3 keys
     const photoId = crypto.randomUUID();
@@ -149,6 +152,7 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       width: processed.original.width,
       height: processed.original.height,
       file_size: processed.original.size,
+      exif_data: exifData || undefined,
     });
 
     // Return photo with signed URLs

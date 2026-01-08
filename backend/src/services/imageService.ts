@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import exifReader from 'exif-reader';
 
 // Image size configurations optimized for photography portfolio
 const IMAGE_SIZES = {
@@ -29,6 +30,17 @@ export interface ProcessedImageSet {
   original: ProcessedImage;
   web: ProcessedImage;
   thumbnail: ProcessedImage;
+}
+
+export interface ExifData {
+  cameraMake?: string;
+  cameraModel?: string;
+  lensModel?: string;
+  iso?: number;
+  aperture?: number;
+  shutterSpeed?: number;
+  focalLength?: number;
+  dateTaken?: string;
 }
 
 /**
@@ -131,5 +143,64 @@ export const isValidImage = async (buffer: Buffer): Promise<boolean> => {
     return supportedFormats.includes(metadata.format || '');
   } catch {
     return false;
+  }
+};
+
+/**
+ * Extract EXIF metadata from an image buffer
+ * Returns null if no EXIF data is present or parsing fails
+ */
+export const extractExifData = async (buffer: Buffer): Promise<ExifData | null> => {
+  try {
+    const metadata = await sharp(buffer).metadata();
+
+    if (!metadata.exif) {
+      return null;
+    }
+
+    const exif = exifReader(metadata.exif);
+    const result: ExifData = {};
+
+    // Camera info
+    if (exif.Image?.Make) {
+      result.cameraMake = exif.Image.Make;
+    }
+    if (exif.Image?.Model) {
+      result.cameraModel = exif.Image.Model;
+    }
+
+    // Lens info
+    if (exif.Photo?.LensModel) {
+      result.lensModel = exif.Photo.LensModel;
+    }
+
+    // Exposure settings
+    if (exif.Photo?.ISOSpeedRatings) {
+      result.iso = exif.Photo.ISOSpeedRatings;
+    }
+    if (exif.Photo?.FNumber) {
+      result.aperture = exif.Photo.FNumber;
+    }
+    if (exif.Photo?.ExposureTime) {
+      result.shutterSpeed = exif.Photo.ExposureTime;
+    }
+    if (exif.Photo?.FocalLength) {
+      result.focalLength = exif.Photo.FocalLength;
+    }
+
+    // Date taken
+    if (exif.Photo?.DateTimeOriginal) {
+      result.dateTaken = exif.Photo.DateTimeOriginal.toISOString();
+    }
+
+    // Only return if we got at least some data
+    if (Object.keys(result).length === 0) {
+      return null;
+    }
+
+    return result;
+  } catch {
+    // EXIF parsing failed - not a critical error
+    return null;
   }
 };

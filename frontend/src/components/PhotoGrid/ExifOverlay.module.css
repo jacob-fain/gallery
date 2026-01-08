@@ -1,0 +1,22 @@
+.overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 16px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.equipment {
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.settings {
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+}
