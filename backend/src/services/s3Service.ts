@@ -9,6 +9,20 @@ import { s3Client, S3_BUCKET, isS3Configured } from '../config/s3';
 // Default signed URL expiration: 1 hour
 const DEFAULT_EXPIRES_IN = 3600;
 
+// Cache signed URLs for 50 minutes (URLs valid for 60 min, leave 10 min buffer)
+const URL_CACHE_TTL_MS = 50 * 60 * 1000;
+const urlCache = new Map<string, { url: string; expires: number }>();
+
+// Periodic cleanup of expired cache entries (run every 10 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of urlCache) {
+    if (now >= value.expires) {
+      urlCache.delete(key);
+    }
+  }
+}, 10 * 60 * 1000);
+
 /**
  * Upload a file to S3
  * @param buffer - File content as Buffer
@@ -55,12 +69,26 @@ export const getSignedUrl = async (
     return `https://placehold.co/800x600/1a1a1a/ffffff?text=S3+Not+Configured`;
   }
 
+  // Check cache first
+  const cached = urlCache.get(key);
+  if (cached && Date.now() < cached.expires) {
+    return cached.url;
+  }
+
   const command = new GetObjectCommand({
     Bucket: S3_BUCKET,
     Key: key,
   });
 
-  return awsGetSignedUrl(s3Client, command, { expiresIn });
+  const url = await awsGetSignedUrl(s3Client, command, { expiresIn });
+
+  // Cache the URL
+  urlCache.set(key, {
+    url,
+    expires: Date.now() + URL_CACHE_TTL_MS,
+  });
+
+  return url;
 };
 
 /**

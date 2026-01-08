@@ -93,6 +93,9 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
         }}
         spacing={12}
         onClick={({ index }) => setLightboxIndex(index)}
+        render={{
+          image: (props) => <img {...props} loading="lazy" />,
+        }}
       />
 
       <Lightbox

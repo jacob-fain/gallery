@@ -35,13 +35,21 @@ export default function Gallery() {
 
       try {
         setLoading(true);
-        const galleryData = await getGallery(slug);
+
+        // Start both requests in parallel for speed
+        // Photos request will fail for private galleries without token, which is fine
+        const galleryPromise = getGallery(slug);
+        const photosPromise = getGalleryPhotos(slug).catch(() => null);
+
+        const galleryData = await galleryPromise;
         setGallery(galleryData);
 
-        // If public gallery, fetch photos immediately
+        // If public gallery, use the photos we already started fetching
         if (!isPrivateGallery(galleryData)) {
-          const photosData = await getGalleryPhotos(slug);
-          setPhotos(photosData);
+          const photosData = await photosPromise;
+          if (photosData) {
+            setPhotos(photosData);
+          }
         } else {
           // Private gallery - check for stored access token
           const storedToken = sessionStorage.getItem(getStorageKey(slug));
