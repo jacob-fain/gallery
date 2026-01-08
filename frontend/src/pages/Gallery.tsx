@@ -12,6 +12,9 @@ function isPrivateGallery(
   return 'requires_password' in data && data.requires_password === true;
 }
 
+// Session storage key for gallery access tokens
+const getStorageKey = (slug: string) => `gallery_access_${slug}`;
+
 export default function Gallery() {
   const { slug } = useParams<{ slug: string }>();
   const [gallery, setGallery] = useState<GalleryType | PrivateGalleryResponse | null>(null);
@@ -39,6 +42,26 @@ export default function Gallery() {
         if (!isPrivateGallery(galleryData)) {
           const photosData = await getGalleryPhotos(slug);
           setPhotos(photosData);
+        } else {
+          // Private gallery - check for stored access token
+          const storedToken = sessionStorage.getItem(getStorageKey(slug));
+          if (storedToken) {
+            try {
+              // Try to fetch photos with stored token
+              const photosData = await getGalleryPhotos(slug, storedToken);
+              setPhotos(photosData);
+              setAccessToken(storedToken);
+              // Update gallery state to show as unlocked
+              setGallery({
+                ...galleryData,
+                title: galleryData.title,
+                slug: galleryData.slug,
+              } as GalleryType);
+            } catch {
+              // Token expired or invalid, clear it
+              sessionStorage.removeItem(getStorageKey(slug));
+            }
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load gallery');
@@ -59,6 +82,9 @@ export default function Gallery() {
 
     try {
       const result = await verifyGalleryPassword(slug, password);
+
+      // Store access token in sessionStorage
+      sessionStorage.setItem(getStorageKey(slug), result.accessToken);
       setAccessToken(result.accessToken);
 
       // Update gallery with full data from verification response

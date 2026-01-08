@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { login as apiLogin, getCurrentUser, type User } from '../api/client';
+import { clearAdminMode } from '../utils/subdomain';
 
 interface AuthContextType {
   user: User | null;
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
+    clearAdminMode();
   };
 
   return (
