@@ -38,4 +38,7 @@ router.post('/:slug/verify', galleryController.verifyGalleryPassword);
 // GET /api/galleries/:slug/photos - Get photos in gallery
 router.get('/:slug/photos', galleryController.getGalleryPhotos);
 
+// GET /api/galleries/:slug/download - Download gallery as ZIP
+router.get('/:slug/download', galleryController.downloadGalleryZip);
+
 export default router;

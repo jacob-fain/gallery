@@ -2,7 +2,9 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3';
+import { Readable } from 'stream';
 import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, S3_BUCKET, isS3Configured } from '../config/s3';
 
@@ -106,6 +108,45 @@ export const deleteFile = async (key: string): Promise<void> => {
   });
 
   await s3Client.send(command);
+};
+
+/**
+ * Copy a file within S3
+ * @param sourceKey - Source S3 object key
+ * @param destKey - Destination S3 object key
+ */
+export const copyFile = async (sourceKey: string, destKey: string): Promise<void> => {
+  if (!isS3Configured()) {
+    throw new Error('S3 is not configured. Check AWS environment variables.');
+  }
+
+  const command = new CopyObjectCommand({
+    Bucket: S3_BUCKET,
+    CopySource: `${S3_BUCKET}/${sourceKey}`,
+    Key: destKey,
+  });
+
+  await s3Client.send(command);
+};
+
+/**
+ * Get a readable stream for an S3 file
+ * Used for streaming files (e.g., for ZIP creation)
+ * @param key - S3 object key
+ * @returns Readable stream
+ */
+export const getFileStream = async (key: string): Promise<Readable> => {
+  if (!isS3Configured()) {
+    throw new Error('S3 is not configured. Check AWS environment variables.');
+  }
+
+  const command = new GetObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: key,
+  });
+
+  const response = await s3Client.send(command);
+  return response.Body as Readable;
 };
 
 /**

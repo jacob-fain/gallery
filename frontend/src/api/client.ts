@@ -342,6 +342,35 @@ export async function reorderPhotos(
   });
 }
 
+export async function movePhotos(
+  token: string,
+  photoIds: string[],
+  targetGalleryId: string
+): Promise<{ moved: number }> {
+  const result = await fetchApiAuth<{ moved: number }>('/photos/move', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photo_ids: photoIds, target_gallery_id: targetGalleryId }),
+  });
+  clearCache('photos:');
+  clearCache('galleries');
+  return result;
+}
+
+// ============ Gallery ZIP Download ============
+
+/**
+ * Get the URL for downloading a gallery as ZIP
+ * For private galleries, include the access token
+ */
+export function getGalleryDownloadUrl(slug: string, accessToken?: string): string {
+  const url = `${API_BASE}/galleries/${slug}/download`;
+  if (accessToken) {
+    return `${url}?access=${encodeURIComponent(accessToken)}`;
+  }
+  return url;
+}
+
 // ============ Analytics Tracking (Public, fire-and-forget) ============
 
 /**

@@ -443,6 +443,48 @@
   opacity: 0.9;
 }
 
+/* Move Modal */
+.gallerySelect {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  margin-bottom: 1.5rem;
+}
+
+.gallerySelect:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.moveBtn {
+  padding: 0.75rem 1.5rem;
+  background: var(--color-primary);
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.moveBtn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.moveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.noGalleries {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .toolbar {
