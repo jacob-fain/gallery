@@ -89,15 +89,17 @@ function SortablePhotoCard({
         </div>
       </div>
       <div className={styles.actions}>
-        <button
-          className={`${styles.actionBtn} ${
-            photo.is_featured ? styles.active : ''
-          }`}
-          onClick={() => onToggleFeatured(photo)}
-          title={photo.is_featured ? 'Remove from featured' : 'Add to featured'}
-        >
-          {photo.is_featured ? 'Unfeature' : 'Feature'}
-        </button>
+        {gallery.is_public && (
+          <button
+            className={`${styles.actionBtn} ${
+              photo.is_featured ? styles.active : ''
+            }`}
+            onClick={() => onToggleFeatured(photo)}
+            title={photo.is_featured ? 'Remove from featured' : 'Add to featured'}
+          >
+            {photo.is_featured ? 'Unfeature' : 'Feature'}
+          </button>
+        )}
         <button
           className={styles.actionBtn}
           onClick={() => onSetCover(photo.id)}
