@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -143,12 +143,10 @@ export default function PhotoManager({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
-  // Update local photos when props change
-  if (photos !== localPhotos && photos.length !== localPhotos.length) {
+  // Sync local photos when props change (after API updates)
+  useEffect(() => {
     setLocalPhotos(photos);
-    // Clear selection when photos change
-    setSelectedIds(new Set());
-  }
+  }, [photos]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
