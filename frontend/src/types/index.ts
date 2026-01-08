@@ -26,6 +26,10 @@ export interface Photo {
   view_count: number;
   download_count: number;
   uploaded_at: string;
+  // Enriched URLs from S3
+  url?: string;
+  webUrl?: string;
+  thumbnailUrl?: string;
   // Joined fields from featured query
   gallery_title?: string;
   gallery_slug?: string;
@@ -35,4 +39,56 @@ export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+// Admin types
+export interface AdminStats {
+  galleries: {
+    total: number;
+    public: number;
+    private: number;
+  };
+  photos: {
+    total: number;
+    featured: number;
+  };
+  views: {
+    galleries: number;
+    photos: number;
+  };
+  downloads: number;
+}
+
+export interface CreateGalleryInput {
+  title: string;
+  slug: string;
+  description?: string;
+  is_public?: boolean;
+  password?: string;
+}
+
+export interface UpdateGalleryInput {
+  title?: string;
+  slug?: string;
+  description?: string | null;
+  is_public?: boolean;
+  password?: string | null;
+}
+
+// Response when accessing a private gallery without authentication
+export interface PrivateGalleryResponse {
+  title: string;
+  slug: string;
+  is_public: false;
+  requires_password: true;
+}
+
+// Response after successfully verifying gallery password
+export interface GalleryAccessResponse {
+  title: string;
+  slug: string;
+  description: string | null;
+  is_public: boolean;
+  verified: true;
+  accessToken: string;
 }

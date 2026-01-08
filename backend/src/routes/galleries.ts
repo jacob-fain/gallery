@@ -21,6 +21,9 @@ router.delete('/:id', authMiddleware, galleryController.deleteGallery);
 // PUT /api/galleries/:id/cover - Set cover image
 router.put('/:id/cover', authMiddleware, galleryController.setCoverImage);
 
+// GET /api/galleries/:id/photos/admin - Get photos by gallery ID (admin)
+router.get('/:id/photos/admin', authMiddleware, galleryController.getGalleryPhotosAdmin);
+
 // ============ Public Routes ============
 
 // GET /api/galleries - List all public galleries
