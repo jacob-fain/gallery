@@ -7,7 +7,7 @@ export const getPublicGalleries = async (): Promise<Gallery[]> => {
   const result = await query(
     `SELECT * FROM galleries
      WHERE is_public = true
-     ORDER BY created_at DESC`
+     ORDER BY sort_order ASC, created_at DESC`
   );
   return result.rows;
 };
@@ -32,7 +32,7 @@ export const getPublicGalleriesWithCovers = async (): Promise<GalleryWithCoverUr
        LIMIT 1
      ) first_photo ON g.cover_image_id IS NULL
      WHERE g.is_public = true
-     ORDER BY g.created_at DESC`
+     ORDER BY g.sort_order ASC, g.created_at DESC`
   );
 
   // Generate signed URLs for cover photos
@@ -102,7 +102,7 @@ export const incrementGalleryDownloads = async (galleryId: string): Promise<void
  */
 export const getAllGalleries = async (): Promise<Gallery[]> => {
   const result = await query(
-    `SELECT * FROM galleries ORDER BY created_at DESC`
+    `SELECT * FROM galleries ORDER BY sort_order ASC, created_at DESC`
   );
   return result.rows;
 };
@@ -226,6 +226,20 @@ export const verifyGalleryPassword = async (
     return false; // No password set
   }
   return verifyPassword(password, gallery.password_hash);
+};
+
+/**
+ * Reorder galleries
+ * @param galleryIds - Array of gallery IDs in desired order
+ */
+export const reorderGalleries = async (galleryIds: string[]): Promise<void> => {
+  const updates = galleryIds.map((galleryId, index) =>
+    query(
+      `UPDATE galleries SET sort_order = $1 WHERE id = $2`,
+      [index, galleryId]
+    )
+  );
+  await Promise.all(updates);
 };
 
 /**
