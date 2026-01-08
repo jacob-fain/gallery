@@ -283,3 +283,31 @@ export function trackPhotoDownload(photoId: string): void {
     // Silently ignore errors - tracking should not affect UX
   });
 }
+
+// ============ Site Settings ============
+
+export interface SiteSettings {
+  site_title: string;
+  meta_description: string;
+}
+
+/**
+ * Get site settings (public)
+ */
+export async function getSettings(): Promise<SiteSettings> {
+  return fetchApi<SiteSettings>('/settings');
+}
+
+/**
+ * Update site settings (admin only)
+ */
+export async function updateSettings(
+  token: string,
+  settings: Partial<SiteSettings>
+): Promise<SiteSettings> {
+  return fetchApiAuth<SiteSettings>('/settings/admin', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+}

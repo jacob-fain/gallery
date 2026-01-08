@@ -2,6 +2,7 @@ import { Router } from 'express';
 import authRouter from './auth';
 import galleriesRouter from './galleries';
 import photosRouter from './photos';
+import settingsRouter from './settings';
 import * as photoController from '../controllers/photoController';
 import * as galleryController from '../controllers/galleryController';
 import * as analyticsController from '../controllers/analyticsController';
@@ -27,5 +28,6 @@ router.get('/admin/analytics', authMiddleware, analyticsController.getAnalytics)
 router.use('/auth', authRouter);
 router.use('/galleries', galleriesRouter);
 router.use('/photos', photosRouter);
+router.use('/settings', settingsRouter);
 
 export default router;

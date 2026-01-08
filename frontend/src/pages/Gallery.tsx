@@ -56,7 +56,7 @@ export default function Gallery() {
                 ...galleryData,
                 title: galleryData.title,
                 slug: galleryData.slug,
-              } as GalleryType);
+              } as unknown as GalleryType);
             } catch {
               // Token expired or invalid, clear it
               sessionStorage.removeItem(getStorageKey(slug));
