@@ -13,11 +13,18 @@ interface PhotoGridProps {
   photos: Photo[];
 }
 
-// Placeholder S3 URL builder - will be updated when S3 is integrated
-function getPhotoUrl(photo: Photo, _size: 'thumbnail' | 'web' | 'original'): string {
-  // For now, use placeholder images based on dimensions
-  // Later: return S3 URLs using photo.s3_thumbnail_key, photo.s3_web_key, or photo.s3_key
-  return `https://placehold.co/${photo.width}x${photo.height}/1a1a1a/ffffff?text=${photo.width}x${photo.height}`;
+function getPhotoUrl(photo: Photo, size: 'thumbnail' | 'web' | 'original'): string {
+  if (size === 'thumbnail' && photo.thumbnailUrl) {
+    return photo.thumbnailUrl;
+  }
+  if (size === 'web' && photo.webUrl) {
+    return photo.webUrl;
+  }
+  if (size === 'original' && photo.url) {
+    return photo.url;
+  }
+  // Fallback to any available URL
+  return photo.webUrl || photo.url || photo.thumbnailUrl || '';
 }
 
 export default function PhotoGrid({ photos }: PhotoGridProps) {

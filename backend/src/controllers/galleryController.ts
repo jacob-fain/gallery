@@ -281,6 +281,27 @@ export const setCoverImage = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Get photos for a gallery by ID (admin only)
+ */
+export const getGalleryPhotosAdmin = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const gallery = await galleryService.getGalleryById(id);
+    if (!gallery) {
+      return res.status(404).json({ success: false, error: 'Gallery not found' });
+    }
+
+    const photos = await galleryService.getGalleryPhotos(id);
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error fetching gallery photos:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch photos' });
+  }
+};
+
 // ============ Public Controllers ============
 
 /**
