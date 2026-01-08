@@ -22,6 +22,7 @@ export default function Galleries() {
   const [editingGallery, setEditingGallery] = useState<Gallery | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchGalleries = async () => {
     if (!token) return;
@@ -89,6 +90,15 @@ export default function Galleries() {
     setEditingGallery(null);
   };
 
+  const handleCopyLink = async (gallery: Gallery) => {
+    // Remove 'manage.' from origin to get public URL
+    const baseUrl = window.location.origin.replace('manage.', '');
+    const url = `${baseUrl}/g/${gallery.slug}`;
+    await navigator.clipboard.writeText(url);
+    setCopiedId(gallery.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   if (loading) {
     return <div className={styles.loading}>Loading...</div>;
   }
@@ -134,6 +144,12 @@ export default function Galleries() {
                 </td>
                 <td>{gallery.view_count.toLocaleString()}</td>
                 <td className={styles.actions}>
+                  <button
+                    className={styles.actionBtn}
+                    onClick={() => handleCopyLink(gallery)}
+                  >
+                    {copiedId === gallery.id ? 'Copied!' : 'Copy Link'}
+                  </button>
                   <Link
                     to={`/galleries/${gallery.id}/photos`}
                     className={styles.actionBtn}
