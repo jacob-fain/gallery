@@ -1,3 +1,15 @@
+// EXIF metadata extracted from photos
+export interface ExifData {
+  cameraMake?: string;
+  cameraModel?: string;
+  lensModel?: string;
+  iso?: number;
+  aperture?: number;
+  shutterSpeed?: number;
+  focalLength?: number;
+  dateTaken?: string;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -34,6 +46,7 @@ export interface Photo {
   view_count: number;
   download_count: number;
   uploaded_at: Date;
+  exif_data?: ExifData;
 }
 
 // Photo with signed S3 URLs for frontend consumption
@@ -82,6 +95,7 @@ export interface CreatePhotoInput {
   width: number;
   height: number;
   file_size: number;
+  exif_data?: ExifData;
 }
 
 // Input type for creating a gallery

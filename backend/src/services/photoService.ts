@@ -90,9 +90,9 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> => {
     `INSERT INTO photos (
       gallery_id, filename, original_filename,
       s3_key, s3_thumbnail_key, s3_web_key,
-      width, height, file_size
+      width, height, file_size, exif_data
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *`,
     [
       data.gallery_id,
@@ -104,6 +104,7 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> => {
       data.width,
       data.height,
       data.file_size,
+      data.exif_data ? JSON.stringify(data.exif_data) : null,
     ]
   );
   return result.rows[0];
