@@ -1,6 +1,7 @@
 import { query } from '../config/db';
-import { Gallery, Photo, CreateGalleryInput, UpdateGalleryInput } from '../types';
+import { Gallery, Photo, GalleryWithCoverUrl, CreateGalleryInput, UpdateGalleryInput } from '../types';
 import { hashPassword, verifyPassword } from './authService';
+import { getSignedUrl } from './s3Service';
 
 export const getPublicGalleries = async (): Promise<Gallery[]> => {
   const result = await query(
@@ -9,6 +10,43 @@ export const getPublicGalleries = async (): Promise<Gallery[]> => {
      ORDER BY created_at DESC`
   );
   return result.rows;
+};
+
+/**
+ * Get public galleries with cover photo URLs
+ * Uses explicit cover_image_id if set, otherwise falls back to first photo
+ */
+export const getPublicGalleriesWithCovers = async (): Promise<GalleryWithCoverUrl[]> => {
+  // Get galleries with their cover photo's thumbnail key
+  // If no cover_image_id is set, use the first photo (by sort_order) as fallback
+  const result = await query(
+    `SELECT g.*,
+            COALESCE(cover.s3_thumbnail_key, first_photo.s3_thumbnail_key) as cover_thumbnail_key
+     FROM galleries g
+     LEFT JOIN photos cover ON g.cover_image_id = cover.id
+     LEFT JOIN LATERAL (
+       SELECT s3_thumbnail_key
+       FROM photos
+       WHERE gallery_id = g.id
+       ORDER BY sort_order ASC, uploaded_at ASC
+       LIMIT 1
+     ) first_photo ON g.cover_image_id IS NULL
+     WHERE g.is_public = true
+     ORDER BY g.created_at DESC`
+  );
+
+  // Generate signed URLs for cover photos
+  const galleriesWithUrls = await Promise.all(
+    result.rows.map(async (row: Gallery & { cover_thumbnail_key: string | null }) => {
+      const { cover_thumbnail_key, ...gallery } = row;
+      return {
+        ...gallery,
+        coverUrl: cover_thumbnail_key ? await getSignedUrl(cover_thumbnail_key) : null,
+      };
+    })
+  );
+
+  return galleriesWithUrls;
 };
 
 export const getGalleryBySlug = async (slug: string): Promise<Gallery | null> => {

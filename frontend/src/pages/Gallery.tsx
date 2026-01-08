@@ -156,13 +156,6 @@ export default function Gallery() {
 
   return (
     <div className={styles.container}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{gallery.title}</h1>
-        {'description' in gallery && gallery.description && (
-          <p className={styles.description}>{gallery.description}</p>
-        )}
-      </header>
-
       {photos.length === 0 ? (
         <div className="loading">No photos in this gallery yet.</div>
       ) : (

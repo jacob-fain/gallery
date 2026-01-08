@@ -23,23 +23,20 @@
 
 .overlay {
   position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.3);
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 2rem 1rem 1rem;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.card:hover .overlay {
-  opacity: 1;
+  align-items: flex-end;
+  justify-content: flex-start;
 }
 
 .title {
   color: white;
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.05em;
 }
