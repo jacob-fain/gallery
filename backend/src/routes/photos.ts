@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as photoController from '../controllers/photoController';
 import { authMiddleware } from '../middleware/auth';
+import { trackingRateLimit } from '../middleware/rateLimit';
 import { upload } from '../config/upload';
 
 const router = Router();
@@ -28,9 +29,9 @@ router.get('/:id', photoController.getPhoto);
 router.get('/:id/download', photoController.downloadPhoto);
 
 // POST /api/photos/:id/view - Track a photo view (analytics)
-router.post('/:id/view', photoController.trackView);
+router.post('/:id/view', trackingRateLimit, photoController.trackView);
 
 // POST /api/photos/:id/download-track - Track a photo download (analytics)
-router.post('/:id/download-track', photoController.trackDownload);
+router.post('/:id/download-track', trackingRateLimit, photoController.trackDownload);
 
 export default router;
