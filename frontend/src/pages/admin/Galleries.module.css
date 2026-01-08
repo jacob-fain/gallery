@@ -62,6 +62,34 @@
   border-bottom: none;
 }
 
+.table tbody tr {
+  background: var(--color-surface);
+}
+
+.table tbody tr.dragging {
+  background: var(--color-background);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.dragHeader {
+  width: 40px;
+}
+
+.dragHandle {
+  width: 40px;
+  cursor: grab;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.dragHandle:hover {
+  color: var(--color-text);
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
 .slug {
   font-family: monospace;
   color: var(--color-text-secondary);

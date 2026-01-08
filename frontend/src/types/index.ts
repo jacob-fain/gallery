@@ -1,3 +1,15 @@
+// EXIF metadata extracted from photos
+export interface ExifData {
+  cameraMake?: string;
+  cameraModel?: string;
+  lensModel?: string;
+  iso?: number;
+  aperture?: number;
+  shutterSpeed?: number;
+  focalLength?: number;
+  dateTaken?: string;
+}
+
 export interface Gallery {
   id: string;
   title: string;
@@ -31,6 +43,8 @@ export interface Photo {
   url?: string;
   webUrl?: string;
   thumbnailUrl?: string;
+  // EXIF metadata
+  exif_data?: ExifData;
   // Joined fields from featured query
   gallery_title?: string;
   gallery_slug?: string;

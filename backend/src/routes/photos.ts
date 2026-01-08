@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as photoController from '../controllers/photoController';
 import { authMiddleware } from '../middleware/auth';
+import { trackingRateLimit } from '../middleware/rateLimit';
 import { upload } from '../config/upload';
 
 const router = Router();
@@ -12,6 +13,9 @@ router.post('/upload', authMiddleware, upload.single('photo'), photoController.u
 
 // PUT /api/photos/reorder - Reorder photos in a gallery
 router.put('/reorder', authMiddleware, photoController.reorderPhotos);
+
+// PUT /api/photos/move - Move photos to another gallery
+router.put('/move', authMiddleware, photoController.movePhotos);
 
 // PUT /api/photos/:id - Update photo (featured, sort_order)
 router.put('/:id', authMiddleware, photoController.updatePhoto);
@@ -28,9 +32,9 @@ router.get('/:id', photoController.getPhoto);
 router.get('/:id/download', photoController.downloadPhoto);
 
 // POST /api/photos/:id/view - Track a photo view (analytics)
-router.post('/:id/view', photoController.trackView);
+router.post('/:id/view', trackingRateLimit, photoController.trackView);
 
 // POST /api/photos/:id/download-track - Track a photo download (analytics)
-router.post('/:id/download-track', photoController.trackDownload);
+router.post('/:id/download-track', trackingRateLimit, photoController.trackDownload);
 
 export default router;

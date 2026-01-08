@@ -6,9 +6,20 @@ import 'yet-another-react-lightbox/styles.css';
 import Counter from 'yet-another-react-lightbox/plugins/counter';
 import Download from 'yet-another-react-lightbox/plugins/download';
 import 'yet-another-react-lightbox/plugins/counter.css';
-import type { Photo } from '../../types';
+import type { Photo, ExifData } from '../../types';
 import { trackPhotoView, trackPhotoDownload } from '../../api/client';
+import ExifOverlay from './ExifOverlay';
 import styles from './PhotoGrid.module.css';
+
+// Extend slide type to include EXIF data
+interface SlideWithExif {
+  src: string;
+  width: number;
+  height: number;
+  alt: string;
+  download: string;
+  exif?: ExifData;
+}
 
 interface PhotoGridProps {
   photos: Photo[];
@@ -54,12 +65,13 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
     alt: photo.original_filename,
   }));
 
-  const lightboxSlides = photos.map((photo) => ({
+  const lightboxSlides: SlideWithExif[] = photos.map((photo) => ({
     src: getPhotoUrl(photo, 'original'),
     width: photo.width,
     height: photo.height,
     alt: photo.original_filename,
     download: getPhotoUrl(photo, 'original'),
+    exif: photo.exif_data,
   }));
 
   // Handle download - track before the actual download happens
@@ -81,6 +93,9 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
         }}
         spacing={12}
         onClick={({ index }) => setLightboxIndex(index)}
+        render={{
+          image: (props) => <img {...props} loading="lazy" />,
+        }}
       />
 
       <Lightbox
@@ -93,7 +108,12 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
           download: handleDownload,
         }}
         plugins={[Counter, Download]}
-        counter={{ container: { style: { top: 'unset', bottom: 0 } } }}
+        counter={{ container: { style: { top: 'unset', bottom: 0, left: 'unset', right: 0 } } }}
+        render={{
+          slideFooter: ({ slide }) => (
+            <ExifOverlay exif={(slide as SlideWithExif).exif} />
+          ),
+        }}
       />
     </div>
   );

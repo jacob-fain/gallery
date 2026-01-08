@@ -17,7 +17,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../../../contexts/AuthContext';
-import { deletePhoto, setCoverImage, reorderPhotos } from '../../../api/client';
+import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries } from '../../../api/client';
 import type { Photo, Gallery } from '../../../types';
 import styles from './PhotoManager.module.css';
 
@@ -148,6 +148,10 @@ export default function PhotoManager({
   const [optimisticCoverId, setOptimisticCoverId] = useState<string | null>(null);
   const [shuffleConfirm, setShuffleConfirm] = useState(false);
   const [shuffling, setShuffling] = useState(false);
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [availableGalleries, setAvailableGalleries] = useState<Gallery[]>([]);
+  const [selectedTargetGallery, setSelectedTargetGallery] = useState<string>('');
+  const [moving, setMoving] = useState(false);
 
   // Sync local photos when props change (after API updates)
   useEffect(() => {
@@ -305,6 +309,37 @@ export default function PhotoManager({
     }
   };
 
+  // Open move modal and fetch galleries
+  const handleOpenMoveModal = async () => {
+    if (!token) return;
+    try {
+      const galleries = await getAllGalleries(token);
+      // Filter out current gallery
+      setAvailableGalleries(galleries.filter((g) => g.id !== gallery.id));
+      setSelectedTargetGallery('');
+      setMoveModalOpen(true);
+    } catch (err) {
+      console.error('Failed to fetch galleries:', err);
+    }
+  };
+
+  // Move selected photos
+  const handleMove = async () => {
+    if (!token || selectedIds.size === 0 || !selectedTargetGallery) return;
+
+    setMoving(true);
+    try {
+      await movePhotos(token, Array.from(selectedIds), selectedTargetGallery);
+      setSelectedIds(new Set());
+      setMoveModalOpen(false);
+      onPhotosChange();
+    } catch (err) {
+      console.error('Failed to move photos:', err);
+    } finally {
+      setMoving(false);
+    }
+  };
+
   if (photos.length === 0) {
     return (
       <div className={styles.empty}>
@@ -366,6 +401,13 @@ export default function PhotoManager({
                   <span className={styles.selectedCount}>
                     {selectedIds.size} selected
                   </span>
+                  <button
+                    className={styles.bulkBtn}
+                    onClick={handleOpenMoveModal}
+                    disabled={bulkActionLoading}
+                  >
+                    Move
+                  </button>
                   <button
                     className={`${styles.bulkBtn} ${styles.danger}`}
                     onClick={() => setBulkDeleteConfirm(true)}
@@ -489,6 +531,50 @@ export default function PhotoManager({
                 onClick={handleShuffle}
               >
                 Shuffle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Photos Modal */}
+      {moveModalOpen && (
+        <div className={styles.modal}>
+          <div className={styles.modalContent}>
+            <h2 className={styles.modalTitle}>Move {selectedIds.size} Photo{selectedIds.size > 1 ? 's' : ''}</h2>
+            <p className={styles.confirmText}>
+              Select a gallery to move the selected photos to:
+            </p>
+            {availableGalleries.length === 0 ? (
+              <p className={styles.noGalleries}>No other galleries available.</p>
+            ) : (
+              <select
+                className={styles.gallerySelect}
+                value={selectedTargetGallery}
+                onChange={(e) => setSelectedTargetGallery(e.target.value)}
+              >
+                <option value="">Select a gallery...</option>
+                {availableGalleries.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.title}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div className={styles.confirmActions}>
+              <button
+                className={styles.cancelBtn}
+                onClick={() => setMoveModalOpen(false)}
+                disabled={moving}
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.moveBtn}
+                onClick={handleMove}
+                disabled={moving || !selectedTargetGallery}
+              >
+                {moving ? 'Moving...' : 'Move'}
               </button>
             </div>
           </div>
