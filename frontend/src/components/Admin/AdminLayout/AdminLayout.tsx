@@ -15,40 +15,52 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     navigate('/login');
   };
 
+  // Get the main site URL (remove ?admin=true or admin subdomain logic)
+  const mainSiteUrl = window.location.origin.replace('admin.', '');
+
   return (
     <div className={styles.layout}>
-      <aside className={styles.sidebar}>
-        <div className={styles.logo}>Gallery Admin</div>
-        <nav className={styles.nav}>
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) =>
-              `${styles.navLink} ${isActive ? styles.active : ''}`
-            }
-          >
-            Dashboard
-          </NavLink>
-          <NavLink
-            to="/galleries"
-            className={({ isActive }) =>
-              `${styles.navLink} ${isActive ? styles.active : ''}`
-            }
-          >
-            Galleries
-          </NavLink>
-        </nav>
-      </aside>
-
-      <div className={styles.main}>
-        <header className={styles.header}>
-          <div className={styles.user}>{user?.email}</div>
-          <button onClick={handleLogout} className={styles.logoutBtn}>
-            Logout
-          </button>
-        </header>
-        <main className={styles.content}>{children}</main>
-      </div>
+      <nav className={styles.navbar}>
+        <div className={styles.container}>
+          <div className={styles.left}>
+            <span className={styles.logo}>Admin</span>
+            <div className={styles.links}>
+              <NavLink
+                to="/"
+                end
+                className={({ isActive }) =>
+                  isActive ? `${styles.link} ${styles.active}` : styles.link
+                }
+              >
+                Dashboard
+              </NavLink>
+              <NavLink
+                to="/galleries"
+                className={({ isActive }) =>
+                  isActive ? `${styles.link} ${styles.active}` : styles.link
+                }
+              >
+                Galleries
+              </NavLink>
+            </div>
+          </div>
+          <div className={styles.right}>
+            <a
+              href={mainSiteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.viewSite}
+            >
+              View Site ↗
+            </a>
+            <span className={styles.user}>{user?.email}</span>
+            <button onClick={handleLogout} className={styles.logoutBtn}>
+              Logout
+            </button>
+          </div>
+        </div>
+      </nav>
+      <main className={styles.content}>{children}</main>
     </div>
   );
 }

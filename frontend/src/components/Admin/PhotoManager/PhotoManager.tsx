@@ -17,7 +17,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../../../contexts/AuthContext';
-import { updatePhoto, deletePhoto, setCoverImage, reorderPhotos } from '../../../api/client';
+import { deletePhoto, setCoverImage, reorderPhotos } from '../../../api/client';
 import type { Photo, Gallery } from '../../../types';
 import styles from './PhotoManager.module.css';
 
@@ -29,21 +29,23 @@ interface PhotoManagerProps {
 
 interface SortablePhotoCardProps {
   photo: Photo;
-  gallery: Gallery;
+  isCover: boolean;
   isSelected: boolean;
+  isDeleting: boolean;
+  coverSelectMode: boolean;
   onToggleSelect: (photoId: string) => void;
-  onToggleFeatured: (photo: Photo) => void;
-  onSetCover: (photoId: string) => void;
+  onCoverClick: (photoId: string) => void;
   onDelete: (photoId: string) => void;
 }
 
 function SortablePhotoCard({
   photo,
-  gallery,
+  isCover,
   isSelected,
+  isDeleting,
+  coverSelectMode,
   onToggleSelect,
-  onToggleFeatured,
-  onSetCover,
+  onCoverClick,
   onDelete,
 }: SortablePhotoCardProps) {
   const {
@@ -58,73 +60,72 @@ function SortablePhotoCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.5 : isDeleting ? 0.3 : 1,
   };
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`${styles.card} ${isDragging ? styles.dragging : ''} ${isSelected ? styles.selected : ''}`}
+      className={`${styles.card} ${isDragging ? styles.dragging : ''} ${isSelected ? styles.selected : ''} ${isDeleting ? styles.deleting : ''}`}
     >
       <div className={styles.imageWrapper}>
-        <div
-          className={styles.dragArea}
-          {...attributes}
-          {...listeners}
-        >
-          <img
-            src={photo.thumbnailUrl}
-            alt={photo.original_filename}
-            className={styles.image}
-          />
-          <div className={styles.dragHint}>Drag to reorder</div>
-        </div>
-        <label className={styles.checkbox} onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => onToggleSelect(photo.id)}
-          />
-        </label>
-        {gallery.cover_image_id === photo.id && (
+        {coverSelectMode ? (
+          // In cover select mode, make the whole image clickable
+          <div
+            className={styles.coverSelectArea}
+            onClick={() => onCoverClick(photo.id)}
+          >
+            <img
+              src={photo.thumbnailUrl}
+              alt={photo.original_filename}
+              className={styles.image}
+            />
+            <div className={styles.coverSelectHint}>Click to set as cover</div>
+          </div>
+        ) : (
+          // Normal mode with drag functionality
+          <div
+            className={styles.dragArea}
+            {...attributes}
+            {...listeners}
+          >
+            <img
+              src={photo.thumbnailUrl}
+              alt={photo.original_filename}
+              className={styles.image}
+            />
+            <div className={styles.dragHint}>Drag to reorder</div>
+          </div>
+        )}
+        {!coverSelectMode && (
+          <label className={styles.checkbox} onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => onToggleSelect(photo.id)}
+            />
+          </label>
+        )}
+        {isCover && (
           <span className={styles.coverBadge}>Cover</span>
         )}
-        {photo.is_featured && (
-          <span className={styles.featuredBadge}>Featured</span>
-        )}
       </div>
-      <div className={styles.info}>
+      <div className={styles.cardFooter}>
         <div className={styles.filename}>{photo.original_filename}</div>
-        <div className={styles.meta}>
-          {photo.width}x{photo.height} &bull;{' '}
-          {(photo.file_size / 1024).toFixed(0)}KB
-        </div>
-      </div>
-      <div className={styles.actions}>
-        {gallery.is_public && (
-          <button
-            className={`${styles.actionBtn} ${
-              photo.is_featured ? styles.active : ''
-            }`}
-            onClick={() => onToggleFeatured(photo)}
-            title={photo.is_featured ? 'Remove from featured' : 'Add to featured'}
-          >
-            {photo.is_featured ? 'Unfeature' : 'Feature'}
-          </button>
-        )}
         <button
-          className={styles.actionBtn}
-          onClick={() => onSetCover(photo.id)}
-          disabled={gallery.cover_image_id === photo.id}
-        >
-          Set Cover
-        </button>
-        <button
-          className={`${styles.actionBtn} ${styles.danger}`}
+          className={`${styles.deleteIconBtn} ${isDeleting ? styles.loading : ''}`}
           onClick={() => onDelete(photo.id)}
+          title="Delete photo"
+          disabled={isDeleting}
         >
-          Delete
+          {isDeleting ? (
+            <span className={styles.spinner} />
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" />
+            </svg>
+          )}
         </button>
       </div>
     </div>
@@ -142,10 +143,16 @@ export default function PhotoManager({
   const [localPhotos, setLocalPhotos] = useState<Photo[]>(photos);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [coverSelectMode, setCoverSelectMode] = useState(false);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [optimisticCoverId, setOptimisticCoverId] = useState<string | null>(null);
+  const [shuffleConfirm, setShuffleConfirm] = useState(false);
+  const [shuffling, setShuffling] = useState(false);
 
   // Sync local photos when props change (after API updates)
   useEffect(() => {
     setLocalPhotos(photos);
+    setOptimisticCoverId(null); // Clear optimistic state when real data arrives
   }, [photos]);
 
   const sensors = useSensors(
@@ -206,37 +213,72 @@ export default function PhotoManager({
     }
   };
 
-  const handleToggleFeatured = async (photo: Photo) => {
-    if (!token) return;
-
-    try {
-      await updatePhoto(token, photo.id, { is_featured: !photo.is_featured });
-      onPhotosChange();
-    } catch (err) {
-      console.error('Failed to update photo:', err);
-    }
-  };
-
   const handleSetCover = async (photoId: string) => {
     if (!token) return;
+
+    // Optimistic UI - show cover immediately
+    setOptimisticCoverId(photoId);
+    setCoverSelectMode(false);
 
     try {
       await setCoverImage(token, gallery.id, photoId);
       onPhotosChange();
     } catch (err) {
       console.error('Failed to set cover:', err);
+      // Revert on error
+      setOptimisticCoverId(null);
     }
   };
 
   const handleDelete = async (photoId: string) => {
     if (!token) return;
 
+    // Add to deleting set for immediate visual feedback
+    setDeletingIds((prev) => new Set(prev).add(photoId));
+
     try {
       await deletePhoto(token, photoId);
       setDeleteConfirm(null);
+      // Remove from local photos immediately for snappy UI
+      setLocalPhotos((prev) => prev.filter((p) => p.id !== photoId));
       onPhotosChange();
     } catch (err) {
       console.error('Failed to delete photo:', err);
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(photoId);
+        return next;
+      });
+    }
+  };
+
+  // Shuffle photos randomly
+  const handleShuffle = async () => {
+    if (!token) return;
+
+    setShuffling(true);
+
+    // Fisher-Yates shuffle
+    const shuffled = [...localPhotos];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    // Optimistic UI - show shuffled order immediately
+    setLocalPhotos(shuffled);
+    setShuffleConfirm(false);
+
+    try {
+      await reorderPhotos(token, gallery.id, shuffled.map((p) => p.id));
+      onPhotosChange();
+    } catch (err) {
+      console.error('Failed to shuffle photos:', err);
+      // Revert on error
+      setLocalPhotos(photos);
+    } finally {
+      setShuffling(false);
     }
   };
 
@@ -245,6 +287,9 @@ export default function PhotoManager({
     if (!token || selectedIds.size === 0) return;
 
     setBulkActionLoading(true);
+    // Mark all selected as deleting
+    setDeletingIds(new Set(selectedIds));
+
     try {
       await Promise.all(
         Array.from(selectedIds).map((id) => deletePhoto(token, id))
@@ -256,25 +301,7 @@ export default function PhotoManager({
       console.error('Failed to delete photos:', err);
     } finally {
       setBulkActionLoading(false);
-    }
-  };
-
-  const handleBulkFeature = async (featured: boolean) => {
-    if (!token || selectedIds.size === 0) return;
-
-    setBulkActionLoading(true);
-    try {
-      await Promise.all(
-        Array.from(selectedIds).map((id) =>
-          updatePhoto(token, id, { is_featured: featured })
-        )
-      );
-      setSelectedIds(new Set());
-      onPhotosChange();
-    } catch (err) {
-      console.error('Failed to update photos:', err);
-    } finally {
-      setBulkActionLoading(false);
+      setDeletingIds(new Set());
     }
   };
 
@@ -288,62 +315,76 @@ export default function PhotoManager({
 
   const allSelected = selectedIds.size === localPhotos.length;
   const someSelected = selectedIds.size > 0;
+  const effectiveCoverId = optimisticCoverId || gallery.cover_image_id;
+  const currentCover = localPhotos.find((p) => p.id === effectiveCoverId);
 
   return (
     <>
-      {/* Bulk Action Toolbar */}
+      {/* Toolbar */}
       <div className={styles.toolbar}>
-        <label className={styles.selectAllLabel}>
-          <input
-            type="checkbox"
-            checked={allSelected}
-            ref={(el) => {
-              if (el) el.indeterminate = someSelected && !allSelected;
-            }}
-            onChange={handleSelectAll}
-          />
-          {allSelected ? 'Deselect All' : 'Select All'}
-        </label>
-
-        {someSelected && (
-          <div className={styles.bulkActions}>
-            <span className={styles.selectedCount}>
-              {selectedIds.size} selected
+        <div className={styles.toolbarLeft}>
+          <button
+            className={`${styles.setCoverBtn} ${coverSelectMode ? styles.active : ''}`}
+            onClick={() => setCoverSelectMode(!coverSelectMode)}
+          >
+            {coverSelectMode ? 'Cancel' : 'Set Cover Photo'}
+          </button>
+          <button
+            className={styles.shuffleBtn}
+            onClick={() => setShuffleConfirm(true)}
+            disabled={shuffling || localPhotos.length < 2}
+          >
+            {shuffling ? 'Shuffling...' : 'Shuffle'}
+          </button>
+          {currentCover && !coverSelectMode && (
+            <span className={styles.currentCover}>
+              Cover: {currentCover.original_filename}
             </span>
-            {gallery.is_public && (
-              <>
-                <button
-                  className={styles.bulkBtn}
-                  onClick={() => handleBulkFeature(true)}
-                  disabled={bulkActionLoading}
-                >
-                  Feature
-                </button>
-                <button
-                  className={styles.bulkBtn}
-                  onClick={() => handleBulkFeature(false)}
-                  disabled={bulkActionLoading}
-                >
-                  Unfeature
-                </button>
-              </>
-            )}
-            <button
-              className={`${styles.bulkBtn} ${styles.danger}`}
-              onClick={() => setBulkDeleteConfirm(true)}
-              disabled={bulkActionLoading}
-            >
-              Delete
-            </button>
-            <button
-              className={styles.bulkBtnCancel}
-              onClick={handleClearSelection}
-              disabled={bulkActionLoading}
-            >
-              Cancel
-            </button>
-          </div>
-        )}
+          )}
+          {coverSelectMode && (
+            <span className={styles.coverHint}>Click a photo to set as cover</span>
+          )}
+        </div>
+
+        <div className={styles.toolbarRight}>
+          {!coverSelectMode && (
+            <>
+              <label className={styles.selectAllLabel}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someSelected && !allSelected;
+                  }}
+                  onChange={handleSelectAll}
+                />
+                {allSelected ? 'Deselect All' : 'Select All'}
+              </label>
+
+              {someSelected && (
+                <div className={styles.bulkActions}>
+                  <span className={styles.selectedCount}>
+                    {selectedIds.size} selected
+                  </span>
+                  <button
+                    className={`${styles.bulkBtn} ${styles.danger}`}
+                    onClick={() => setBulkDeleteConfirm(true)}
+                    disabled={bulkActionLoading}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    className={styles.bulkBtnCancel}
+                    onClick={handleClearSelection}
+                    disabled={bulkActionLoading}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       <DndContext
@@ -355,16 +396,17 @@ export default function PhotoManager({
           items={localPhotos.map((p) => p.id)}
           strategy={rectSortingStrategy}
         >
-          <div className={styles.grid}>
+          <div className={`${styles.grid} ${coverSelectMode ? styles.coverSelectMode : ''}`}>
             {localPhotos.map((photo) => (
               <SortablePhotoCard
                 key={photo.id}
                 photo={photo}
-                gallery={gallery}
+                isCover={effectiveCoverId === photo.id}
                 isSelected={selectedIds.has(photo.id)}
+                isDeleting={deletingIds.has(photo.id)}
+                coverSelectMode={coverSelectMode}
                 onToggleSelect={handleToggleSelect}
-                onToggleFeatured={handleToggleFeatured}
-                onSetCover={handleSetCover}
+                onCoverClick={handleSetCover}
                 onDelete={(id) => setDeleteConfirm(id)}
               />
             ))}
@@ -421,6 +463,32 @@ export default function PhotoManager({
                 disabled={bulkActionLoading}
               >
                 {bulkActionLoading ? 'Deleting...' : `Delete ${selectedIds.size}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shuffle Confirmation Modal */}
+      {shuffleConfirm && (
+        <div className={styles.modal}>
+          <div className={styles.modalContent}>
+            <h2 className={styles.modalTitle}>Shuffle Photos?</h2>
+            <p className={styles.confirmText}>
+              This will randomly reorder all {localPhotos.length} photos in this gallery.
+            </p>
+            <div className={styles.confirmActions}>
+              <button
+                className={styles.cancelBtn}
+                onClick={() => setShuffleConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.shuffleConfirmBtn}
+                onClick={handleShuffle}
+              >
+                Shuffle
               </button>
             </div>
           </div>

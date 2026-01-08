@@ -1,4 +1,4 @@
-/* Bulk Action Toolbar */
+/* Toolbar */
 .toolbar {
   display: flex;
   align-items: center;
@@ -8,6 +8,71 @@
   border: 1px solid var(--color-border);
   border-radius: 8px;
   margin-bottom: 1rem;
+  gap: 1rem;
+}
+
+.toolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.setCoverBtn {
+  padding: 0.5rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.setCoverBtn:hover {
+  background: var(--color-background);
+}
+
+.setCoverBtn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.shuffleBtn {
+  padding: 0.5rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.shuffleBtn:hover:not(:disabled) {
+  background: var(--color-background);
+}
+
+.shuffleBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.currentCover {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+.coverHint {
+  font-size: 0.875rem;
+  color: var(--color-primary);
+  font-weight: 500;
 }
 
 .selectAllLabel {
@@ -23,6 +88,11 @@
   width: 1rem;
   height: 1rem;
   cursor: pointer;
+}
+
+.selectAllLabel input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .bulkActions {
@@ -42,7 +112,7 @@
   background: var(--color-primary);
   border: none;
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: white;
   cursor: pointer;
@@ -66,7 +136,7 @@
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: var(--color-text);
   cursor: pointer;
 }
@@ -75,12 +145,22 @@
   background: var(--color-background);
 }
 
+/* Grid */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 1rem;
 }
 
+.grid.coverSelectMode .card {
+  cursor: pointer;
+}
+
+.grid.coverSelectMode .card:hover {
+  border-color: var(--color-primary);
+}
+
+/* Card */
 .card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -108,6 +188,31 @@
 
 .dragArea:active {
   cursor: grabbing;
+}
+
+.coverSelectArea {
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  position: relative;
+}
+
+.coverSelectArea:hover .coverSelectHint {
+  opacity: 1;
+}
+
+.coverSelectHint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.8);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.15s;
 }
 
 .image {
@@ -162,93 +267,88 @@
   z-index: 10;
 }
 
-.coverBadge,
-.featuredBadge {
+.coverBadge {
   position: absolute;
   top: 0.5rem;
+  left: 2rem;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   font-size: 0.625rem;
   font-weight: 600;
   text-transform: uppercase;
   pointer-events: none;
-}
-
-.coverBadge {
-  left: 2rem;
   background: var(--color-primary);
   color: white;
 }
 
-.featuredBadge {
-  right: 0.5rem;
-  background: #fbbf24;
-  color: #1f2937;
-}
-
-.info {
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--color-border);
+/* Card Footer */
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  gap: 0.5rem;
 }
 
 .filename {
   font-size: 0.75rem;
-  font-weight: 500;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.meta {
-  font-size: 0.625rem;
-  color: var(--color-text-secondary);
-  margin-top: 0.25rem;
-}
-
-.actions {
-  padding: 0.5rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-.actionBtn {
   flex: 1;
-  min-width: fit-content;
-  padding: 0.375rem 0.5rem;
+  min-width: 0;
+}
+
+.deleteIconBtn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
-  border: 1px solid var(--color-border);
+  border: none;
   border-radius: 4px;
-  font-size: 0.625rem;
-  color: var(--color-text);
+  color: var(--color-text-secondary);
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
-.actionBtn:hover {
-  background: var(--color-background);
-}
-
-.actionBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.actionBtn.active {
-  background: #fef3c7;
-  border-color: #fbbf24;
-  color: #92400e;
-}
-
-.actionBtn.danger {
+.deleteIconBtn:hover {
+  background: #fee2e2;
   color: #dc2626;
-  border-color: #dc2626;
 }
 
-.actionBtn.danger:hover {
+.deleteIconBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.deleteIconBtn.loading {
   background: #fee2e2;
 }
 
+.card.deleting {
+  pointer-events: none;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fca5a5;
+  border-top-color: #dc2626;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Empty State */
 .empty {
   text-align: center;
   color: var(--color-text-secondary);
@@ -305,6 +405,10 @@
   cursor: pointer;
 }
 
+.cancelBtn:hover {
+  background: var(--color-background);
+}
+
 .deleteBtn {
   padding: 0.75rem 1.5rem;
   background: #dc2626;
@@ -313,4 +417,45 @@
   color: white;
   cursor: pointer;
   font-weight: 500;
+}
+
+.deleteBtn:hover {
+  opacity: 0.9;
+}
+
+.deleteBtn:disabled,
+.cancelBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.shuffleConfirmBtn {
+  padding: 0.75rem 1.5rem;
+  background: var(--color-primary);
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.shuffleConfirmBtn:hover {
+  opacity: 0.9;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbarLeft,
+  .toolbarRight {
+    justify-content: space-between;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
 }
