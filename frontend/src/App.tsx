@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { isAdminSubdomain } from './utils/subdomain';
+import { getSettings } from './api/client';
 import { AuthProvider } from './contexts/AuthContext';
 import Navbar from './components/Navbar/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -10,6 +12,7 @@ import Login from './pages/admin/Login';
 import Dashboard from './pages/admin/Dashboard';
 import AdminGalleries from './pages/admin/Galleries';
 import Photos from './pages/admin/Photos';
+import Settings from './pages/admin/Settings';
 import AdminLayout from './components/Admin/AdminLayout/AdminLayout';
 import './styles/globals.css';
 
@@ -42,6 +45,7 @@ function AdminApp() {
                   <Route path="" element={<Dashboard />} />
                   <Route path="galleries" element={<AdminGalleries />} />
                   <Route path="galleries/:id/photos" element={<Photos />} />
+                  <Route path="settings" element={<Settings />} />
                 </Routes>
               </AdminLayout>
             </ProtectedRoute>
@@ -54,6 +58,35 @@ function AdminApp() {
 
 export default function App() {
   const isAdmin = isAdminSubdomain();
+
+  // Fetch and apply site settings on load
+  useEffect(() => {
+    async function applySettings() {
+      try {
+        const settings = await getSettings();
+
+        // Update document title
+        if (settings.site_title) {
+          document.title = settings.site_title;
+        }
+
+        // Update meta description
+        if (settings.meta_description) {
+          let metaDesc = document.querySelector('meta[name="description"]');
+          if (!metaDesc) {
+            metaDesc = document.createElement('meta');
+            metaDesc.setAttribute('name', 'description');
+            document.head.appendChild(metaDesc);
+          }
+          metaDesc.setAttribute('content', settings.meta_description);
+        }
+      } catch {
+        // Silently fail - settings are not critical
+      }
+    }
+
+    applySettings();
+  }, []);
 
   return (
     <BrowserRouter>
