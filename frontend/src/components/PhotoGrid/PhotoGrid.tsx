@@ -1,27 +1,51 @@
-import { useState } from 'react';
-import { RowsPhotoAlbum } from 'react-photo-album';
-import 'react-photo-album/rows.css';
+import { useState, useEffect, useRef } from 'react';
+import { MasonryPhotoAlbum } from 'react-photo-album';
+import 'react-photo-album/masonry.css';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import Counter from 'yet-another-react-lightbox/plugins/counter';
 import Download from 'yet-another-react-lightbox/plugins/download';
 import 'yet-another-react-lightbox/plugins/counter.css';
 import type { Photo } from '../../types';
+import { trackPhotoView, trackPhotoDownload } from '../../api/client';
 import styles from './PhotoGrid.module.css';
 
 interface PhotoGridProps {
   photos: Photo[];
 }
 
-// Placeholder S3 URL builder - will be updated when S3 is integrated
-function getPhotoUrl(photo: Photo, _size: 'thumbnail' | 'web' | 'original'): string {
-  // For now, use placeholder images based on dimensions
-  // Later: return S3 URLs using photo.s3_thumbnail_key, photo.s3_web_key, or photo.s3_key
-  return `https://placehold.co/${photo.width}x${photo.height}/1a1a1a/ffffff?text=${photo.width}x${photo.height}`;
+function getPhotoUrl(photo: Photo, size: 'thumbnail' | 'web' | 'original'): string {
+  if (size === 'thumbnail' && photo.thumbnailUrl) {
+    return photo.thumbnailUrl;
+  }
+  if (size === 'web' && photo.webUrl) {
+    return photo.webUrl;
+  }
+  if (size === 'original' && photo.url) {
+    return photo.url;
+  }
+  // Fallback to any available URL
+  return photo.webUrl || photo.url || photo.thumbnailUrl || '';
 }
 
 export default function PhotoGrid({ photos }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const lastTrackedIndex = useRef(-1);
+
+  // Track photo view when lightbox opens or navigates to a new photo
+  useEffect(() => {
+    if (lightboxIndex >= 0 && lightboxIndex !== lastTrackedIndex.current) {
+      const photo = photos[lightboxIndex];
+      if (photo) {
+        trackPhotoView(photo.id);
+        lastTrackedIndex.current = lightboxIndex;
+      }
+    }
+    // Reset tracking when lightbox closes
+    if (lightboxIndex < 0) {
+      lastTrackedIndex.current = -1;
+    }
+  }, [lightboxIndex, photos]);
 
   const albumPhotos = photos.map((photo) => ({
     src: getPhotoUrl(photo, 'web'),
@@ -38,12 +62,24 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
     download: getPhotoUrl(photo, 'original'),
   }));
 
+  // Handle download - track before the actual download happens
+  const handleDownload = ({ index }: { index: number }) => {
+    const photo = photos[index];
+    if (photo) {
+      trackPhotoDownload(photo.id);
+    }
+  };
+
   return (
     <div className={styles.grid}>
-      <RowsPhotoAlbum
+      <MasonryPhotoAlbum
         photos={albumPhotos}
-        targetRowHeight={300}
-        spacing={6}
+        columns={(containerWidth) => {
+          if (containerWidth < 500) return 1;
+          if (containerWidth < 900) return 2;
+          return 3;
+        }}
+        spacing={12}
         onClick={({ index }) => setLightboxIndex(index)}
       />
 
@@ -52,6 +88,10 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
         open={lightboxIndex >= 0}
         index={lightboxIndex}
         close={() => setLightboxIndex(-1)}
+        on={{
+          view: ({ index }) => setLightboxIndex(index),
+          download: handleDownload,
+        }}
         plugins={[Counter, Download]}
         counter={{ container: { style: { top: 'unset', bottom: 0 } } }}
       />

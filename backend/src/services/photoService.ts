@@ -22,17 +22,35 @@ export const getFeaturedPhotos = async (): Promise<Photo[]> => {
 };
 
 export const incrementPhotoViews = async (photoId: string): Promise<void> => {
-  await query(
-    `UPDATE photos SET view_count = view_count + 1 WHERE id = $1`,
-    [photoId]
-  );
+  // Get gallery_id for analytics and increment counter in parallel
+  const [photoResult] = await Promise.all([
+    query(`SELECT gallery_id FROM photos WHERE id = $1`, [photoId]),
+    query(`UPDATE photos SET view_count = view_count + 1 WHERE id = $1`, [photoId]),
+  ]);
+
+  // Log analytics event with both photo and gallery IDs
+  if (photoResult.rows[0]) {
+    await query(
+      `INSERT INTO analytics_events (event_type, gallery_id, photo_id) VALUES ('photo_view', $1, $2)`,
+      [photoResult.rows[0].gallery_id, photoId]
+    );
+  }
 };
 
 export const incrementPhotoDownloads = async (photoId: string): Promise<void> => {
-  await query(
-    `UPDATE photos SET download_count = download_count + 1 WHERE id = $1`,
-    [photoId]
-  );
+  // Get gallery_id for analytics and increment counter in parallel
+  const [photoResult] = await Promise.all([
+    query(`SELECT gallery_id FROM photos WHERE id = $1`, [photoId]),
+    query(`UPDATE photos SET download_count = download_count + 1 WHERE id = $1`, [photoId]),
+  ]);
+
+  // Log analytics event with both photo and gallery IDs
+  if (photoResult.rows[0]) {
+    await query(
+      `INSERT INTO analytics_events (event_type, gallery_id, photo_id) VALUES ('photo_download', $1, $2)`,
+      [photoResult.rows[0].gallery_id, photoId]
+    );
+  }
 };
 
 /**

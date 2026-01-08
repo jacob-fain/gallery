@@ -1,0 +1,140 @@
+.layout {
+  min-height: 100vh;
+  background: var(--color-background);
+}
+
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--navbar-height);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  z-index: 100;
+}
+
+.container {
+  max-width: 1400px;
+  height: 100%;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.logo {
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text);
+}
+
+.links {
+  display: flex;
+  gap: 24px;
+}
+
+.link {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-light);
+  text-decoration: none;
+  transition: color 0.15s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.link:hover {
+  color: var(--color-text);
+}
+
+.link.active {
+  color: var(--color-text);
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.viewSite {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-light);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.viewSite:hover {
+  color: var(--color-text);
+}
+
+.user {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.logoutBtn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.logoutBtn:hover {
+  background: var(--color-hover);
+}
+
+.content {
+  min-height: 100vh;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: calc(var(--navbar-height) + 32px) 48px 48px;
+}
+
+@media (max-width: 768px) {
+  .content {
+    padding: calc(var(--navbar-height) + 24px) 24px 24px;
+  }
+
+  .container {
+    padding: 0 16px;
+  }
+
+  .left {
+    gap: 16px;
+  }
+
+  .links {
+    gap: 16px;
+  }
+
+  .link {
+    font-size: 0.8rem;
+  }
+
+  .right {
+    gap: 12px;
+  }
+
+  .user {
+    display: none;
+  }
+
+  .viewSite {
+    font-size: 0.8rem;
+  }
+}
