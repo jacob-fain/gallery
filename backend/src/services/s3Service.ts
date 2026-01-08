@@ -110,7 +110,9 @@ export const deleteFile = async (key: string): Promise<void> => {
 
 /**
  * Generate S3 keys for a photo's three versions
- * Structure: galleries/{galleryId}/{photoId}/{version}.jpg
+ * Structure: galleries/{galleryId}/{photoId}/{version}.{ext}
+ * - Original: .jpg (preserved as uploaded)
+ * - Web/Thumbnail: .webp (optimized format)
  *
  * @param galleryId - Gallery UUID
  * @param photoId - Photo UUID
@@ -123,8 +125,8 @@ export const generatePhotoKeys = (
   const basePath = `galleries/${galleryId}/${photoId}`;
   return {
     original: `${basePath}/original.jpg`,
-    web: `${basePath}/web.jpg`,
-    thumbnail: `${basePath}/thumb.jpg`,
+    web: `${basePath}/web.webp`,
+    thumbnail: `${basePath}/thumb.webp`,
   };
 };
 
