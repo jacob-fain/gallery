@@ -249,6 +249,19 @@ export async function deleteGallery(token: string, id: string): Promise<{ delete
   return result;
 }
 
+export async function reorderGalleries(
+  token: string,
+  galleryIds: string[]
+): Promise<{ reordered: boolean }> {
+  const result = await fetchApiAuth<{ reordered: boolean }>('/galleries/reorder', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gallery_ids: galleryIds }),
+  });
+  clearCache('galleries');
+  return result;
+}
+
 export async function setCoverImage(
   token: string,
   galleryId: string,

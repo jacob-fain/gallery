@@ -24,6 +24,9 @@ router.put('/:id/cover', authMiddleware, galleryController.setCoverImage);
 // GET /api/galleries/:id/photos/admin - Get photos by gallery ID (admin)
 router.get('/:id/photos/admin', authMiddleware, galleryController.getGalleryPhotosAdmin);
 
+// PUT /api/galleries/reorder - Reorder galleries
+router.put('/reorder', authMiddleware, galleryController.reorderGalleries);
+
 // ============ Public Routes ============
 
 // GET /api/galleries - List all public galleries

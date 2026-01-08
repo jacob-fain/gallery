@@ -303,6 +303,28 @@ export const getGalleryPhotosAdmin = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Reorder galleries
+ */
+export const reorderGalleries = async (req: Request, res: Response) => {
+  try {
+    const { gallery_ids } = req.body;
+
+    if (!Array.isArray(gallery_ids) || gallery_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'gallery_ids array is required',
+      });
+    }
+
+    await galleryService.reorderGalleries(gallery_ids);
+    res.json({ success: true, data: { reordered: true } });
+  } catch (err) {
+    console.error('Error reordering galleries:', err);
+    res.status(500).json({ success: false, error: 'Failed to reorder galleries' });
+  }
+};
+
 // ============ Public Controllers ============
 
 /**

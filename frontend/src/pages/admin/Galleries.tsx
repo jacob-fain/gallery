@@ -1,17 +1,113 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   getAllGalleries,
   createGallery,
   updateGallery,
   deleteGallery,
+  reorderGalleries,
 } from '../../api/client';
 import GalleryForm from '../../components/Admin/GalleryForm/GalleryForm';
 import type { Gallery, CreateGalleryInput, UpdateGalleryInput } from '../../types';
 import styles from './Galleries.module.css';
 
 type ModalMode = 'closed' | 'create' | 'edit';
+
+interface SortableRowProps {
+  gallery: Gallery;
+  copiedId: string | null;
+  onCopyLink: (gallery: Gallery) => void;
+  onEdit: (gallery: Gallery) => void;
+  onDelete: (id: string) => void;
+}
+
+function SortableRow({ gallery, copiedId, onCopyLink, onEdit, onDelete }: SortableRowProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: gallery.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <tr ref={setNodeRef} style={style} className={isDragging ? styles.dragging : ''}>
+      <td className={styles.dragHandle} {...attributes} {...listeners}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="9" cy="6" r="2" />
+          <circle cx="15" cy="6" r="2" />
+          <circle cx="9" cy="12" r="2" />
+          <circle cx="15" cy="12" r="2" />
+          <circle cx="9" cy="18" r="2" />
+          <circle cx="15" cy="18" r="2" />
+        </svg>
+      </td>
+      <td>{gallery.title}</td>
+      <td className={styles.slug}>/g/{gallery.slug}</td>
+      <td>
+        <span
+          className={`${styles.badge} ${
+            gallery.is_public ? styles.public : styles.private
+          }`}
+        >
+          {gallery.is_public ? 'Public' : 'Private'}
+        </span>
+      </td>
+      <td>{gallery.view_count.toLocaleString()}</td>
+      <td className={styles.actions}>
+        <button
+          className={styles.actionBtn}
+          onClick={() => onCopyLink(gallery)}
+        >
+          {copiedId === gallery.id ? 'Copied!' : 'Copy Link'}
+        </button>
+        <Link
+          to={`/galleries/${gallery.id}/photos`}
+          className={styles.actionBtn}
+        >
+          Photos
+        </Link>
+        <button
+          className={styles.actionBtn}
+          onClick={() => onEdit(gallery)}
+        >
+          Edit
+        </button>
+        <button
+          className={`${styles.actionBtn} ${styles.danger}`}
+          onClick={() => onDelete(gallery.id)}
+        >
+          Delete
+        </button>
+      </td>
+    </tr>
+  );
+}
 
 export default function Galleries() {
   const { token } = useAuth();
@@ -23,6 +119,40 @@ export default function Galleries() {
   const [formLoading, setFormLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = galleries.findIndex((g) => g.id === active.id);
+      const newIndex = galleries.findIndex((g) => g.id === over.id);
+
+      const newOrder = arrayMove(galleries, oldIndex, newIndex);
+      setGalleries(newOrder);
+
+      // Save to backend
+      if (token) {
+        try {
+          await reorderGalleries(token, newOrder.map((g) => g.id));
+        } catch (err) {
+          console.error('Failed to reorder galleries:', err);
+          // Revert on error
+          fetchGalleries();
+        }
+      }
+    }
+  };
 
   const fetchGalleries = async () => {
     if (!token) return;
@@ -118,68 +248,48 @@ export default function Galleries() {
       {error && <div className={styles.error}>{error}</div>}
 
       <div className={styles.tableWrapper}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Slug</th>
-              <th>Visibility</th>
-              <th>Views</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {galleries.map((gallery) => (
-              <tr key={gallery.id}>
-                <td>{gallery.title}</td>
-                <td className={styles.slug}>/g/{gallery.slug}</td>
-                <td>
-                  <span
-                    className={`${styles.badge} ${
-                      gallery.is_public ? styles.public : styles.private
-                    }`}
-                  >
-                    {gallery.is_public ? 'Public' : 'Private'}
-                  </span>
-                </td>
-                <td>{gallery.view_count.toLocaleString()}</td>
-                <td className={styles.actions}>
-                  <button
-                    className={styles.actionBtn}
-                    onClick={() => handleCopyLink(gallery)}
-                  >
-                    {copiedId === gallery.id ? 'Copied!' : 'Copy Link'}
-                  </button>
-                  <Link
-                    to={`/galleries/${gallery.id}/photos`}
-                    className={styles.actionBtn}
-                  >
-                    Photos
-                  </Link>
-                  <button
-                    className={styles.actionBtn}
-                    onClick={() => openEdit(gallery)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className={`${styles.actionBtn} ${styles.danger}`}
-                    onClick={() => setDeleteConfirm(gallery.id)}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {galleries.length === 0 && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <table className={styles.table}>
+            <thead>
               <tr>
-                <td colSpan={5} className={styles.empty}>
-                  No galleries yet. Create your first one!
-                </td>
+                <th className={styles.dragHeader}></th>
+                <th>Title</th>
+                <th>Slug</th>
+                <th>Visibility</th>
+                <th>Views</th>
+                <th>Actions</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <SortableContext
+              items={galleries.map((g) => g.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <tbody>
+                {galleries.map((gallery) => (
+                  <SortableRow
+                    key={gallery.id}
+                    gallery={gallery}
+                    copiedId={copiedId}
+                    onCopyLink={handleCopyLink}
+                    onEdit={openEdit}
+                    onDelete={setDeleteConfirm}
+                  />
+                ))}
+                {galleries.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className={styles.empty}>
+                      No galleries yet. Create your first one!
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </SortableContext>
+          </table>
+        </DndContext>
       </div>
 
       {/* Create/Edit Modal */}
