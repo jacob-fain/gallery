@@ -73,7 +73,7 @@ export default function Photos() {
           <p className={styles.subtitle}>{photos.length} photos</p>
         </div>
         <a
-          href={`${window.location.origin.replace('admin.', '')}/g/${gallery.slug}`}
+          href={`${window.location.origin.replace('manage.', '')}/g/${gallery.slug}`}
           target="_blank"
           rel="noopener noreferrer"
           className={styles.viewGalleryBtn}

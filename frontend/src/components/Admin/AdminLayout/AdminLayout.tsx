@@ -15,8 +15,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     navigate('/login');
   };
 
-  // Get the main site URL (remove ?admin=true or admin subdomain logic)
-  const mainSiteUrl = window.location.origin.replace('admin.', '');
+  // Get the main site URL (remove manage. subdomain)
+  const mainSiteUrl = window.location.origin.replace('manage.', '');
 
   return (
     <div className={styles.layout}>
