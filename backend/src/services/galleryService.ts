@@ -76,10 +76,17 @@ export const getGalleryPhotos = async (galleryId: string): Promise<Photo[]> => {
 };
 
 export const incrementGalleryViews = async (galleryId: string): Promise<void> => {
-  await query(
-    `UPDATE galleries SET view_count = view_count + 1 WHERE id = $1`,
-    [galleryId]
-  );
+  // Increment counter and log analytics event in parallel
+  await Promise.all([
+    query(
+      `UPDATE galleries SET view_count = view_count + 1 WHERE id = $1`,
+      [galleryId]
+    ),
+    query(
+      `INSERT INTO analytics_events (event_type, gallery_id) VALUES ('gallery_view', $1)`,
+      [galleryId]
+    ),
+  ]);
 };
 
 /**

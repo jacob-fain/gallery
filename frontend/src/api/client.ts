@@ -3,6 +3,7 @@ import type {
   Photo,
   ApiResponse,
   AdminStats,
+  AnalyticsData,
   CreateGalleryInput,
   UpdateGalleryInput,
   PrivateGalleryResponse,
@@ -140,6 +141,11 @@ export async function getAdminStats(token: string): Promise<AdminStats> {
   return fetchApiAuth<AdminStats>('/admin/stats', token);
 }
 
+// Admin Analytics
+export async function getAnalytics(token: string): Promise<AnalyticsData> {
+  return fetchApiAuth<AnalyticsData>('/admin/analytics', token);
+}
+
 // Gallery Management
 export async function getAllGalleries(token: string): Promise<Gallery[]> {
   return fetchApiAuth<Gallery[]>('/galleries/admin/all', token);
@@ -255,5 +261,25 @@ export async function reorderPhotos(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gallery_id: galleryId, photo_ids: photoIds }),
+  });
+}
+
+// ============ Analytics Tracking (Public, fire-and-forget) ============
+
+/**
+ * Track a photo view - call when user opens/navigates to a photo in lightbox
+ */
+export function trackPhotoView(photoId: string): void {
+  fetch(`${API_BASE}/photos/${photoId}/view`, { method: 'POST' }).catch(() => {
+    // Silently ignore errors - tracking should not affect UX
+  });
+}
+
+/**
+ * Track a photo download - call when user clicks download button
+ */
+export function trackPhotoDownload(photoId: string): void {
+  fetch(`${API_BASE}/photos/${photoId}/download-track`, { method: 'POST' }).catch(() => {
+    // Silently ignore errors - tracking should not affect UX
   });
 }

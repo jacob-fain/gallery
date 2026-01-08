@@ -1,31 +1,43 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { getAdminStats } from '../../api/client';
+import { getAdminStats, getAnalytics } from '../../api/client';
 import StatsCard from '../../components/Admin/StatsCard/StatsCard';
-import type { AdminStats } from '../../types';
+import {
+  TrafficChart,
+  UploadChart,
+  StorageChart,
+  TopGalleries,
+  TopPhotos,
+} from '../../components/Admin/Charts';
+import type { AdminStats, AnalyticsData } from '../../types';
 import styles from './Dashboard.module.css';
 
 export default function Dashboard() {
   const { token } = useAuth();
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    async function fetchStats() {
+    async function fetchData() {
       if (!token) return;
 
       try {
-        const data = await getAdminStats(token);
-        setStats(data);
+        const [statsData, analyticsData] = await Promise.all([
+          getAdminStats(token),
+          getAnalytics(token),
+        ]);
+        setStats(statsData);
+        setAnalytics(analyticsData);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load stats');
+        setError(err instanceof Error ? err.message : 'Failed to load data');
       } finally {
         setLoading(false);
       }
     }
 
-    fetchStats();
+    fetchData();
   }, [token]);
 
   if (loading) {
@@ -36,7 +48,7 @@ export default function Dashboard() {
     return <div className={styles.error}>{error}</div>;
   }
 
-  if (!stats) {
+  if (!stats || !analytics) {
     return null;
   }
 
@@ -44,7 +56,8 @@ export default function Dashboard() {
     <div className={styles.container}>
       <h1 className={styles.title}>Dashboard</h1>
 
-      <div className={styles.grid}>
+      {/* Quick Stats Row */}
+      <div className={styles.statsGrid}>
         <StatsCard
           label="Total Galleries"
           value={stats.galleries.total}
@@ -53,20 +66,32 @@ export default function Dashboard() {
         <StatsCard
           label="Total Photos"
           value={stats.photos.total}
-          sublabel={`${stats.photos.featured} featured`}
         />
         <StatsCard
           label="Gallery Views"
           value={stats.views.galleries}
         />
         <StatsCard
-          label="Photo Views"
-          value={stats.views.photos}
-        />
-        <StatsCard
-          label="Total Downloads"
+          label="Downloads"
           value={stats.downloads}
         />
+      </div>
+
+      {/* Main Traffic Chart */}
+      <div className={styles.mainChart}>
+        <TrafficChart data={analytics.viewsOverTime} />
+      </div>
+
+      {/* Secondary Charts Row */}
+      <div className={styles.secondaryCharts}>
+        <UploadChart data={analytics.uploadActivity} />
+        <StorageChart data={analytics.storage} />
+      </div>
+
+      {/* Leaderboards Row */}
+      <div className={styles.leaderboards}>
+        <TopGalleries data={analytics.topGalleries} />
+        <TopPhotos data={analytics.topPhotos} />
       </div>
     </div>
   );
