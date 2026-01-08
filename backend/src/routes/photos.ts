@@ -27,4 +27,10 @@ router.get('/:id', photoController.getPhoto);
 // GET /api/photos/:id/download - Download photo (increments counter)
 router.get('/:id/download', photoController.downloadPhoto);
 
+// POST /api/photos/:id/view - Track a photo view (analytics)
+router.post('/:id/view', photoController.trackView);
+
+// POST /api/photos/:id/download-track - Track a photo download (analytics)
+router.post('/:id/download-track', photoController.trackDownload);
+
 export default router;

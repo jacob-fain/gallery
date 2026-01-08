@@ -7,8 +7,8 @@ interface GalleryCardProps {
 }
 
 export default function GalleryCard({ gallery }: GalleryCardProps) {
-  // Placeholder cover image - will use actual cover photo later
-  const coverUrl = `https://placehold.co/600x400/1a1a1a/ffffff?text=${encodeURIComponent(gallery.title)}`;
+  // Use actual cover URL, or placeholder if no photos yet
+  const coverUrl = gallery.coverUrl || `https://placehold.co/600x400/1a1a1a/ffffff?text=${encodeURIComponent(gallery.title)}`;
 
   return (
     <Link to={`/g/${gallery.slug}`} className={styles.card}>
