@@ -72,6 +72,14 @@ export default function Photos() {
           <h1 className={styles.title}>{gallery.title}</h1>
           <p className={styles.subtitle}>{photos.length} photos</p>
         </div>
+        <a
+          href={`${window.location.origin.replace('admin.', '')}/g/${gallery.slug}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.viewGalleryBtn}
+        >
+          View Gallery ↗
+        </a>
       </div>
 
       <PhotoUpload galleryId={gallery.id} onUploadComplete={handleUploadComplete} />
