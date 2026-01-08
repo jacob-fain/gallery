@@ -89,6 +89,14 @@ export const incrementGalleryViews = async (galleryId: string): Promise<void> =>
   ]);
 };
 
+export const incrementGalleryDownloads = async (galleryId: string): Promise<void> => {
+  // Log analytics event for gallery ZIP download
+  await query(
+    `INSERT INTO analytics_events (event_type, gallery_id) VALUES ('gallery_download', $1)`,
+    [galleryId]
+  );
+};
+
 /**
  * Get all galleries (admin only - includes private)
  */

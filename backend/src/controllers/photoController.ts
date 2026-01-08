@@ -249,3 +249,40 @@ export const reorderPhotos = async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Failed to reorder photos' });
   }
 };
+
+/**
+ * Move photos to a different gallery
+ */
+export const movePhotos = async (req: Request, res: Response) => {
+  try {
+    const { photo_ids, target_gallery_id } = req.body;
+
+    if (!Array.isArray(photo_ids) || photo_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'photo_ids array is required',
+      });
+    }
+
+    if (!target_gallery_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'target_gallery_id is required',
+      });
+    }
+
+    // Verify target gallery exists
+    const targetGallery = await galleryService.getGalleryById(target_gallery_id);
+    if (!targetGallery) {
+      return res.status(404).json({ success: false, error: 'Target gallery not found' });
+    }
+
+    // Move photos
+    const movedCount = await photoService.movePhotos(photo_ids, target_gallery_id);
+
+    res.json({ success: true, data: { moved: movedCount } });
+  } catch (err) {
+    console.error('Error moving photos:', err);
+    res.status(500).json({ success: false, error: 'Failed to move photos' });
+  }
+};

@@ -1,6 +1,6 @@
 import { query } from '../config/db';
 import { Photo, PhotoWithUrls, CreatePhotoInput, UpdatePhotoInput } from '../types';
-import { getSignedUrl } from './s3Service';
+import { getSignedUrl, copyFile, deleteFile, generatePhotoKeys } from './s3Service';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
   const result = await query(
@@ -189,4 +189,68 @@ export const reorderPhotos = async (
     )
   );
   await Promise.all(updates);
+};
+
+/**
+ * Move photos to a different gallery
+ * Copies S3 files to new paths and updates database
+ * @param photoIds - Array of photo IDs to move
+ * @param targetGalleryId - Destination gallery ID
+ * @returns Number of photos moved
+ */
+export const movePhotos = async (
+  photoIds: string[],
+  targetGalleryId: string
+): Promise<number> => {
+  let movedCount = 0;
+
+  for (const photoId of photoIds) {
+    const photo = await getPhotoById(photoId);
+    if (!photo) continue;
+
+    // Skip if already in target gallery
+    if (photo.gallery_id === targetGalleryId) continue;
+
+    const sourceGalleryId = photo.gallery_id;
+
+    // Generate new S3 keys for target gallery
+    const newKeys = generatePhotoKeys(targetGalleryId, photoId);
+
+    try {
+      // Copy all 3 versions to new paths
+      await Promise.all([
+        copyFile(photo.s3_key, newKeys.original),
+        copyFile(photo.s3_web_key, newKeys.web),
+        copyFile(photo.s3_thumbnail_key, newKeys.thumbnail),
+      ]);
+
+      // Update database with new gallery and S3 keys
+      await query(
+        `UPDATE photos
+         SET gallery_id = $1, s3_key = $2, s3_web_key = $3, s3_thumbnail_key = $4, sort_order = 9999
+         WHERE id = $5`,
+        [targetGalleryId, newKeys.original, newKeys.web, newKeys.thumbnail, photoId]
+      );
+
+      // Delete old S3 files
+      await Promise.allSettled([
+        deleteFile(photo.s3_key),
+        deleteFile(photo.s3_web_key),
+        deleteFile(photo.s3_thumbnail_key),
+      ]);
+
+      // If this photo was the cover of source gallery, clear it
+      await query(
+        `UPDATE galleries SET cover_image_id = NULL WHERE id = $1 AND cover_image_id = $2`,
+        [sourceGalleryId, photoId]
+      );
+
+      movedCount++;
+    } catch (err) {
+      console.error(`Failed to move photo ${photoId}:`, err);
+      // Continue with other photos
+    }
+  }
+
+  return movedCount;
 };

@@ -14,6 +14,9 @@ router.post('/upload', authMiddleware, upload.single('photo'), photoController.u
 // PUT /api/photos/reorder - Reorder photos in a gallery
 router.put('/reorder', authMiddleware, photoController.reorderPhotos);
 
+// PUT /api/photos/move - Move photos to another gallery
+router.put('/move', authMiddleware, photoController.movePhotos);
+
 // PUT /api/photos/:id - Update photo (featured, sort_order)
 router.put('/:id', authMiddleware, photoController.updatePhoto);
 

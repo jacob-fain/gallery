@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import archiver from 'archiver';
 import * as galleryService from '../services/galleryService';
 import * as photoService from '../services/photoService';
 import * as s3Service from '../services/s3Service';
@@ -356,5 +357,88 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error verifying gallery password:', err);
     res.status(500).json({ success: false, error: 'Failed to verify password' });
+  }
+};
+
+/**
+ * Download all photos in a gallery as a ZIP file
+ * Streams original (full-res) photos directly from S3 to client
+ */
+export const downloadGalleryZip = async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params;
+    const { access } = req.query;
+
+    const gallery = await galleryService.getGalleryBySlug(slug);
+    if (!gallery) {
+      return res.status(404).json({ success: false, error: 'Gallery not found' });
+    }
+
+    // For private galleries, require valid access token
+    if (!gallery.is_public) {
+      if (!access || typeof access !== 'string') {
+        return res.status(403).json({
+          success: false,
+          error: 'Password required to download this gallery',
+        });
+      }
+
+      const tokenPayload = verifyGalleryAccessToken(access);
+      if (!tokenPayload || tokenPayload.galleryId !== gallery.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Invalid or expired access token. Please verify the password again.',
+        });
+      }
+    }
+
+    // Get all photos in the gallery
+    const photos = await galleryService.getGalleryPhotos(gallery.id);
+    if (photos.length === 0) {
+      return res.status(400).json({ success: false, error: 'Gallery has no photos' });
+    }
+
+    // Set response headers for ZIP download
+    const filename = `${gallery.slug}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // Create ZIP archive with maximum compression
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    // Handle archive errors
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Failed to create archive' });
+      }
+    });
+
+    // Pipe archive to response
+    archive.pipe(res);
+
+    // Add each photo's original file to the archive
+    for (const photo of photos) {
+      try {
+        const stream = await s3Service.getFileStream(photo.s3_key);
+        // Use original filename if available, otherwise use photo ID
+        const name = photo.original_filename || `${photo.id}.jpg`;
+        archive.append(stream, { name });
+      } catch (err) {
+        console.error(`Failed to add photo ${photo.id} to archive:`, err);
+        // Continue with other photos
+      }
+    }
+
+    // Finalize the archive
+    await archive.finalize();
+
+    // Track gallery download analytics
+    await galleryService.incrementGalleryDownloads(gallery.id);
+  } catch (err) {
+    console.error('Error downloading gallery:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Failed to download gallery' });
+    }
   }
 };
