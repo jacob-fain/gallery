@@ -2,21 +2,21 @@ import sharp from 'sharp';
 import exifReader from 'exif-reader';
 
 // Image size configurations optimized for photography portfolio
+// Using WebP for ~30% smaller files at equivalent visual quality
 const IMAGE_SIZES = {
   web: {
     maxWidth: 1920,      // Full HD width for modern displays
-    quality: 92,         // High quality for portfolio display
+    quality: 88,         // WebP 88% ≈ JPEG 92% visual quality
   },
   thumbnail: {
     maxWidth: 600,       // Larger thumbnails for retina displays
-    quality: 85,
+    quality: 82,         // WebP 82% ≈ JPEG 85% visual quality
   },
 } as const;
 
-// JPEG options optimized for photography
-const JPEG_OPTIONS = {
-  chromaSubsampling: '4:4:4', // No color downsampling - preserves color detail
-  mozjpeg: true,              // Use mozjpeg encoder for better quality/size ratio
+// WebP options optimized for photography
+const WEBP_OPTIONS = {
+  effort: 4,  // Compression effort 0-6 (4 is good balance of speed/size)
 } as const;
 
 export interface ProcessedImage {
@@ -72,9 +72,9 @@ export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> =
       withoutEnlargement: true, // Don't upscale small images
       fit: 'inside',
     })
-    .jpeg({
+    .webp({
       quality: IMAGE_SIZES.web.quality,
-      ...JPEG_OPTIONS,
+      ...WEBP_OPTIONS,
     })
     .toBuffer({ resolveWithObject: true });
 
@@ -85,9 +85,9 @@ export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> =
       withoutEnlargement: true,
       fit: 'inside',
     })
-    .jpeg({
+    .webp({
       quality: IMAGE_SIZES.thumbnail.quality,
-      ...JPEG_OPTIONS,
+      ...WEBP_OPTIONS,
     })
     .toBuffer({ resolveWithObject: true });
 

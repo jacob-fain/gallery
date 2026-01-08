@@ -135,10 +135,11 @@ export const uploadPhoto = async (req: Request, res: Response) => {
     const keys = s3Service.generatePhotoKeys(galleryId, photoId);
 
     // Upload all 3 versions to S3 in parallel
+    // Original stays as JPEG, web/thumbnail are WebP for smaller size
     await Promise.all([
       s3Service.uploadFile(processed.original.buffer, keys.original, 'image/jpeg'),
-      s3Service.uploadFile(processed.web.buffer, keys.web, 'image/jpeg'),
-      s3Service.uploadFile(processed.thumbnail.buffer, keys.thumbnail, 'image/jpeg'),
+      s3Service.uploadFile(processed.web.buffer, keys.web, 'image/webp'),
+      s3Service.uploadFile(processed.thumbnail.buffer, keys.thumbnail, 'image/webp'),
     ]);
 
     // Create photo record in database
