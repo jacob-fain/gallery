@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { sendContactMessage } from '../../api/client';
 import styles from './ContactModal.module.css';
 
@@ -14,6 +14,18 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -40,12 +52,21 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
   const handleClose = () => {
     setSent(false);
     setError('');
+    setName('');
+    setEmail('');
+    setMessage('');
     onClose();
   };
 
   return (
     <div className={styles.overlay} onClick={handleClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="contact-modal-title"
+      >
         <button className={styles.closeBtn} onClick={handleClose} aria-label="Close">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="18" y1="6" x2="6" y2="18" />
@@ -53,7 +74,7 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
           </svg>
         </button>
 
-        <h2 className={styles.title}>Get in Touch</h2>
+        <h2 id="contact-modal-title" className={styles.title}>Get in Touch</h2>
 
         {sent ? (
           <div className={styles.success}>

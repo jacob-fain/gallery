@@ -15,7 +15,7 @@ app.use(cors({
 app.use(compression({
   filter: (req, res) => {
     // Don't compress ZIP downloads (already compressed)
-    if (req.path.includes('/download')) return false;
+    if (req.path.endsWith('/download')) return false;
     return compression.filter(req, res);
   },
 }));
