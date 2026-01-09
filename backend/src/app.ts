@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import routes from './routes';
 
 const app = express();
@@ -11,7 +12,29 @@ app.use(cors({
     : process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,
 }));
+app.use(compression({
+  filter: (req, res) => {
+    // Don't compress ZIP downloads (already compressed)
+    if (req.path.endsWith('/download')) return false;
+    return compression.filter(req, res);
+  },
+}));
 app.use(express.json());
+
+// Cache headers for public GET endpoints
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET') {
+    const publicPaths = ['/galleries', '/featured', '/settings'];
+    const isPublic = publicPaths.some(p => req.path.startsWith(p));
+
+    if (isPublic && !req.path.includes('/admin')) {
+      res.set('Cache-Control', 'public, max-age=300'); // 5 min
+    } else {
+      res.set('Cache-Control', 'private, no-cache');
+    }
+  }
+  next();
+});
 
 // Routes
 app.use('/api', routes);
