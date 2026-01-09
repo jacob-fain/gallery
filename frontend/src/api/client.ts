@@ -404,6 +404,26 @@ export function trackPhotoDownload(photoId: string): void {
   });
 }
 
+// ============ Contact Form ============
+
+export async function sendContactMessage(
+  name: string,
+  email: string,
+  message: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/contact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, message }),
+  });
+
+  const data: ApiResponse<{ sent: boolean }> = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || 'Failed to send message');
+  }
+}
+
 // ============ Site Settings ============
 
 export interface SiteSettings {
