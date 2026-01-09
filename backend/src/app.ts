@@ -21,6 +21,21 @@ app.use(compression({
 }));
 app.use(express.json());
 
+// Cache headers for public GET endpoints
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET') {
+    const publicPaths = ['/galleries', '/featured', '/settings'];
+    const isPublic = publicPaths.some(p => req.path.startsWith(p));
+
+    if (isPublic && !req.path.includes('/admin')) {
+      res.set('Cache-Control', 'public, max-age=300'); // 5 min
+    } else {
+      res.set('Cache-Control', 'private, no-cache');
+    }
+  }
+  next();
+});
+
 // Routes
 app.use('/api', routes);
 
