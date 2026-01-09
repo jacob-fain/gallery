@@ -59,7 +59,11 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
   }, [lightboxIndex, photos]);
 
   const albumPhotos = photos.map((photo) => ({
-    src: getPhotoUrl(photo, 'web'),
+    src: getPhotoUrl(photo, 'thumbnail'),  // 600px for grid (saves bandwidth)
+    srcSet: [
+      { src: getPhotoUrl(photo, 'thumbnail'), width: 600 },
+      { src: getPhotoUrl(photo, 'web'), width: 1920 },
+    ],
     width: photo.width,
     height: photo.height,
     alt: photo.original_filename,
