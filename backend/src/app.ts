@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import routes from './routes';
 
 const app = express();
@@ -10,6 +11,13 @@ app.use(cors({
     ? true  // Allow all origins in development
     : process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,
+}));
+app.use(compression({
+  filter: (req, res) => {
+    // Don't compress ZIP downloads (already compressed)
+    if (req.path.includes('/download')) return false;
+    return compression.filter(req, res);
+  },
 }));
 app.use(express.json());
 
