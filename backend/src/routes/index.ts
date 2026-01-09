@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authRouter from './auth';
+import contactRouter from './contact';
 import galleriesRouter from './galleries';
 import photosRouter from './photos';
 import settingsRouter from './settings';
@@ -26,6 +27,7 @@ router.get('/admin/analytics', authMiddleware, analyticsController.getAnalytics)
 
 // Mount route modules
 router.use('/auth', authRouter);
+router.use('/contact', contactRouter);
 router.use('/galleries', galleriesRouter);
 router.use('/photos', photosRouter);
 router.use('/settings', settingsRouter);
