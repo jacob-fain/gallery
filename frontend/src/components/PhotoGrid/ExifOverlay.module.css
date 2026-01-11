@@ -20,3 +20,25 @@
   opacity: 0.85;
   font-variant-numeric: tabular-nums;
 }
+
+/* Mobile: smaller text, more compact */
+@media (max-width: 640px) {
+  .overlay {
+    padding: 8px 12px;
+    font-size: 0.7rem;
+    /* Move up to avoid overlap with counter */
+    bottom: 32px;
+  }
+
+  .equipment {
+    margin-bottom: 1px;
+  }
+}
+
+/* Very small screens */
+@media (max-width: 400px) {
+  .overlay {
+    font-size: 0.65rem;
+    padding: 6px 10px;
+  }
+}
