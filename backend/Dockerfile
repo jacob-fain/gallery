@@ -14,5 +14,9 @@ RUN npx tsc
 # Remove dev dependencies
 RUN npm prune --production
 
+# Run as non-root user for security
+RUN chown -R node:node /app
+USER node
+
 EXPOSE 3001
 CMD ["node", "dist/index.js"]
