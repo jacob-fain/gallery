@@ -10,9 +10,10 @@ import type {
   GalleryAccessResponse,
 } from '../types';
 
-// In dev, use same hostname as frontend so it works when accessing via IP
+// In production (HTTPS), use relative path since nginx proxies /api
+// In dev (HTTP), use port 3001 directly
 const API_BASE = import.meta.env.VITE_API_URL ||
-  `http://${window.location.hostname}:3001/api`;
+  (window.location.protocol === 'https:' ? '/api' : `http://${window.location.hostname}:3001/api`);
 
 // ============ Simple In-Memory Cache ============
 // Cache TTL: 5 minutes - makes back navigation instant
