@@ -74,3 +74,50 @@ button {
   color: #dc2626;
   font-size: 1rem;
 }
+
+/* ===========================================
+   Lightbox Mobile Fixes (yet-another-react-lightbox)
+   =========================================== */
+
+/* Ensure toolbar is always visible and accessible on mobile */
+@media (max-width: 640px) {
+  /* Make close button and toolbar more accessible */
+  .yarl__toolbar {
+    padding: 12px !important;
+  }
+
+  /* Larger touch targets for buttons */
+  .yarl__button {
+    padding: 12px !important;
+  }
+
+  /* Ensure navigation arrows don't overlap content */
+  .yarl__navigation_prev,
+  .yarl__navigation_next {
+    padding: 8px !important;
+  }
+
+  /* Counter at bottom - smaller on mobile */
+  .yarl__counter {
+    font-size: 0.75rem !important;
+    padding: 6px 10px !important;
+  }
+}
+
+/* Very small screens - ensure close button is always reachable */
+@media (max-width: 400px) {
+  .yarl__toolbar {
+    padding: 8px !important;
+    gap: 4px !important;
+  }
+
+  .yarl__button {
+    padding: 8px !important;
+  }
+
+  /* Smaller icons on very small screens */
+  .yarl__icon {
+    width: 24px !important;
+    height: 24px !important;
+  }
+}
