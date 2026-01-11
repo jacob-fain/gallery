@@ -5,6 +5,7 @@ import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import Counter from 'yet-another-react-lightbox/plugins/counter';
 import Download from 'yet-another-react-lightbox/plugins/download';
+import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import 'yet-another-react-lightbox/plugins/counter.css';
 import type { Photo, ExifData } from '../../types';
 import { trackPhotoView, trackPhotoDownload } from '../../api/client';
@@ -114,7 +115,13 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
           view: ({ index }) => setLightboxIndex(index),
           download: handleDownload,
         }}
-        plugins={[Counter, Download]}
+        plugins={[Counter, Download, Zoom]}
+        zoom={{
+          maxZoomPixelRatio: 3,
+          scrollToZoom: true,
+          doubleTapDelay: 300,
+          doubleClickDelay: 300,
+        }}
         counter={{ container: { style: { top: 'unset', bottom: 0, left: 'unset', right: 0 } } }}
         render={{
           slideFooter: ({ slide }) => (
