@@ -116,6 +116,10 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
           download: handleDownload,
         }}
         plugins={[Counter, Download, Zoom]}
+        controller={{
+          closeOnPullUp: true,
+          closeOnPullDown: true,
+        }}
         zoom={{
           maxZoomPixelRatio: 3,
           scrollToZoom: true,
