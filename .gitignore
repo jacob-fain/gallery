@@ -36,3 +36,6 @@ test-image.jpg
 # Misc
 *.tmp
 *.temp
+
+# Local deploy script (not shared)
+deploy.sh
