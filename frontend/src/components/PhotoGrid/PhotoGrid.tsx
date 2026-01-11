@@ -58,16 +58,19 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
     }
   }, [lightboxIndex, photos]);
 
-  const albumPhotos = photos.map((photo) => ({
-    src: getPhotoUrl(photo, 'thumbnail'),  // 600px for grid (saves bandwidth)
-    srcSet: [
-      { src: getPhotoUrl(photo, 'thumbnail'), width: 600 },
-      { src: getPhotoUrl(photo, 'web'), width: 1920 },
-    ],
-    width: photo.width,
-    height: photo.height,
-    alt: photo.original_filename,
-  }));
+  const albumPhotos = photos.map((photo) => {
+    const aspectRatio = photo.height / photo.width;
+    return {
+      src: getPhotoUrl(photo, 'thumbnail'),  // 600px for grid (saves bandwidth)
+      srcSet: [
+        { src: getPhotoUrl(photo, 'thumbnail'), width: 600, height: Math.round(600 * aspectRatio) },
+        { src: getPhotoUrl(photo, 'web'), width: 1920, height: Math.round(1920 * aspectRatio) },
+      ],
+      width: photo.width,
+      height: photo.height,
+      alt: photo.original_filename,
+    };
+  });
 
   const lightboxSlides: SlideWithExif[] = photos.map((photo) => ({
     src: getPhotoUrl(photo, 'original'),
