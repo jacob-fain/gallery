@@ -43,6 +43,7 @@ export interface Photo {
   file_size: number;
   sort_order: number;
   is_featured: boolean;
+  is_hidden: boolean;
   view_count: number;
   download_count: number;
   uploaded_at: Date;
@@ -119,6 +120,7 @@ export interface UpdateGalleryInput {
 // Input type for updating a photo
 export interface UpdatePhotoInput {
   is_featured?: boolean;
+  is_hidden?: boolean;
   sort_order?: number;
 }
 

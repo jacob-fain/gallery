@@ -1,4 +1,4 @@
-import { useState, useRef, type DragEvent, type ChangeEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, memo, type DragEvent, type ChangeEvent } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { uploadPhoto } from '../../../api/client';
 import type { Photo } from '../../../types';
@@ -7,6 +7,7 @@ import styles from './PhotoUpload.module.css';
 interface UploadingFile {
   file: File;
   progress: number;
+  status: 'pending' | 'uploading' | 'processing' | 'complete' | 'error';
   error?: string;
 }
 
@@ -15,41 +16,133 @@ interface PhotoUploadProps {
   onUploadComplete: (photo: Photo) => void;
 }
 
+interface UploadItemProps {
+  item: UploadingFile;
+  onDismiss: (file: File) => void;
+}
+
+const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps) {
+  const getStatusText = () => {
+    switch (item.status) {
+      case 'pending': return 'Waiting...';
+      case 'uploading': return `${item.progress}%`;
+      case 'processing': return 'Processing...';
+      case 'complete': return '✓ Done';
+      default: return '';
+    }
+  };
+
+  return (
+    <div className={`${styles.uploadItem} ${styles[item.status]}`}>
+      <span className={styles.filename}>{item.file.name}</span>
+      {item.error ? (
+        <>
+          <span className={styles.error}>{item.error}</span>
+          <button
+            className={styles.dismissBtn}
+            onClick={() => onDismiss(item.file)}
+          >
+            Dismiss
+          </button>
+        </>
+      ) : (
+        <div className={styles.progressWrapper}>
+          <div className={styles.progressBar}>
+            <div
+              className={`${styles.progressFill} ${item.status === 'processing' ? styles.processing : ''}`}
+              style={{ width: item.status === 'pending' ? '0%' : '100%' }}
+            />
+          </div>
+          <span className={styles.progressText}>{getStatusText()}</span>
+        </div>
+      )}
+    </div>
+  );
+});
+
 export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUploadProps) {
   const { token } = useAuth();
   const [uploading, setUploading] = useState<UploadingFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleFiles = async (files: FileList | File[]) => {
+  // Warn user before leaving page with active uploads
+  useEffect(() => {
+    const hasActiveUploads = uploading.some(
+      (u) => u.status === 'uploading' || u.status === 'pending' || u.status === 'processing'
+    );
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasActiveUploads) {
+        e.preventDefault();
+        e.returnValue = 'You have uploads in progress. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    if (hasActiveUploads) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [uploading]);
+
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
     if (!token) return;
 
     const fileArray = Array.from(files);
-    const newUploading = fileArray.map((file) => ({ file, progress: 0 }));
+    const newUploading: UploadingFile[] = fileArray.map((file) => ({
+      file,
+      progress: 0,
+      status: 'pending',
+    }));
     setUploading((prev) => [...prev, ...newUploading]);
 
     for (const item of newUploading) {
+      // Mark as uploading
+      setUploading((prev) =>
+        prev.map((u) =>
+          u.file === item.file ? { ...u, status: 'uploading' } : u
+        )
+      );
+
       try {
         const photo = await uploadPhoto(token, galleryId, item.file, (progress) => {
           setUploading((prev) =>
-            prev.map((u) =>
-              u.file === item.file ? { ...u, progress } : u
-            )
+            prev.map((u) => {
+              if (u.file !== item.file) return u;
+              // When upload hits 100%, switch to processing status
+              if (progress === 100) {
+                return { ...u, progress: 100, status: 'processing' };
+              }
+              return { ...u, progress };
+            })
           );
         });
         onUploadComplete(photo);
-        setUploading((prev) => prev.filter((u) => u.file !== item.file));
+        // Mark as complete
+        setUploading((prev) =>
+          prev.map((u) =>
+            u.file === item.file ? { ...u, status: 'complete', progress: 100 } : u
+          )
+        );
+        // Remove after delay so user sees the success state
+        setTimeout(() => {
+          setUploading((prev) => prev.filter((u) => u.file !== item.file));
+        }, 1500);
       } catch (err) {
         setUploading((prev) =>
           prev.map((u) =>
             u.file === item.file
-              ? { ...u, error: err instanceof Error ? err.message : 'Upload failed' }
+              ? { ...u, status: 'error', error: err instanceof Error ? err.message : 'Upload failed' }
               : u
           )
         );
       }
     }
-  };
+  }, [token, galleryId, onUploadComplete]);
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -76,9 +169,9 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
     }
   };
 
-  const dismissError = (file: File) => {
+  const dismissError = useCallback((file: File) => {
     setUploading((prev) => prev.filter((u) => u.file !== file));
-  };
+  }, []);
 
   return (
     <div className={styles.container}>
@@ -107,27 +200,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
       {uploading.length > 0 && (
         <div className={styles.uploads}>
           {uploading.map((item, index) => (
-            <div key={index} className={styles.uploadItem}>
-              <span className={styles.filename}>{item.file.name}</span>
-              {item.error ? (
-                <>
-                  <span className={styles.error}>{item.error}</span>
-                  <button
-                    className={styles.dismissBtn}
-                    onClick={() => dismissError(item.file)}
-                  >
-                    Dismiss
-                  </button>
-                </>
-              ) : (
-                <div className={styles.progressBar}>
-                  <div
-                    className={styles.progressFill}
-                    style={{ width: `${item.progress}%` }}
-                  />
-                </div>
-              )}
-            </div>
+            <UploadItem key={index} item={item} onDismiss={dismissError} />
           ))}
         </div>
       )}
