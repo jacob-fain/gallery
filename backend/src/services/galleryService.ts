@@ -27,7 +27,7 @@ export const getPublicGalleriesWithCovers = async (): Promise<GalleryWithCoverUr
      LEFT JOIN LATERAL (
        SELECT s3_thumbnail_key
        FROM photos
-       WHERE gallery_id = g.id
+       WHERE gallery_id = g.id AND is_hidden = false
        ORDER BY sort_order ASC, uploaded_at ASC
        LIMIT 1
      ) first_photo ON g.cover_image_id IS NULL
@@ -68,7 +68,7 @@ export const getGalleryById = async (id: string): Promise<Gallery | null> => {
 export const getGalleryPhotos = async (galleryId: string): Promise<Photo[]> => {
   const result = await query(
     `SELECT * FROM photos
-     WHERE gallery_id = $1
+     WHERE gallery_id = $1 AND is_hidden = false
      ORDER BY sort_order ASC, uploaded_at ASC`,
     [galleryId]
   );

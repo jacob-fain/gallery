@@ -17,7 +17,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../../../contexts/AuthContext';
-import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries } from '../../../api/client';
+import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries, updatePhoto } from '../../../api/client';
 import type { Photo, Gallery } from '../../../types';
 import styles from './PhotoManager.module.css';
 
@@ -36,6 +36,7 @@ interface SortablePhotoCardProps {
   onToggleSelect: (photoId: string) => void;
   onCoverClick: (photoId: string) => void;
   onDelete: (photoId: string) => void;
+  onToggleHidden: (photoId: string) => void;
 }
 
 function SortablePhotoCard({
@@ -47,6 +48,7 @@ function SortablePhotoCard({
   onToggleSelect,
   onCoverClick,
   onDelete,
+  onToggleHidden,
 }: SortablePhotoCardProps) {
   const {
     attributes,
@@ -60,14 +62,14 @@ function SortablePhotoCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : isDeleting ? 0.3 : 1,
+    opacity: isDragging ? 0.5 : isDeleting ? 0.3 : photo.is_hidden ? 0.6 : 1,
   };
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`${styles.card} ${isDragging ? styles.dragging : ''} ${isSelected ? styles.selected : ''} ${isDeleting ? styles.deleting : ''}`}
+      className={`${styles.card} ${isDragging ? styles.dragging : ''} ${isSelected ? styles.selected : ''} ${isDeleting ? styles.deleting : ''} ${photo.is_hidden ? styles.hidden : ''}`}
     >
       <div className={styles.imageWrapper}>
         {coverSelectMode ? (
@@ -110,23 +112,50 @@ function SortablePhotoCard({
         {isCover && (
           <span className={styles.coverBadge}>Cover</span>
         )}
+        {photo.is_hidden && (
+          <span className={styles.hiddenBadge}>Hidden</span>
+        )}
       </div>
       <div className={styles.cardFooter}>
         <div className={styles.filename}>{photo.original_filename}</div>
-        <button
-          className={`${styles.deleteIconBtn} ${isDeleting ? styles.loading : ''}`}
-          onClick={() => onDelete(photo.id)}
-          title="Delete photo"
-          disabled={isDeleting}
-        >
-          {isDeleting ? (
-            <span className={styles.spinner} />
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" />
-            </svg>
-          )}
-        </button>
+        <div className={styles.cardActions}>
+          <button
+            className={`${styles.hideIconBtn} ${photo.is_hidden ? styles.isHidden : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleHidden(photo.id);
+            }}
+            title={photo.is_hidden ? 'Show photo' : 'Hide photo'}
+          >
+            {photo.is_hidden ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+          </button>
+          <button
+            className={`${styles.deleteIconBtn} ${isDeleting ? styles.loading : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(photo.id);
+            }}
+            title="Delete photo"
+            disabled={isDeleting}
+          >
+            {isDeleting ? (
+              <span className={styles.spinner} />
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" />
+              </svg>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -257,6 +286,33 @@ export default function PhotoManager({
     }
   };
 
+  const handleToggleHidden = async (photoId: string) => {
+    if (!token) return;
+
+    const photo = localPhotos.find((p) => p.id === photoId);
+    if (!photo) return;
+
+    // Optimistic UI update
+    setLocalPhotos((prev) =>
+      prev.map((p) =>
+        p.id === photoId ? { ...p, is_hidden: !p.is_hidden } : p
+      )
+    );
+
+    try {
+      await updatePhoto(token, photoId, { is_hidden: !photo.is_hidden });
+      onPhotosChange();
+    } catch (err) {
+      console.error('Failed to toggle hidden:', err);
+      // Revert on error
+      setLocalPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId ? { ...p, is_hidden: photo.is_hidden } : p
+        )
+      );
+    }
+  };
+
   // Shuffle photos randomly
   const handleShuffle = async () => {
     if (!token) return;
@@ -340,6 +396,39 @@ export default function PhotoManager({
     }
   };
 
+  // Toggle hidden for selected photos
+  const handleBulkToggleHidden = async () => {
+    if (!token || selectedIds.size === 0) return;
+
+    setBulkActionLoading(true);
+
+    // Determine if we should hide or show - if any are visible, hide all; otherwise show all
+    const selectedPhotos = localPhotos.filter((p) => selectedIds.has(p.id));
+    const shouldHide = selectedPhotos.some((p) => !p.is_hidden);
+
+    // Optimistic update
+    setLocalPhotos((prev) =>
+      prev.map((p) =>
+        selectedIds.has(p.id) ? { ...p, is_hidden: shouldHide } : p
+      )
+    );
+
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) =>
+          updatePhoto(token, id, { is_hidden: shouldHide })
+        )
+      );
+      onPhotosChange();
+    } catch (err) {
+      console.error('Failed to toggle hidden:', err);
+      // Revert on error
+      setLocalPhotos(photos);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   if (photos.length === 0) {
     return (
       <div className={styles.empty}>
@@ -403,6 +492,13 @@ export default function PhotoManager({
                   </span>
                   <button
                     className={styles.bulkBtn}
+                    onClick={handleBulkToggleHidden}
+                    disabled={bulkActionLoading}
+                  >
+                    {localPhotos.filter((p) => selectedIds.has(p.id)).some((p) => !p.is_hidden) ? 'Hide' : 'Show'}
+                  </button>
+                  <button
+                    className={styles.bulkBtn}
                     onClick={handleOpenMoveModal}
                     disabled={bulkActionLoading}
                   >
@@ -450,6 +546,7 @@ export default function PhotoManager({
                 onToggleSelect={handleToggleSelect}
                 onCoverClick={handleSetCover}
                 onDelete={(id) => setDeleteConfirm(id)}
+                onToggleHidden={handleToggleHidden}
               />
             ))}
           </div>
