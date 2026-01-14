@@ -168,12 +168,12 @@ export const uploadPhoto = async (req: Request, res: Response) => {
 // ============ Admin Controllers ============
 
 /**
- * Update a photo's metadata (featured, sort_order)
+ * Update a photo's metadata (featured, hidden, sort_order)
  */
 export const updatePhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { is_featured, sort_order } = req.body;
+    const { is_featured, is_hidden, sort_order } = req.body;
 
     // Check if photo exists
     const existing = await photoService.getPhotoById(id);
@@ -183,6 +183,7 @@ export const updatePhoto = async (req: Request, res: Response) => {
 
     const photo = await photoService.updatePhoto(id, {
       is_featured,
+      is_hidden,
       sort_order,
     });
 
