@@ -38,6 +38,13 @@ The system runs on self-hosted infrastructure with cloud storage, striking a bal
 - Full-resolution download and gallery ZIP export
 - Password-protected private galleries with session tokens
 
+### Image Pipeline
+
+- Three-tier storage: original (preserved), web (1920px WebP), thumbnail (600px WebP)
+- Automatic WebP conversion (30% smaller than JPEG)
+- EXIF extraction stored as JSONB
+- Signed S3 URLs with 1-hour expiration and in-memory caching
+
 ### Admin Dashboard
 
 - Drag-and-drop batch photo upload with per-file progress
@@ -50,13 +57,6 @@ The system runs on self-hosted infrastructure with cloud storage, striking a bal
 | | |
 |---|---|
 | ![Admin Dashboard](assets/dashboard.png) | ![Gallery Editor](assets/gallery-edit.png) |
-
-### Image Pipeline
-
-- Three-tier storage: original (preserved), web (1920px WebP), thumbnail (600px WebP)
-- Automatic WebP conversion (30% smaller than JPEG)
-- EXIF extraction stored as JSONB
-- Signed S3 URLs with 1-hour expiration and in-memory caching
 
 ## Architecture
 
