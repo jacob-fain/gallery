@@ -11,14 +11,122 @@ export const getPhotoById = async (id: string): Promise<Photo | null> => {
 };
 
 export const getFeaturedPhotos = async (): Promise<Photo[]> => {
+  // Featured photos show on homepage regardless of gallery visibility
+  // (user explicitly selected them for homepage)
+  // Only filter by is_hidden to respect photo-level visibility
   const result = await query(
     `SELECT p.*, g.title as gallery_title, g.slug as gallery_slug
      FROM photos p
      JOIN galleries g ON p.gallery_id = g.id
-     WHERE p.is_featured = true AND g.is_public = true AND p.is_hidden = false
-     ORDER BY p.uploaded_at DESC`
+     WHERE p.featured_order IS NOT NULL AND p.is_hidden = false
+     ORDER BY p.featured_order ASC`
   );
   return result.rows;
+};
+
+// Get all featured photos for admin (includes hidden, any gallery)
+export const getFeaturedPhotosAdmin = async (): Promise<Photo[]> => {
+  const result = await query(
+    `SELECT p.*, g.title as gallery_title, g.slug as gallery_slug
+     FROM photos p
+     JOIN galleries g ON p.gallery_id = g.id
+     WHERE p.featured_order IS NOT NULL
+     ORDER BY p.featured_order ASC`
+  );
+  return result.rows;
+};
+
+// Set a photo as the hero (featured_order = 0)
+export const setHeroPhoto = async (photoId: string): Promise<void> => {
+  // Check if photo is already featured
+  const existing = await query(
+    `SELECT featured_order FROM photos WHERE id = $1`,
+    [photoId]
+  );
+  const currentOrder = existing.rows[0]?.featured_order;
+
+  if (currentOrder === 0) {
+    // Already the hero, nothing to do
+    return;
+  }
+
+  if (currentOrder !== null) {
+    // Photo is featured but not hero - remove from current position first
+    await query(
+      `UPDATE photos SET featured_order = featured_order - 1
+       WHERE featured_order > $1 AND featured_order IS NOT NULL`,
+      [currentOrder]
+    );
+  }
+
+  // Shift all existing featured photos down by 1
+  await query(
+    `UPDATE photos SET featured_order = featured_order + 1 WHERE featured_order IS NOT NULL`
+  );
+
+  // Set the new hero
+  await query(
+    `UPDATE photos SET featured_order = 0, is_featured = true WHERE id = $1`,
+    [photoId]
+  );
+};
+
+// Add a photo to featured (at the end)
+export const addToFeatured = async (photoId: string): Promise<void> => {
+  // Check if already featured
+  const existing = await query(
+    `SELECT featured_order FROM photos WHERE id = $1`,
+    [photoId]
+  );
+  if (existing.rows[0]?.featured_order !== null) {
+    return; // Already featured
+  }
+
+  const result = await query(
+    `SELECT COALESCE(MAX(featured_order), -1) + 1 as next_order FROM photos WHERE featured_order IS NOT NULL`
+  );
+  const nextOrder = result.rows[0].next_order;
+  await query(
+    `UPDATE photos SET featured_order = $1, is_featured = true WHERE id = $2`,
+    [nextOrder, photoId]
+  );
+};
+
+// Remove a photo from featured
+export const removeFromFeatured = async (photoId: string): Promise<void> => {
+  // Get current order before removing
+  const result = await query(
+    `SELECT featured_order FROM photos WHERE id = $1`,
+    [photoId]
+  );
+  const currentOrder = result.rows[0]?.featured_order;
+
+  if (currentOrder === null) {
+    return; // Not featured
+  }
+
+  // Remove from featured
+  await query(
+    `UPDATE photos SET featured_order = NULL, is_featured = false WHERE id = $1`,
+    [photoId]
+  );
+
+  // Shift remaining photos up
+  await query(
+    `UPDATE photos SET featured_order = featured_order - 1 WHERE featured_order > $1`,
+    [currentOrder]
+  );
+};
+
+// Reorder featured photos
+export const reorderFeaturedPhotos = async (photoIds: string[]): Promise<void> => {
+  // Update each photo with its new order
+  for (let i = 0; i < photoIds.length; i++) {
+    await query(
+      `UPDATE photos SET featured_order = $1 WHERE id = $2 AND featured_order IS NOT NULL`,
+      [i, photoIds[i]]
+    );
+  }
 };
 
 export const incrementPhotoViews = async (photoId: string): Promise<void> => {

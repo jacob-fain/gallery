@@ -295,6 +295,7 @@
   color: white;
 }
 
+
 .card.hidden .image {
   filter: grayscale(50%);
 }
