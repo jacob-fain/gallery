@@ -1,501 +1,109 @@
-# Gallery
+### [View Site ( jacobfain.gallery )](https://jacobfain.gallery)
 
-A self-hosted photography portfolio with private sharing capabilities.
 
-**Live site:** [jacobfain.gallery](https://jacobfain.gallery)
+A self-hosted photography portfolio with private gallery sharing, image optimization, and analytics.
 
----
+
+![Homepage](assets/homepage.png)
+
 
 ## Overview
 
-Gallery is a personal photography portfolio website that allows photographers to showcase their work publicly and share private galleries with clients via password-protected links.
+Gallery is a full-stack photography portfolio platform designed for photographers who want complete control over their work. It combines a public-facing portfolio with password-protected client galleries, all backed by a comprehensive admin dashboard.
 
-### Features
+The system runs on self-hosted infrastructure with cloud storage, striking a balance between cost efficiency and performance. Photos are stored on AWS S3 with automatic optimization, while compute runs on a home server exposed securely through Cloudflare Tunnel.
 
-**Public Portfolio**
-- Homepage with featured work
-- Organized public galleries (Street, Portraits, Events, etc.)
-- Full-resolution image viewing and download
-- View counter per image/gallery
-- "Buy me a coffee" support link
 
-**Private Galleries**
-- Password-protected galleries for clients
-- Shareable links (e.g., `jacobfain.gallery/g/ninas-birthday`)
-- Same viewing/download experience as public galleries
-- View and download statistics
+## Technology Stack
 
-**Admin Dashboard**
-- Secure login
-- Drag & drop batch photo uploads
-- Create, edit, delete galleries
-- Set galleries as public or private (with password)
-- Reorder photos, set cover images
-- View statistics (views, downloads per gallery/image)
-- Feature photos for homepage
+| Layer | Technologies |
+|-------|--------------|
+| Frontend | React 19, TypeScript, Vite, React Router 6 |
+| Backend | Node.js 20, Express 5, TypeScript |
+| Database | PostgreSQL 15 |
+| Storage | AWS S3 (signed URLs, three-tier image storage) |
+| Auth | JWT, bcrypt |
+| Infrastructure | Docker, Nginx, Cloudflare Tunnel |
 
----
+## Features
 
-## Tech Stack
+### Public Site
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | React + TypeScript |
-| Backend | Node.js + TypeScript (Express or NestJS) |
-| Database | PostgreSQL |
-| Storage | AWS S3 |
-| Hosting | Self-hosted (home server) + Cloudflare Tunnel |
+- Full-viewport hero section with featured photo
+- Responsive masonry photo grid with lazy loading
+- Lightbox with pinch-to-zoom, swipe navigation, and swipe-to-dismiss
+- EXIF metadata overlay (camera, lens, settings)
+- Full-resolution download and gallery ZIP export
+- Password-protected private galleries with session tokens
 
----
+### Image Pipeline
+
+- Three-tier storage: original (preserved), web (1920px WebP), thumbnail (600px WebP)
+- Automatic WebP conversion (30% smaller than JPEG)
+- EXIF extraction stored as JSONB
+- Signed S3 URLs with 1-hour expiration and in-memory caching
+
+### Admin Dashboard
+
+- Drag-and-drop batch photo upload with per-file progress
+- Photo and gallery reordering via drag-and-drop
+- Featured photo management (hero + grid selection)
+- Hide individual photos from public view
+- Analytics dashboard with view/download charts
+- Site settings configuration
+
+| | |
+|---|---|
+| ![Admin Dashboard](assets/dashboard.png) | ![Gallery Editor](assets/gallery-edit.png) |
 
 ## Architecture
 
 ```
-                         ┌──────────────────────────────────────────────┐
-                         │            Cloudflare                        │
-                         │  ┌─────────────┐    ┌─────────────────────┐  │
-Internet ───────────────▶│  │    DNS      │───▶│  Tunnel (free)      │  │
-                         │  └─────────────┘    └──────────┬──────────┘  │
-                         └────────────────────────────────┼─────────────┘
-                                                          │
-                                                          ▼
-                         ┌──────────────────────────────────────────────┐
-                         │            Home Server (Beelink)             │
-                         │  ┌─────────────────┐    ┌─────────────────┐  │
-                         │  │  React Frontend │    │  PostgreSQL     │  │
-                         │  │  (Nginx/static) │    │  (Docker)       │  │
-                         │  └─────────────────┘    └─────────────────┘  │
-                         │  ┌─────────────────┐                         │
-                         │  │  Node.js API    │                         │
-                         │  │  (Docker)       │                         │
-                         │  └────────┬────────┘                         │
-                         └───────────┼──────────────────────────────────┘
-                                     │
-                                     ▼
-                         ┌─────────────────────┐
-                         │      AWS S3         │
-                         │  (Photo Storage)    │
-                         │                     │
-                         │  - Originals        │
-                         │  - Thumbnails       │
-                         │  - Web-optimized    │
-                         └─────────────────────┘
+                                            Internet
+                                                |
+                    
+                        
+                                        Cloudflare Tunnel
+                                                |
+                                                v
+                        +----------------------------------------------+
+                        |             Home Server (Docker)             |
+                        |                                              |
+                        |           Nginx -> Express -> Postgres       |
+                        |                       |                      |
+                        +-----------------------+----------------------+
+                                                |
+                                                v
+                                            AWS S3
 ```
 
-### Why This Architecture?
+### Design Decisions
 
-- **Self-hosted backend**: Free compute, full control, Docker experience
-- **AWS S3 for images**: Industry standard, great resume value, images load fast from AWS regardless of home internet speed
-- **Cloudflare Tunnel**: Free, secure, no port forwarding needed, your home IP stays hidden
-- **PostgreSQL in Docker**: Production database experience, easy to backup
-
----
-
-## Data Models
-
-### User (Admin)
-```
-- id: UUID
-- email: string
-- password_hash: string
-- created_at: timestamp
-```
-
-### Gallery
-```
-- id: UUID
-- title: string
-- slug: string (URL-friendly, e.g., "ninas-birthday")
-- description: string (optional)
-- cover_image_id: UUID (optional)
-- is_public: boolean
-- password_hash: string (nullable, for private galleries)
-- view_count: integer
-- created_at: timestamp
-- updated_at: timestamp
-```
-
-### Photo
-```
-- id: UUID
-- gallery_id: UUID (foreign key)
-- filename: string
-- original_filename: string
-- s3_key: string
-- s3_thumbnail_key: string
-- width: integer
-- height: integer
-- file_size: integer
-- sort_order: integer
-- is_featured: boolean (for homepage)
-- view_count: integer
-- download_count: integer
-- uploaded_at: timestamp
-```
-
----
-
-## API Endpoints
-
-### Public
-```
-GET  /api/galleries                    # List public galleries
-GET  /api/galleries/:slug              # Get gallery by slug (checks password if private)
-POST /api/galleries/:slug/verify       # Verify password for private gallery
-GET  /api/galleries/:slug/photos       # Get photos in gallery
-GET  /api/photos/:id                   # Get single photo details
-GET  /api/photos/:id/download          # Download full-res photo (increments counter)
-GET  /api/featured                     # Get featured photos for homepage
-```
-
-### Admin (authenticated)
-```
-POST   /api/admin/login                # Admin login
-POST   /api/admin/logout               # Admin logout
-
-GET    /api/admin/galleries            # List all galleries (public + private)
-POST   /api/admin/galleries            # Create gallery
-PUT    /api/admin/galleries/:id        # Update gallery
-DELETE /api/admin/galleries/:id        # Delete gallery
-
-POST   /api/admin/galleries/:id/photos # Upload photos to gallery
-PUT    /api/admin/photos/:id           # Update photo (reorder, feature, etc.)
-DELETE /api/admin/photos/:id           # Delete photo
-
-GET    /api/admin/stats                # Get overall statistics
-```
-
----
-
-## Pages
-
-### Public
-- `/` - Homepage with featured work and gallery links
-- `/galleries` - List of public galleries
-- `/g/:slug` - Gallery view (password prompt if private)
-- `/about` - About page (optional)
-
-### Admin
-- `/admin/login` - Admin login
-- `/admin` - Dashboard with stats overview
-- `/admin/galleries` - Manage galleries
-- `/admin/galleries/:id` - Edit gallery, manage photos
-- `/admin/upload` - Batch upload interface
-
----
-
-## Image Processing
-
-On upload, the server will:
-1. Accept the original full-resolution image
-2. Generate a thumbnail (e.g., 400px wide) for gallery grid view
-3. Generate a web-optimized version (e.g., 1600px wide) for viewing
-4. Store all versions in S3
-5. Save metadata to database
-
-This improves page load performance while preserving full-res for downloads.
-
----
-
-## Infrastructure
-
-### AWS Services Used
-
-| Service | Purpose | Resume Value |
-|---------|---------|--------------|
-| S3 | Photo storage (originals, thumbnails, web versions) | High - industry standard |
-| IAM | Access policies for S3 | High - security basics |
-| CloudFront | CDN for fast image delivery (optional) | High - common in job postings |
-
-### Self-Hosted Services (Docker on Beelink)
-
-| Service | Purpose |
-|---------|---------|
-| Node.js API | Backend server |
-| PostgreSQL | Database |
-| Nginx | Serve frontend static files |
-| cloudflared | Cloudflare Tunnel client |
-
-### Cloudflare (Free)
-
-| Service | Purpose |
-|---------|---------|
-| Tunnel | Expose home server to internet securely |
-| DNS | Point jacobfain.gallery to tunnel |
-| SSL | Free HTTPS certificate |
-
-### Estimated Costs
-
-| Service | Cost |
-|---------|------|
-| AWS S3 (50GB storage) | ~$1.15/month |
-| AWS S3 (egress ~10GB/month) | ~$0.90/month |
-| CloudFront (optional, 10GB) | ~$0.85/month |
-| Cloudflare Tunnel | Free |
-| Cloudflare DNS | Free |
-| Domain (jacobfain.gallery) | ~$20/year |
-
-**Total: ~$2-5/month** + $20/year for domain
-
-### Optional: Full AWS Deployment
-
-If you want to move off self-hosted later (for uptime or learning), you can migrate to:
-
-| Service | Purpose | Cost |
-|---------|---------|------|
-| EC2 t3.micro | Node.js API | ~$8/month |
-| RDS db.t3.micro | PostgreSQL | ~$15/month |
-| S3 | Photo storage | ~$2/month |
-| CloudFront | CDN | ~$1/month |
-| Route 53 | DNS | ~$0.50/month |
-
-**Full AWS Total: ~$25-30/month**
-
----
-
-## Development Roadmap
-
-### Phase 1: Foundation
-- [ ] Initialize React + TypeScript frontend
-- [ ] Initialize Node.js + TypeScript backend
-- [ ] Set up PostgreSQL database schema
-- [ ] Set up AWS S3 bucket
-- [ ] Basic API endpoints (galleries, photos)
-- [ ] Image upload with thumbnail generation
-
-### Phase 2: Public Site
-- [ ] Homepage with featured photos
-- [ ] Public gallery listing
-- [ ] Gallery view with photo grid
-- [ ] Full-res image viewing
-- [ ] Download functionality
-- [ ] View counting
-- [ ] Responsive design
-
-### Phase 3: Private Galleries
-- [ ] Password protection for galleries
-- [ ] Password entry page
-- [ ] Shareable links
-
-### Phase 4: Admin Dashboard
-- [ ] Admin authentication
-- [ ] Gallery management (CRUD)
-- [ ] Drag & drop photo upload
-- [ ] Photo reordering
-- [ ] Set cover images
-- [ ] Feature photos for homepage
-- [ ] Statistics dashboard
-
-### Phase 5: Polish & Deploy
-- [ ] Design refinement
-- [ ] Performance optimization
-- [ ] Set up AWS infrastructure
-- [ ] CI/CD pipeline
-- [ ] Domain + SSL setup
-- [ ] "Buy me a coffee" integration
-
-### Phase 6: Future Enhancements (Optional)
-- [ ] Lightbox image viewer
-- [ ] Keyboard navigation
-- [ ] Social sharing
-- [ ] Download tracking analytics
-- [ ] Multiple admin users
-- [ ] Bulk download as ZIP
-- [ ] Batch upload with progress tracking
-  - Per-file and overall progress bars
-  - Estimated time remaining
-  - Pause/resume/cancel support
-
----
-
-## Local Development
-
-### Prerequisites
-- Node.js 18+
-- PostgreSQL 14+ (or Docker)
-- AWS account with S3 bucket
-
-### Setup
-
-```bash
-# Clone the repo
-git clone https://github.com/yourusername/gallery.git
-cd gallery
-
-# Install dependencies
-cd backend && npm install
-cd ../frontend && npm install
-
-# Set up environment variables
-cp backend/.env.example backend/.env
-# Edit .env with your database and AWS credentials
-
-# Start PostgreSQL with Docker (optional)
-docker run -d \
-  --name gallery-db \
-  -e POSTGRES_USER=gallery \
-  -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=gallery \
-  -p 5432:5432 \
-  postgres:15
-
-# Run database migrations
-cd backend && npm run migrate
-
-# Start development servers
-# Terminal 1:
-cd backend && npm run dev
-
-# Terminal 2:
-cd frontend && npm run dev
-```
-
-Frontend runs at `http://localhost:3000`
-Backend runs at `http://localhost:3001`
-
-### Environment Variables
-
-```bash
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/gallery
-
-# AWS
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_REGION=us-east-1
-AWS_S3_BUCKET=your-bucket-name
-
-# Auth
-JWT_SECRET=your_jwt_secret
-ADMIN_EMAIL=your@email.com
-ADMIN_PASSWORD_HASH=hashed_password
-
-# App
-PORT=3001
-FRONTEND_URL=http://localhost:3000
-```
-
----
+| Decision | Rationale |
+|----------|-----------|
+| Self-hosted compute | Full control, zero hosting cost, Docker experience |
+| AWS S3 for images | Scalable storage, fast delivery, industry standard |
+| Cloudflare Tunnel | Secure exposure without port forwarding, hides home IP |
+| Three-tier images | Fast page loads without sacrificing download quality |
+| Subdomain routing | Clean separation of public site and admin interface |
 
 ## Deployment
 
-### Self-Hosted Setup (Beelink/Home Server)
+The production environment runs via Docker Compose with:
+- Multi-stage frontend build (Vite build, served by Nginx)
+- Node.js backend with health checks
+- PostgreSQL with volume persistence
+- Automated database migrations
 
-#### Prerequisites
-- Docker and Docker Compose installed
-- Cloudflare account
-- AWS account
-- Domain registered and added to Cloudflare
+## Security
 
-#### 1. Clone and configure
-
-```bash
-git clone https://github.com/yourusername/gallery.git
-cd gallery
-cp .env.example .env
-# Edit .env with your AWS credentials and secrets
-```
-
-#### 2. Start with Docker Compose
-
-```bash
-docker-compose up -d
-```
-
-This starts:
-- Node.js API on port 3001
-- PostgreSQL on port 5432
-- Nginx serving frontend on port 80
-
-#### 3. Set up Cloudflare Tunnel
-
-```bash
-# Install cloudflared
-curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
-chmod +x cloudflared
-sudo mv cloudflared /usr/local/bin/
-
-# Authenticate with Cloudflare
-cloudflared tunnel login
-
-# Create tunnel
-cloudflared tunnel create gallery
-
-# Configure tunnel (creates ~/.cloudflared/config.yml)
-cloudflared tunnel route dns gallery jacobfain.gallery
-```
-
-#### 4. Configure tunnel
-
-Create `~/.cloudflared/config.yml`:
-
-```yaml
-tunnel: <your-tunnel-id>
-credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
-
-ingress:
-  - hostname: jacobfain.gallery
-    service: http://localhost:80
-  - service: http_status:404
-```
-
-#### 5. Run tunnel as service
-
-```bash
-sudo cloudflared service install
-sudo systemctl start cloudflared
-sudo systemctl enable cloudflared
-```
-
-#### 6. Set up AWS S3
-
-1. Create S3 bucket: `jacobfain-gallery-photos`
-2. Create IAM user with S3 access
-3. Configure CORS on bucket for your domain
-4. Add credentials to `.env`
-
-### Docker Compose
-
-```yaml
-version: '3.8'
-
-services:
-  api:
-    build: ./backend
-    ports:
-      - "3001:3001"
-    environment:
-      - DATABASE_URL=postgresql://gallery:password@db:5432/gallery
-    depends_on:
-      - db
-    restart: unless-stopped
-
-  db:
-    image: postgres:15
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=gallery
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=gallery
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./frontend/dist:/usr/share/nginx/html
-      - ./nginx.conf:/etc/nginx/nginx.conf
-    depends_on:
-      - api
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
-```
-
----
+- Passwords hashed with bcrypt (10 rounds)
+- JWT tokens with 7-day expiration
+- Private gallery access tokens (24-hour expiration)
+- S3 signed URLs (1-hour expiration)
+- Rate limiting on tracking endpoints
+- Non-root Docker containers
+- Cloudflare Tunnel (no exposed ports)
 
 ## License
 
