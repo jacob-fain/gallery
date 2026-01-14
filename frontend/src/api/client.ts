@@ -337,6 +337,7 @@ export async function updatePhoto(
   });
   clearCache('photos:');
   clearCache('featured');
+  clearCache('galleries');
   return result;
 }
 

@@ -5,6 +5,7 @@ import type { Photo } from '../../../types';
 import styles from './PhotoUpload.module.css';
 
 interface UploadingFile {
+  id: string;
   file: File;
   progress: number;
   status: 'pending' | 'uploading' | 'processing' | 'complete' | 'error';
@@ -18,7 +19,7 @@ interface PhotoUploadProps {
 
 interface UploadItemProps {
   item: UploadingFile;
-  onDismiss: (file: File) => void;
+  onDismiss: (id: string) => void;
 }
 
 const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps) {
@@ -40,7 +41,7 @@ const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps
           <span className={styles.error}>{item.error}</span>
           <button
             className={styles.dismissBtn}
-            onClick={() => onDismiss(item.file)}
+            onClick={() => onDismiss(item.id)}
           >
             Dismiss
           </button>
@@ -50,7 +51,14 @@ const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps
           <div className={styles.progressBar}>
             <div
               className={`${styles.progressFill} ${item.status === 'processing' ? styles.processing : ''}`}
-              style={{ width: item.status === 'pending' ? '0%' : '100%' }}
+              style={{
+                width:
+                  item.status === 'pending'
+                    ? '0%'
+                    : item.status === 'uploading'
+                    ? `${item.progress}%`
+                    : '100%',
+              }}
             />
           </div>
           <span className={styles.progressText}>{getStatusText()}</span>
@@ -94,6 +102,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
 
     const fileArray = Array.from(files);
     const newUploading: UploadingFile[] = fileArray.map((file) => ({
+      id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       file,
       progress: 0,
       status: 'pending',
@@ -104,7 +113,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
       // Mark as uploading
       setUploading((prev) =>
         prev.map((u) =>
-          u.file === item.file ? { ...u, status: 'uploading' } : u
+          u.id === item.id ? { ...u, status: 'uploading' } : u
         )
       );
 
@@ -112,7 +121,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         const photo = await uploadPhoto(token, galleryId, item.file, (progress) => {
           setUploading((prev) =>
             prev.map((u) => {
-              if (u.file !== item.file) return u;
+              if (u.id !== item.id) return u;
               // When upload hits 100%, switch to processing status
               if (progress === 100) {
                 return { ...u, progress: 100, status: 'processing' };
@@ -125,17 +134,17 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         // Mark as complete
         setUploading((prev) =>
           prev.map((u) =>
-            u.file === item.file ? { ...u, status: 'complete', progress: 100 } : u
+            u.id === item.id ? { ...u, status: 'complete', progress: 100 } : u
           )
         );
         // Remove after delay so user sees the success state
         setTimeout(() => {
-          setUploading((prev) => prev.filter((u) => u.file !== item.file));
+          setUploading((prev) => prev.filter((u) => u.id !== item.id));
         }, 1500);
       } catch (err) {
         setUploading((prev) =>
           prev.map((u) =>
-            u.file === item.file
+            u.id === item.id
               ? { ...u, status: 'error', error: err instanceof Error ? err.message : 'Upload failed' }
               : u
           )
@@ -169,8 +178,8 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
     }
   };
 
-  const dismissError = useCallback((file: File) => {
-    setUploading((prev) => prev.filter((u) => u.file !== file));
+  const dismissError = useCallback((id: string) => {
+    setUploading((prev) => prev.filter((u) => u.id !== id));
   }, []);
 
   return (
@@ -199,8 +208,8 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
 
       {uploading.length > 0 && (
         <div className={styles.uploads}>
-          {uploading.map((item, index) => (
-            <UploadItem key={index} item={item} onDismiss={dismissError} />
+          {uploading.map((item) => (
+            <UploadItem key={item.id} item={item} onDismiss={dismissError} />
           ))}
         </div>
       )}
