@@ -58,6 +58,32 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 4px;
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s;
+}
+
+/* Status-based styling */
+.uploadItem.pending {
+  opacity: 0.6;
+}
+
+.uploadItem.uploading {
+  background: rgba(59, 130, 246, 0.05);
+  border-color: var(--color-primary);
+}
+
+.uploadItem.processing {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: var(--color-primary);
+}
+
+.uploadItem.complete {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: #22c55e;
+}
+
+.uploadItem.error {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: #ef4444;
 }
 
 .filename {
@@ -69,8 +95,15 @@
   white-space: nowrap;
 }
 
+.progressWrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 180px;
+}
+
 .progressBar {
-  width: 100px;
+  flex: 1;
   height: 8px;
   background: var(--color-background);
   border-radius: 4px;
@@ -80,7 +113,37 @@
 .progressFill {
   height: 100%;
   background: var(--color-primary);
-  transition: width 0.2s;
+  transition: width 0.15s ease-out, background 0.3s ease;
+}
+
+/* Processing animation - pulsing gradient */
+.progressFill.processing {
+  background: linear-gradient(90deg, var(--color-primary) 0%, #60a5fa 50%, var(--color-primary) 100%);
+  background-size: 200% 100%;
+  animation: processing 1.5s ease-in-out infinite;
+}
+
+@keyframes processing {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.uploadItem.complete .progressFill {
+  background: #22c55e;
+}
+
+.progressText {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  min-width: 75px;
+  text-align: right;
+}
+
+/* Success checkmark styling */
+.uploadItem.complete .progressText {
+  color: #22c55e;
+  font-weight: 500;
 }
 
 .error {

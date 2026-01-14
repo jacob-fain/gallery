@@ -12,6 +12,9 @@ router.post('/', authMiddleware, galleryController.createGallery);
 // GET /api/galleries/admin/all - List all galleries (admin)
 router.get('/admin/all', authMiddleware, galleryController.listAllGalleries);
 
+// PUT /api/galleries/reorder - Reorder galleries (must be before /:id routes)
+router.put('/reorder', authMiddleware, galleryController.reorderGalleries);
+
 // PUT /api/galleries/:id - Update gallery
 router.put('/:id', authMiddleware, galleryController.updateGallery);
 
@@ -23,9 +26,6 @@ router.put('/:id/cover', authMiddleware, galleryController.setCoverImage);
 
 // GET /api/galleries/:id/photos/admin - Get photos by gallery ID (admin)
 router.get('/:id/photos/admin', authMiddleware, galleryController.getGalleryPhotosAdmin);
-
-// PUT /api/galleries/reorder - Reorder galleries
-router.put('/reorder', authMiddleware, galleryController.reorderGalleries);
 
 // ============ Public Routes ============
 

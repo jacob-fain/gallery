@@ -283,7 +283,7 @@ export const setCoverImage = async (req: Request, res: Response) => {
 };
 
 /**
- * Get photos for a gallery by ID (admin only)
+ * Get photos for a gallery by ID (admin only - includes hidden photos)
  */
 export const getGalleryPhotosAdmin = async (req: Request, res: Response) => {
   try {
@@ -294,7 +294,8 @@ export const getGalleryPhotosAdmin = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Gallery not found' });
     }
 
-    const photos = await galleryService.getGalleryPhotos(id);
+    // Use photoService.getPhotosByGalleryId to include hidden photos
+    const photos = await photoService.getPhotosByGalleryId(id);
     const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
     res.json({ success: true, data: photosWithUrls });
   } catch (err) {

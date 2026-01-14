@@ -15,7 +15,7 @@ export const getFeaturedPhotos = async (): Promise<Photo[]> => {
     `SELECT p.*, g.title as gallery_title, g.slug as gallery_slug
      FROM photos p
      JOIN galleries g ON p.gallery_id = g.id
-     WHERE p.is_featured = true AND g.is_public = true
+     WHERE p.is_featured = true AND g.is_public = true AND p.is_hidden = false
      ORDER BY p.uploaded_at DESC`
   );
   return result.rows;
@@ -138,6 +138,10 @@ export const updatePhoto = async (
   if (data.is_featured !== undefined) {
     updates.push(`is_featured = $${paramIndex++}`);
     values.push(data.is_featured);
+  }
+  if (data.is_hidden !== undefined) {
+    updates.push(`is_hidden = $${paramIndex++}`);
+    values.push(data.is_hidden);
   }
   if (data.sort_order !== undefined) {
     updates.push(`sort_order = $${paramIndex++}`);

@@ -304,6 +304,9 @@ export async function uploadPhoto(
       try {
         const data: ApiResponse<Photo> = JSON.parse(xhr.responseText);
         if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data) {
+          clearCache('photos:');
+          clearCache('featured');
+          clearCache('galleries');
           resolve(data.data);
         } else {
           reject(new Error(data.error || 'Upload failed'));
@@ -325,13 +328,17 @@ export async function uploadPhoto(
 export async function updatePhoto(
   token: string,
   id: string,
-  data: { is_featured?: boolean; sort_order?: number }
+  data: { is_featured?: boolean; is_hidden?: boolean; sort_order?: number }
 ): Promise<Photo> {
-  return fetchApiAuth<Photo>(`/photos/${id}`, token, {
+  const result = await fetchApiAuth<Photo>(`/photos/${id}`, token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
+  clearCache('photos:');
+  clearCache('featured');
+  clearCache('galleries');
+  return result;
 }
 
 export async function deletePhoto(token: string, id: string): Promise<{ deleted: boolean }> {
@@ -349,11 +356,15 @@ export async function reorderPhotos(
   galleryId: string,
   photoIds: string[]
 ): Promise<{ reordered: boolean }> {
-  return fetchApiAuth<{ reordered: boolean }>('/photos/reorder', token, {
+  const result = await fetchApiAuth<{ reordered: boolean }>('/photos/reorder', token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gallery_id: galleryId, photo_ids: photoIds }),
   });
+  clearCache('photos:');
+  clearCache('featured');
+  clearCache('galleries');
+  return result;
 }
 
 export async function movePhotos(
@@ -367,6 +378,7 @@ export async function movePhotos(
     body: JSON.stringify({ photo_ids: photoIds, target_gallery_id: targetGalleryId }),
   });
   clearCache('photos:');
+  clearCache('featured');
   clearCache('galleries');
   return result;
 }
