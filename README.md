@@ -1,8 +1,8 @@
-### [jacobfain.gallery →](https://jacobfain.gallery)
+### [View Live Site ( jacobfain.gallery )](https://jacobfain.gallery)
 
-# Gallery
 
 A self-hosted photography portfolio with private gallery sharing, image optimization, and analytics.
+
 
 ![Homepage](assets/homepage.png)
 
