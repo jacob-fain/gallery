@@ -25,6 +25,13 @@ router.get('/admin/stats', authMiddleware, galleryController.getStats);
 // Admin analytics
 router.get('/admin/analytics', authMiddleware, analyticsController.getAnalytics);
 
+// Admin homepage management
+router.get('/admin/homepage', authMiddleware, photoController.getFeaturedAdmin);
+router.post('/admin/homepage/hero', authMiddleware, photoController.setHero);
+router.post('/admin/homepage/featured', authMiddleware, photoController.addFeatured);
+router.delete('/admin/homepage/featured', authMiddleware, photoController.removeFeatured);
+router.put('/admin/homepage/reorder', authMiddleware, photoController.reorderFeatured);
+
 // Mount route modules
 router.use('/auth', authRouter);
 router.use('/contact', contactRouter);

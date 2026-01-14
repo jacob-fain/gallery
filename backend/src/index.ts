@@ -15,7 +15,8 @@ const start = async () => {
     process.exit(1);
   }
 
-  app.listen(PORT, () => {
+  // Listen on 0.0.0.0 to be accessible from Windows host in WSL2
+  app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/api/health`);
   });

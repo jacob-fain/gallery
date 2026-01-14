@@ -287,3 +287,126 @@ export const movePhotos = async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Failed to move photos' });
   }
 };
+
+// ============ Homepage Featured Photos Management ============
+
+/**
+ * Get all featured photos for admin management
+ */
+export const getFeaturedAdmin = async (_req: Request, res: Response) => {
+  try {
+    const photos = await photoService.getFeaturedPhotosAdmin();
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error fetching featured photos:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch featured photos' });
+  }
+};
+
+/**
+ * Set a photo as the hero (main homepage image)
+ */
+export const setHero = async (req: Request, res: Response) => {
+  try {
+    const { photo_id } = req.body;
+
+    if (!photo_id) {
+      return res.status(400).json({ success: false, error: 'photo_id is required' });
+    }
+
+    // Verify photo exists
+    const photo = await photoService.getPhotoById(photo_id);
+    if (!photo) {
+      return res.status(404).json({ success: false, error: 'Photo not found' });
+    }
+
+    await photoService.setHeroPhoto(photo_id);
+
+    // Return updated featured list
+    const photos = await photoService.getFeaturedPhotosAdmin();
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error setting hero photo:', err);
+    res.status(500).json({ success: false, error: 'Failed to set hero photo' });
+  }
+};
+
+/**
+ * Add a photo to featured section
+ */
+export const addFeatured = async (req: Request, res: Response) => {
+  try {
+    const { photo_id } = req.body;
+
+    if (!photo_id) {
+      return res.status(400).json({ success: false, error: 'photo_id is required' });
+    }
+
+    // Verify photo exists
+    const photo = await photoService.getPhotoById(photo_id);
+    if (!photo) {
+      return res.status(404).json({ success: false, error: 'Photo not found' });
+    }
+
+    await photoService.addToFeatured(photo_id);
+
+    // Return updated featured list
+    const photos = await photoService.getFeaturedPhotosAdmin();
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error adding featured photo:', err);
+    res.status(500).json({ success: false, error: 'Failed to add featured photo' });
+  }
+};
+
+/**
+ * Remove a photo from featured section
+ */
+export const removeFeatured = async (req: Request, res: Response) => {
+  try {
+    const { photo_id } = req.body;
+
+    if (!photo_id) {
+      return res.status(400).json({ success: false, error: 'photo_id is required' });
+    }
+
+    await photoService.removeFromFeatured(photo_id);
+
+    // Return updated featured list
+    const photos = await photoService.getFeaturedPhotosAdmin();
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error removing featured photo:', err);
+    res.status(500).json({ success: false, error: 'Failed to remove featured photo' });
+  }
+};
+
+/**
+ * Reorder featured photos
+ */
+export const reorderFeatured = async (req: Request, res: Response) => {
+  try {
+    const { photo_ids } = req.body;
+
+    if (!Array.isArray(photo_ids) || photo_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'photo_ids array is required',
+      });
+    }
+
+    await photoService.reorderFeaturedPhotos(photo_ids);
+
+    // Return updated featured list
+    const photos = await photoService.getFeaturedPhotosAdmin();
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error reordering featured photos:', err);
+    res.status(500).json({ success: false, error: 'Failed to reorder featured photos' });
+  }
+};
