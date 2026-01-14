@@ -1,4 +1,4 @@
-### [View Live Site ( jacobfain.gallery )](https://jacobfain.gallery)
+### [View Site ( jacobfain.gallery )](https://jacobfain.gallery)
 
 
 A self-hosted photography portfolio with private gallery sharing, image optimization, and analytics.
@@ -19,9 +19,7 @@ The system runs on self-hosted infrastructure with cloud storage, striking a bal
 | Layer | Technologies |
 |-------|--------------|
 | Frontend | React 19, TypeScript, Vite, React Router 6 |
-| UI Components | react-photo-album, yet-another-react-lightbox, @dnd-kit, Recharts |
 | Backend | Node.js 20, Express 5, TypeScript |
-| Image Processing | Sharp (WebP conversion, resizing), exif-reader |
 | Database | PostgreSQL 15 |
 | Storage | AWS S3 (signed URLs, three-tier image storage) |
 | Auth | JWT, bcrypt |
@@ -61,26 +59,26 @@ The system runs on self-hosted infrastructure with cloud storage, striking a bal
 ## Architecture
 
 ```
-                                       Internet
+                                        Internet
+                                            │
+                                            ▼
+                                   Cloudflare Tunnel
+                                   (SSL termination)
+                                            │
+                                            ▼
+                      ┌─────────────────────────────────────────────┐
+                      │            Home Server (Docker)             │
+                      │                                             │
+                      │   ┌───────┐   ┌─────────┐   ┌───────────┐   │
+                      │   │ Nginx │──▶│ Express │──▶│ Postgres  │   │
+                      │   │ (SPA) │   │   API   │   │    DB     │   │
+                      │   └───────┘   └────┬────┘   └───────────┘   │
+                      │                    │                        │
+                      └────────────────────┼────────────────────────┘
                                            │
                                            ▼
-                                  Cloudflare Tunnel
-                                  (SSL termination)
-                                           │
-                                           ▼
-                     ┌─────────────────────────────────────────────┐
-                     │            Home Server (Docker)             │
-                     │                                             │
-                     │   ┌───────┐   ┌─────────┐   ┌───────────┐   │
-                     │   │ Nginx │──▶│ Express │──▶│ Postgres  │   │
-                     │   │ (SPA) │   │   API   │   │    DB     │   │
-                     │   └───────┘   └────┬────┘   └───────────┘   │
-                     │                    │                        │
-                     └────────────────────┼────────────────────────┘
-                                          │
-                                          ▼
-                                       AWS S3
-                                   (Photo Storage)
+                                        AWS S3
+                                    (Photo Storage)
 ```
 
 ### Design Decisions
