@@ -43,6 +43,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                 Galleries
               </NavLink>
               <NavLink
+                to="/homepage"
+                className={({ isActive }) =>
+                  isActive ? `${styles.link} ${styles.active}` : styles.link
+                }
+              >
+                Homepage
+              </NavLink>
+              <NavLink
                 to="/settings"
                 className={({ isActive }) =>
                   isActive ? `${styles.link} ${styles.active}` : styles.link

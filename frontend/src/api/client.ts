@@ -436,6 +436,52 @@ export async function sendContactMessage(
   }
 }
 
+// ============ Homepage Management ============
+
+export async function getHomepagePhotos(token: string): Promise<Photo[]> {
+  return fetchApiAuth<Photo[]>('/admin/homepage', token);
+}
+
+export async function setHeroPhoto(token: string, photoId: string): Promise<Photo[]> {
+  const result = await fetchApiAuth<Photo[]>('/admin/homepage/hero', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photo_id: photoId }),
+  });
+  clearCache('featured');
+  return result;
+}
+
+export async function addToHomepage(token: string, photoId: string): Promise<Photo[]> {
+  const result = await fetchApiAuth<Photo[]>('/admin/homepage/featured', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photo_id: photoId }),
+  });
+  clearCache('featured');
+  return result;
+}
+
+export async function removeFromHomepage(token: string, photoId: string): Promise<Photo[]> {
+  const result = await fetchApiAuth<Photo[]>('/admin/homepage/featured', token, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photo_id: photoId }),
+  });
+  clearCache('featured');
+  return result;
+}
+
+export async function reorderHomepagePhotos(token: string, photoIds: string[]): Promise<Photo[]> {
+  const result = await fetchApiAuth<Photo[]>('/admin/homepage/reorder', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photo_ids: photoIds }),
+  });
+  clearCache('featured');
+  return result;
+}
+
 // ============ Site Settings ============
 
 export interface SiteSettings {
