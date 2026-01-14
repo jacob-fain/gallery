@@ -6,7 +6,6 @@ A self-hosted photography portfolio with private gallery sharing, image optimiza
 
 ![Homepage](assets/homepage.png)
 
----
 
 ## Overview
 
@@ -14,7 +13,6 @@ Gallery is a full-stack photography portfolio platform designed for photographer
 
 The system runs on self-hosted infrastructure with cloud storage, striking a balance between cost efficiency and performance. Photos are stored on AWS S3 with automatic optimization, while compute runs on a home server exposed securely through Cloudflare Tunnel.
 
----
 
 ## Technology Stack
 
@@ -28,8 +26,6 @@ The system runs on self-hosted infrastructure with cloud storage, striking a bal
 | Storage | AWS S3 (signed URLs, three-tier image storage) |
 | Auth | JWT, bcrypt |
 | Infrastructure | Docker, Nginx, Cloudflare Tunnel |
-
----
 
 ## Features
 
@@ -62,35 +58,30 @@ The system runs on self-hosted infrastructure with cloud storage, striking a bal
 - EXIF extraction stored as JSONB
 - Signed S3 URLs with 1-hour expiration and in-memory caching
 
----
-
 ## Architecture
 
-<div align="center">
-
 ```
-                    Internet
-                        |
-                        v
-               Cloudflare Tunnel
-              (SSL termination)
-                        |
-                        v
-    +-------------------+-------------------+
-    |           Home Server (Docker)        |
-    |                                       |
-    |   +--------+    +--------+    +----+  |
-    |   | Nginx  |--->| Express|--->| PG |  |
-    |   | (SPA)  |    |  API   |    |    |  |
-    |   +--------+    +---+----+    +----+  |
-    +---------------------|------------------+
-                          |
-                          v
-                      AWS S3
-                  (Photo Storage)
+                                       Internet
+                                           │
+                                           ▼
+                                  Cloudflare Tunnel
+                                  (SSL termination)
+                                           │
+                                           ▼
+                     ┌─────────────────────────────────────────────┐
+                     │            Home Server (Docker)             │
+                     │                                             │
+                     │   ┌───────┐   ┌─────────┐   ┌───────────┐   │
+                     │   │ Nginx │──▶│ Express │──▶│ Postgres  │   │
+                     │   │ (SPA) │   │   API   │   │    DB     │   │
+                     │   └───────┘   └────┬────┘   └───────────┘   │
+                     │                    │                        │
+                     └────────────────────┼────────────────────────┘
+                                          │
+                                          ▼
+                                       AWS S3
+                                   (Photo Storage)
 ```
-
-</div>
 
 ### Design Decisions
 
@@ -102,8 +93,6 @@ The system runs on self-hosted infrastructure with cloud storage, striking a bal
 | Three-tier images | Fast page loads without sacrificing download quality |
 | Subdomain routing | Clean separation of public site and admin interface |
 
----
-
 ## Deployment
 
 The production environment runs via Docker Compose with:
@@ -111,8 +100,6 @@ The production environment runs via Docker Compose with:
 - Node.js backend with health checks
 - PostgreSQL with volume persistence
 - Automated database migrations
-
----
 
 ## Security
 
@@ -123,8 +110,6 @@ The production environment runs via Docker Compose with:
 - Rate limiting on tracking endpoints
 - Non-root Docker containers
 - Cloudflare Tunnel (no exposed ports)
-
----
 
 ## License
 
