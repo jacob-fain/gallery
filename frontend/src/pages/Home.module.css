@@ -258,11 +258,17 @@
    ========================================= */
 @media (max-width: 640px) {
   .hero {
-    min-height: 400px;
+    height: 56vh;
+    min-height: 300px;
+    background: #111;
+  }
+
+  .heroImage {
+    object-fit: contain;
   }
 
   .heroBranding {
-    bottom: 100px;
+    bottom: 60px;
     left: 24px;
     right: 24px;
   }
@@ -272,7 +278,7 @@
   }
 
   .scrollIndicator {
-    bottom: 24px;
+    bottom: 16px;
   }
 
   .featured {
