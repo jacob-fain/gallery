@@ -258,27 +258,38 @@
    ========================================= */
 @media (max-width: 640px) {
   .hero {
-    height: 56vh;
-    min-height: 300px;
-    background: #111;
+    height: auto;
+    min-height: unset;
+  }
+
+  .heroImageWrapper {
+    position: relative;
   }
 
   .heroImage {
-    object-fit: contain;
+    width: 100%;
+    height: auto;
+    object-fit: unset;
   }
 
   .heroBranding {
-    bottom: 60px;
-    left: 24px;
-    right: 24px;
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
   }
 
   .heroName {
+    font-size: 1.5rem;
     font-weight: 400;
   }
 
+  .heroTagline {
+    font-size: 0.625rem;
+    margin-top: 6px;
+  }
+
   .scrollIndicator {
-    bottom: 16px;
+    display: none;
   }
 
   .featured {
