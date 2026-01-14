@@ -59,26 +59,22 @@ The system runs on self-hosted infrastructure with cloud storage, striking a bal
 ## Architecture
 
 ```
-                                        Internet
-                                            │
-                                            ▼
-                                   Cloudflare Tunnel
-                                   (SSL termination)
-                                            │
-                                            ▼
-                      ┌─────────────────────────────────────────────┐
-                      │            Home Server (Docker)             │
-                      │                                             │
-                      │   ┌───────┐   ┌─────────┐   ┌───────────┐   │
-                      │   │ Nginx │──▶│ Express │──▶│ Postgres  │   │
-                      │   │ (SPA) │   │   API   │   │    DB     │   │
-                      │   └───────┘   └────┬────┘   └───────────┘   │
-                      │                    │                        │
-                      └────────────────────┼────────────────────────┘
-                                           │
-                                           ▼
-                                        AWS S3
-                                    (Photo Storage)
+                                            Internet
+                                                |
+                    
+                        
+                                        Cloudflare Tunnel
+                                                |
+                                                v
+                        +----------------------------------------------+
+                        |             Home Server (Docker)             |
+                        |                                              |
+                        |           Nginx -> Express -> Postgres       |
+                        |                       |                      |
+                        +-----------------------+----------------------+
+                                                |
+                                                v
+                                            AWS S3
 ```
 
 ### Design Decisions
