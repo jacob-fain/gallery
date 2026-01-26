@@ -1,0 +1,174 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version increment'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  create_release:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get current version
+        id: current
+        run: |
+          if git tag --list | grep -q "v"; then
+            current=$(git tag --sort=-version:refname | head -n1)
+          else
+            current="v0.0.0"
+          fi
+          echo "current_version=$current" >> $GITHUB_OUTPUT
+          echo "Current version: $current"
+
+      - name: Calculate new version
+        id: version
+        run: |
+          current="${{ steps.current.outputs.current_version }}"
+          version_type="${{ github.event.inputs.version_type }}"
+          
+          current_clean=${current#v}
+          IFS="." read -r major minor patch <<< "$current_clean"
+          
+          case $version_type in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+          
+          new_version="v$major.$minor.$patch"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          echo "New version: $new_version"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          current="${{ steps.current.outputs.current_version }}"
+          
+          echo "Generating changelog from $current to HEAD..."
+          
+          # Get commits since last tag (automatically finds all changes)
+          if [ "$current" != "v0.0.0" ]; then
+            commits=$(git log $current..HEAD --oneline --no-merges)
+          else
+            # For first release, get all commits
+            commits=$(git log --oneline --no-merges)
+          fi
+          
+          # Process commits into categories
+          features=""
+          fixes=""
+          others=""
+          
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              if echo "$line" | grep -qi "feat\|feature\|add"; then
+                features="$features\n- $line"
+              elif echo "$line" | grep -qi "fix\|bug"; then
+                fixes="$fixes\n- $line"
+              else
+                others="$others\n- $line"
+              fi
+            fi
+          done <<< "$commits"
+          
+          # Build changelog
+          changelog="## Changes\n"
+          
+          if [ -n "$features" ]; then
+            changelog="$changelog\n### Features$features\n"
+          fi
+          
+          if [ -n "$fixes" ]; then
+            changelog="$changelog\n### Bug Fixes$fixes\n"
+          fi
+          
+          if [ -n "$others" ]; then
+            changelog="$changelog\n### Other Changes$others\n"
+          fi
+          
+          # Handle first release special case
+          if [ "$current" = "v0.0.0" ]; then
+            changelog="## Initial Release\n\nComplete photography portfolio platform with:\n\n### Core Features\n- Full-stack photography portfolio with React frontend\n- Password-protected private galleries\n- Image optimization pipeline (WebP conversion)\n- Admin dashboard with analytics\n- Three-tier image storage (original, web, thumbnail)\n- S3 integration with signed URLs\n- Docker-based deployment\n\n### Technical Implementation\n- React 19 + TypeScript frontend\n- Node.js + Express backend\n- PostgreSQL database\n- AWS S3 storage\n- Cloudflare Tunnel deployment\n\n### Recent Development$others"
+          fi
+          
+          # Save to file and output
+          echo -e "$changelog" > /tmp/changelog.md
+          {
+            echo 'changelog<<EOF'
+            cat /tmp/changelog.md
+            echo EOF
+          } >> $GITHUB_OUTPUT
+
+      - name: Display release preview
+        run: |
+          echo "======================================"
+          echo "RELEASE PREVIEW"
+          echo "======================================"
+          echo ""
+          echo "Version: ${{ steps.version.outputs.new_version }}"
+          echo ""
+          echo "Changelog:"
+          cat /tmp/changelog.md
+          echo ""
+          echo "======================================"
+
+      - name: Create release tag
+        run: |
+          new_version="${{ steps.version.outputs.new_version }}"
+          git tag -a $new_version -m "Release $new_version"
+          git push origin $new_version
+
+      - name: Update prod branch
+        run: |
+          git checkout -B prod
+          git push origin prod --force
+
+      - name: Create GitHub release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.new_version }}
+          release_name: Release ${{ steps.version.outputs.new_version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+
+  trigger_deploy:
+    needs: create_release
+    uses: ./.github/workflows/deploy.yml
+    with:
+      version: ${{ needs.create_release.outputs.new_version }}
+      changelog: ${{ needs.create_release.outputs.changelog }}
