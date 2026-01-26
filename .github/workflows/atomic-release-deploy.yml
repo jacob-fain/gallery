@@ -1,0 +1,466 @@
+name: Atomic Release and Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version increment'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  GALLERY_DIR: /home/jacob/gallery
+  BACKUP_DIR: /home/github-runner/backups
+  COMPOSE_FILE: docker-compose.prod.yml
+  ENV_FILE: .env.production
+
+jobs:
+  atomic_release_deploy:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    environment: 
+      name: production
+      url: https://jacobfain.gallery
+    
+    steps:
+      - name: Initialize deployment
+        run: |
+          echo "DEPLOY_TAG=deploy-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_ENV
+          echo "DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_ENV
+          echo "DEPLOY_USER=$(whoami)" >> $GITHUB_ENV
+          echo "DEPLOYMENT_SUCCESS=false" >> $GITHUB_ENV
+
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Calculate next version
+        id: version
+        run: |
+          if git tag --list | grep -q "v"; then
+            current=$(git tag --sort=-version:refname | head -n1)
+          else
+            current="v0.0.0"
+          fi
+          echo "current_version=$current" >> $GITHUB_OUTPUT
+          echo "Current version: $current"
+          
+          version_type="${{ github.event.inputs.version_type }}"
+          current_clean=${current#v}
+          IFS="." read -r major minor patch <<< "$current_clean"
+          
+          case $version_type in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+          
+          new_version="v$major.$minor.$patch"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          echo "Next version will be: $new_version"
+          echo "VERSION=$new_version" >> $GITHUB_ENV
+
+      - name: Generate changelog with Claude
+        id: changelog
+        run: |
+          current="${{ steps.version.outputs.current_version }}"
+          
+          echo "Generating changelog from $current to HEAD..."
+          
+          # Get commits since last tag
+          if [ "$current" != "v0.0.0" ]; then
+            commits=$(git log $current..HEAD --oneline --no-merges)
+          else
+            commits=$(git log --oneline --no-merges)
+          fi
+          
+          if [ -z "$commits" ]; then
+            echo "No new commits since last release"
+            changelog="## Changes\n\nNo new changes since last release."
+          else
+            # Generate changelog using Claude
+            echo "Sending $(echo "$commits" | wc -l) commits to Claude for analysis..."
+            
+            changelog=$(curl -s -X POST https://api.anthropic.com/v1/messages \
+              -H "Content-Type: application/json" \
+              -H "X-API-Key: ${{ secrets.ANTHROPIC_API_KEY }}" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{
+                \"model\": \"claude-3-sonnet-20240229\",
+                \"max_tokens\": 1000,
+                \"messages\": [{
+                  \"role\": \"user\", 
+                  \"content\": \"Generate a professional changelog from these git commits. Follow this exact format:\n\n## Changes\n\n### Features\n- [New features and improvements]\n\n### Bug Fixes\n- [Bug fixes and corrections]\n\n### Other Changes\n- [Other notable changes]\n\nMake descriptions clear and user-friendly, not raw commit messages. Group related changes together. If there are no changes in a category, omit that section entirely. Here are the commits:\n\n$commits\"
+                }]
+              }" | jq -r '.content[0].text' 2>/dev/null)
+            
+            if [ -z "$changelog" ] || [ "$changelog" = "null" ]; then
+              echo "Claude API failed, falling back to simple changelog"
+              changelog="## Changes\n\n### Recent Updates"
+              while IFS= read -r line; do
+                if [ -n "$line" ]; then
+                  changelog="$changelog\n- $line"
+                fi
+              done <<< "$commits"
+            fi
+          fi
+          
+          # Save changelog
+          echo -e "$changelog" > /tmp/changelog.md
+          {
+            echo 'changelog<<EOF'
+            cat /tmp/changelog.md
+            echo EOF
+          } >> $GITHUB_OUTPUT
+          
+          echo "Generated changelog:"
+          cat /tmp/changelog.md
+
+      - name: Pre-deployment validation
+        run: |
+          echo "Running pre-deployment checks..."
+          
+          # Check gallery directory
+          if [ ! -d "$GALLERY_DIR" ]; then
+            echo "Error: Gallery directory $GALLERY_DIR not found"
+            exit 1
+          fi
+          
+          # Save current state for rollback
+          cd "$GALLERY_DIR"
+          if docker compose -f $COMPOSE_FILE ps --filter "status=running" | grep -q backend; then
+            current_commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+            echo "ROLLBACK_COMMIT=$current_commit" >> $GITHUB_ENV
+            echo "HAS_RUNNING_DEPLOYMENT=true" >> $GITHUB_ENV
+            echo "Current deployment at commit: $current_commit"
+          else
+            echo "HAS_RUNNING_DEPLOYMENT=false" >> $GITHUB_ENV
+          fi
+          
+          # Validate environment
+          if [ ! -f "$GALLERY_DIR/$ENV_FILE" ]; then
+            echo "Error: Environment file not found"
+            exit 1
+          fi
+          
+          # Check Docker
+          if ! docker info > /dev/null 2>&1; then
+            echo "Error: Docker not accessible"
+            exit 1
+          fi
+          
+          # Check disk space (2GB minimum)
+          available=$(df $GALLERY_DIR | tail -1 | awk '{print $4}')
+          if [ $available -lt 2097152 ]; then
+            echo "Error: Insufficient disk space"
+            exit 1
+          fi
+          
+          echo "Pre-deployment validation passed"
+
+      - name: Create deployment backup
+        run: |
+          echo "Creating backup before deployment..."
+          
+          mkdir -p "$BACKUP_DIR"
+          cd "$GALLERY_DIR"
+          
+          # Database backup
+          if docker ps | grep -q gallery-db-1; then
+            echo "Backing up database..."
+            docker exec gallery-db-1 pg_dump -U gallery gallery > "$BACKUP_DIR/db-backup-$DEPLOY_TAG.sql"
+            
+            if [ ! -s "$BACKUP_DIR/db-backup-$DEPLOY_TAG.sql" ]; then
+              echo "Error: Database backup failed"
+              exit 1
+            fi
+            
+            echo "Database backup created: $(du -h $BACKUP_DIR/db-backup-$DEPLOY_TAG.sql | cut -f1)"
+            echo "BACKUP_FILE=$BACKUP_DIR/db-backup-$DEPLOY_TAG.sql" >> $GITHUB_ENV
+          fi
+          
+          # Environment backup
+          if [ -f "$ENV_FILE" ]; then
+            cp "$ENV_FILE" "$BACKUP_DIR/env-backup-$DEPLOY_TAG"
+          fi
+
+      - name: Prepare deployment package
+        run: |
+          echo "Preparing deployment package..."
+          
+          # Create deployment directory
+          deployment_dir="$GITHUB_WORKSPACE/deployment-package"
+          mkdir -p "$deployment_dir"
+          
+          # Copy all files to deployment package
+          cp -r . "$deployment_dir/"
+          
+          # Copy environment file to package
+          if [ -f "$GALLERY_DIR/$ENV_FILE" ]; then
+            cp "$GALLERY_DIR/$ENV_FILE" "$deployment_dir/$ENV_FILE"
+          fi
+          
+          echo "DEPLOYMENT_PACKAGE=$deployment_dir" >> $GITHUB_ENV
+          echo "Deployment package prepared"
+
+      - name: Test deploy to production
+        run: |
+          echo "Deploying to production..."
+          
+          cd "$GALLERY_DIR"
+          
+          # Stop current services
+          echo "Stopping current services..."
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE down || echo "Services already stopped"
+          
+          # Backup current directory
+          if [ -d "$GALLERY_DIR" ]; then
+            echo "Backing up current deployment..."
+            sudo mv "$GALLERY_DIR" "$GALLERY_DIR.backup.$DEPLOY_TAG"
+          fi
+          
+          # Move new deployment into place
+          echo "Installing new deployment..."
+          sudo mv "$DEPLOYMENT_PACKAGE" "$GALLERY_DIR"
+          sudo chown -R jacob:jacob "$GALLERY_DIR"
+          
+          echo "Deployment completed"
+
+      - name: Run database migrations
+        run: |
+          echo "Running database migrations..."
+          
+          cd "$GALLERY_DIR"
+          
+          # Start database for migrations
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d db
+          sleep 10
+          
+          # Create migration tracking
+          docker exec gallery-db-1 psql -U gallery -d gallery -c "
+            CREATE TABLE IF NOT EXISTS _migrations (
+              filename TEXT PRIMARY KEY,
+              applied_at TIMESTAMP DEFAULT NOW()
+            );" 2>/dev/null || echo "Migration table exists"
+          
+          # Apply new migrations
+          new_migrations=0
+          for f in db/init/*.sql; do
+            if [ -f "$f" ]; then
+              filename=$(basename "$f")
+              applied=$(docker exec gallery-db-1 psql -U gallery -d gallery -tAc \
+                "SELECT 1 FROM _migrations WHERE filename = '$filename'" 2>/dev/null | tr -d ' ')
+              
+              if [ -z "$applied" ]; then
+                echo "Applying migration: $filename"
+                if docker exec -i gallery-db-1 psql -U gallery -d gallery < "$f"; then
+                  docker exec gallery-db-1 psql -U gallery -d gallery -c \
+                    "INSERT INTO _migrations (filename) VALUES ('$filename');" 2>/dev/null
+                  new_migrations=$((new_migrations + 1))
+                else
+                  echo "Migration failed: $filename"
+                  exit 1
+                fi
+              fi
+            fi
+          done
+          
+          echo "Applied $new_migrations new migrations"
+
+      - name: Start services and health check
+        run: |
+          echo "Starting services and running health checks..."
+          
+          cd "$GALLERY_DIR"
+          
+          # Build and start all services
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
+          
+          # Wait for backend health
+          echo "Waiting for backend health..."
+          timeout 60 bash -c '
+            while true; do
+              if docker compose -f $COMPOSE_FILE ps --filter "status=healthy" | grep -q backend; then
+                echo "Backend is healthy"
+                break
+              fi
+              sleep 5
+            done
+          ' || {
+            echo "Backend health check failed"
+            exit 1
+          }
+          
+          # API endpoint test
+          echo "Testing API endpoint..."
+          max_attempts=12
+          attempt=0
+          
+          while [ $attempt -lt $max_attempts ]; do
+            if curl -f -s http://localhost/api/health > /dev/null 2>&1; then
+              echo "API health check passed"
+              break
+            fi
+            
+            attempt=$((attempt + 1))
+            if [ $attempt -eq $max_attempts ]; then
+              echo "API health check failed"
+              exit 1
+            fi
+            
+            sleep 5
+          done
+          
+          echo "All health checks passed"
+          echo "DEPLOYMENT_SUCCESS=true" >> $GITHUB_ENV
+
+      - name: Create GitHub release (only on success)
+        if: env.DEPLOYMENT_SUCCESS == 'true'
+        uses: actions/create-release@v1
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.new_version }}
+          release_name: Release ${{ steps.version.outputs.new_version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+
+      - name: Update prod branch (only on success)
+        if: env.DEPLOYMENT_SUCCESS == 'true'
+        run: |
+          echo "Updating prod branch to $VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B prod
+          git push origin prod --force
+
+      - name: Cleanup successful deployment
+        if: env.DEPLOYMENT_SUCCESS == 'true'
+        run: |
+          echo "Cleaning up successful deployment..."
+          
+          # Remove backup directory
+          sudo rm -rf "$GALLERY_DIR.backup.$DEPLOY_TAG" 2>/dev/null || echo "No backup to clean"
+          
+          # Docker cleanup
+          docker image prune -f > /dev/null 2>&1 || true
+          docker container prune -f > /dev/null 2>&1 || true
+          
+          # Backup cleanup (keep 5)
+          cd "$BACKUP_DIR"
+          ls -t db-backup-*.sql 2>/dev/null | tail -n +6 | xargs -r rm
+          ls -t env-backup-* 2>/dev/null | tail -n +6 | xargs -r rm
+
+      - name: Rollback on failure
+        if: failure() && env.HAS_RUNNING_DEPLOYMENT == 'true'
+        run: |
+          echo "DEPLOYMENT FAILED - Rolling back..."
+          
+          # Stop failed deployment
+          cd "$GALLERY_DIR" 2>/dev/null || echo "Could not access gallery directory"
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE down 2>/dev/null || echo "Could not stop services"
+          
+          # Restore database if backup exists
+          if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
+            echo "Restoring database from backup..."
+            if [ -d "$GALLERY_DIR.backup.$DEPLOY_TAG" ]; then
+              cd "$GALLERY_DIR.backup.$DEPLOY_TAG"
+              docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d db
+              sleep 10
+              docker exec -i gallery-db-1 psql -U gallery -d gallery < "$BACKUP_FILE"
+            fi
+          fi
+          
+          # Restore previous deployment
+          if [ -d "$GALLERY_DIR.backup.$DEPLOY_TAG" ]; then
+            echo "Restoring previous deployment..."
+            sudo rm -rf "$GALLERY_DIR" 2>/dev/null || echo "Could not remove failed deployment"
+            sudo mv "$GALLERY_DIR.backup.$DEPLOY_TAG" "$GALLERY_DIR"
+            
+            cd "$GALLERY_DIR"
+            docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
+            sleep 10
+            
+            if curl -f -s http://localhost/api/health > /dev/null 2>&1; then
+              echo "Rollback successful"
+            else
+              echo "Warning: Rollback may not have succeeded"
+            fi
+          fi
+
+      - name: Generate deployment summary
+        if: always()
+        run: |
+          echo "======================================"
+          if [ "$DEPLOYMENT_SUCCESS" = "true" ]; then
+            echo "ATOMIC RELEASE AND DEPLOY: SUCCESS"
+          else
+            echo "ATOMIC RELEASE AND DEPLOY: FAILED"
+          fi
+          echo "======================================"
+          echo ""
+          echo "Version: $VERSION"
+          echo "Time: $DEPLOY_TIME"
+          echo "User: $DEPLOY_USER"
+          if [ -f "$BACKUP_FILE" ]; then
+            echo "Backup: $(basename $BACKUP_FILE)"
+          fi
+          echo "Site: https://jacobfain.gallery"
+          echo ""
+          echo "Container Status:"
+          docker ps --filter "name=gallery" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Could not get status"
+          echo ""
+
+      - name: Send notification email
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Gallery Release ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Successful' || 'Failed' }}: ${{ env.VERSION }}"
+          to: jacobharryfain@gmail.com
+          from: "Gallery Deploy <noreply@jacobfain.gallery>"
+          body: |
+            Gallery Atomic Release and Deploy Report
+            
+            Status: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'SUCCESS' || 'FAILED' }}
+            Version: ${{ env.VERSION }}
+            Time: ${{ env.DEPLOY_TIME }}
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ## Technical Details
+            - Backup Created: ${{ env.BACKUP_FILE && 'Yes' || 'No' }}
+            - Health Checks: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Passed' || 'Failed' }}
+            - Release Created: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Yes' || 'No (rolled back)' }}
+            
+            ## Links
+            - Site: https://jacobfain.gallery
+            - View Logs: https://github.com/jacob-fain/gallery/actions
+            
+            ${{ env.DEPLOYMENT_SUCCESS != 'true' && 'Deployment failed and was rolled back. No release artifacts were created.' || 'Release successfully created and deployed.' }}
