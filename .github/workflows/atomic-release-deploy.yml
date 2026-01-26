@@ -33,6 +33,20 @@ jobs:
     
     steps:
       - name: Initialize deployment
+      - name: Acquire deployment lock
+        run: |
+          LOCK_FILE="/tmp/gallery-deploy.lock"
+          if [ -f "$LOCK_FILE" ]; then
+            echo "ERROR: Another deployment is in progress"
+            echo "Lock file: $LOCK_FILE"
+            echo "Lock created: $(stat -c %y "$LOCK_FILE" 2>/dev/null || echo "unknown")"
+            exit 1
+          fi
+          
+          echo "$$" > "$LOCK_FILE"
+          echo "LOCK_FILE=$LOCK_FILE" >> $GITHUB_ENV
+          echo "Deployment lock acquired: $LOCK_FILE"
+
         run: |
           echo "DEPLOY_TAG=deploy-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_ENV
           echo "DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_ENV
@@ -257,7 +271,7 @@ n          echo "Deployment package contents:"
           
           echo "Deployment completed"
 
-      - name: Run database migrations
+      - name: TEMP_MIGRATIONS_PLACEHOLDER
         run: |
           echo "Running database migrations..."
           
@@ -312,7 +326,7 @@ n          echo "Deployment package contents:"
           
           echo "Applied $new_migrations new migrations"
 
-      - name: Start services and health check
+      - name: Start services and health check (without migrations)
         run: |
           echo "Starting services and running health checks..."
           
@@ -358,6 +372,23 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           }
           
           # API endpoint test
+          echo "Running comprehensive API health checks..."
+          
+          # Test multiple endpoints to ensure app is fully ready
+          health_endpoints=(
+            "http://localhost/api/health"
+            "http://localhost/api/galleries"
+          )
+          
+          for endpoint in "${health_endpoints[@]}"; do
+            echo "Testing endpoint: $endpoint"
+            if ! curl -f -s --max-time 10 "$endpoint" > /dev/null; then
+              echo "API endpoint $endpoint failed"
+              exit 1
+            fi
+            echo "✓ $endpoint responded successfully"
+          done
+
           echo "Testing API endpoint..."
           max_attempts=12
           attempt=0
@@ -377,7 +408,7 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
             sleep 5
           done
           
-          echo "All health checks passed"
+          echo "Basic health checks passed - ready for migrations"
           echo "DEPLOYMENT_SUCCESS=true" >> $GITHUB_ENV
 
       - name: Create GitHub release (only on success)
@@ -453,6 +484,12 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
               echo "Rollback successful"
             else
               echo "Warning: Rollback may not have succeeded"
+          
+          # Release deployment lock on failure
+          if [ -f "$LOCK_FILE" ]; then
+            rm -f "$LOCK_FILE" 2>/dev/null || echo "Could not remove lock file"
+            echo "Deployment lock released after rollback"
+          fi
             fi
           fi
 
@@ -467,6 +504,12 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           fi
           echo "======================================"
           echo ""
+          
+          # Release deployment lock
+          if [ -f "$LOCK_FILE" ]; then
+            rm -f "$LOCK_FILE" 2>/dev/null || echo "Could not remove lock file"
+            echo "Deployment lock released"
+          fi
           echo "Version: $VERSION"
           echo "Time: $DEPLOY_TIME"
           echo "User: $DEPLOY_USER"
@@ -475,9 +518,21 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           fi
           echo "Site: https://jacobfain.gallery"
           echo ""
+          
+          # Release deployment lock
+          if [ -f "$LOCK_FILE" ]; then
+            rm -f "$LOCK_FILE" 2>/dev/null || echo "Could not remove lock file"
+            echo "Deployment lock released"
+          fi
           echo "Container Status:"
           docker ps --filter "name=gallery" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Could not get status"
           echo ""
+          
+          # Release deployment lock
+          if [ -f "$LOCK_FILE" ]; then
+            rm -f "$LOCK_FILE" 2>/dev/null || echo "Could not remove lock file"
+            echo "Deployment lock released"
+          fi
 
       - name: Send notification email
         if: always()
