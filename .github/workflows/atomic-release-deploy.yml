@@ -213,7 +213,7 @@ jobs:
           mkdir -p "$deployment_dir"
           
           # Copy all files to deployment package
-          cp -r . "$deployment_dir/"
+          rsync -av --exclude="deployment-package" . "$deployment_dir/"
           
           # Copy environment file to package
           if [ -f "$GALLERY_DIR/$ENV_FILE" ]; then
