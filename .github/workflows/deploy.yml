@@ -168,8 +168,8 @@ jobs:
           cd "$GALLERY_DIR"
           
           # Configure git for rollback operations
-          git config user.name "github-runner"
-          git config user.email "github-runner@local"
+          git config --global user.name "github-runner"
+          git config --global user.email "github-runner@local"
           
           # Backup current .env.production before sync
           if [ -f "$ENV_FILE" ]; then
@@ -336,8 +336,8 @@ jobs:
             echo "Reverting code to previous commit: $ROLLBACK_COMMIT"
             
             # Configure git for the rollback user
-            git config user.name "github-runner"
-            git config user.email "github-runner@local"
+            git config --global user.name "github-runner"
+            git config --global user.email "github-runner@local"
             
             # Reset to previous commit
             git reset --hard $ROLLBACK_COMMIT || echo "Git rollback failed, but continuing..."
