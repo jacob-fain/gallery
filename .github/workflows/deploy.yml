@@ -1,0 +1,424 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [prod]
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      changelog:
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy'
+        required: false
+        type: string
+
+env:
+  GALLERY_DIR: /home/jacob/gallery
+  BACKUP_DIR: /home/jacob/backups/gallery
+  COMPOSE_FILE: docker-compose.prod.yml
+  ENV_FILE: .env.production
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    environment: 
+      name: production
+      url: https://jacobfain.gallery
+    
+    steps:
+      - name: Create deployment variables
+        run: |
+          echo "DEPLOY_TAG=deploy-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_ENV
+          echo "DEPLOY_TIME=$(date \"+%Y-%m-%d %H:%M:%S UTC\")" >> $GITHUB_ENV
+          echo "VERSION=${{ inputs.version || 'manual' }}" >> $GITHUB_ENV
+          echo "DEPLOY_USER=$(whoami)" >> $GITHUB_ENV
+
+      - name: Pre-deployment validation
+        id: pre_check
+        run: |
+          echo "Running pre-deployment checks..."
+          
+          # Verify we're running as github-runner user
+          if [ "$DEPLOY_USER" != "github-runner" ]; then
+            echo "Warning: Not running as github-runner user (current: $DEPLOY_USER)"
+          fi
+          
+          # Check if gallery directory exists and is accessible
+          if [ ! -d "$GALLERY_DIR" ]; then
+            echo "Error: Gallery directory $GALLERY_DIR not found"
+            exit 1
+          fi
+          
+          # Save current deployment state for potential rollback
+          cd "$GALLERY_DIR"
+          if docker compose -f $COMPOSE_FILE ps --filter "status=running" | grep -q backend; then
+            current_commit=$(git rev-parse HEAD)
+            echo "ROLLBACK_COMMIT=$current_commit" >> $GITHUB_ENV
+            echo "HAS_RUNNING_DEPLOYMENT=true" >> $GITHUB_ENV
+            echo "Found running deployment at commit: $current_commit"
+          else
+            echo "HAS_RUNNING_DEPLOYMENT=false" >> $GITHUB_ENV
+            echo "No currently running deployment detected"
+          fi
+          
+          # Environment file validation
+          if [ ! -f "$GALLERY_DIR/$ENV_FILE" ]; then
+            echo "Error: Environment file $ENV_FILE not found in $GALLERY_DIR"
+            exit 1
+          fi
+          
+          # Docker availability check
+          if ! docker info > /dev/null 2>&1; then
+            echo "Error: Docker daemon not running or accessible"
+            exit 1
+          fi
+          
+          # Disk space check (require at least 2GB free)
+          available=$(df $GALLERY_DIR | tail -1 | awk '{print $4}')
+          required=2097152  # 2GB in KB
+          if [ $available -lt $required ]; then
+            echo "Error: Insufficient disk space. Available: $((available/1024))MB, Required: $((required/1024))MB"
+            exit 1
+          fi
+          
+          echo "Pre-deployment checks passed"
+
+      - name: Create deployment backup
+        run: |
+          echo "Creating backup before deployment..."
+          
+          # Ensure backup directory exists
+          sudo mkdir -p "$BACKUP_DIR"
+          sudo chown jacob:jacob "$BACKUP_DIR"
+          
+          cd "$GALLERY_DIR"
+          
+          # Database backup
+          if docker ps | grep -q gallery-db-1; then
+            echo "Creating database backup..."
+            docker exec gallery-db-1 pg_dump -U gallery gallery > "$BACKUP_DIR/db-backup-$DEPLOY_TAG.sql"
+            
+            # Verify backup was created and has content
+            if [ ! -s "$BACKUP_DIR/db-backup-$DEPLOY_TAG.sql" ]; then
+              echo "Error: Database backup failed or is empty"
+              exit 1
+            fi
+            
+            echo "Database backup created: $(du -h $BACKUP_DIR/db-backup-$DEPLOY_TAG.sql | cut -f1)"
+          else
+            echo "Warning: No running database container found for backup"
+          fi
+          
+          # Environment file backup
+          if [ -f "$ENV_FILE" ]; then
+            cp "$ENV_FILE" "$BACKUP_DIR/env-backup-$DEPLOY_TAG"
+            echo "Environment backup created"
+          fi
+          
+          # Store backup file path for potential rollback
+          echo "BACKUP_FILE=$BACKUP_DIR/db-backup-$DEPLOY_TAG.sql" >> $GITHUB_ENV
+          
+          # Cleanup old backups (keep latest 5)
+          cd "$BACKUP_DIR"
+          ls -t db-backup-*.sql 2>/dev/null | tail -n +6 | xargs -r rm
+          ls -t env-backup-* 2>/dev/null | tail -n +6 | xargs -r rm
+          
+          echo "Backup cleanup completed"
+
+      - name: Test backup integrity
+        run: |
+          echo "Testing backup integrity..."
+          
+          if [ -f "$BACKUP_FILE" ]; then
+            # Basic SQL syntax check
+            if grep -q "PostgreSQL database dump" "$BACKUP_FILE"; then
+              echo "Backup integrity check passed"
+            else
+              echo "Warning: Backup file may be corrupted"
+            fi
+            
+            # Check backup size is reasonable (at least 1KB)
+            backup_size=$(stat -c%s "$BACKUP_FILE")
+            if [ $backup_size -lt 1024 ]; then
+              echo "Error: Backup file suspiciously small ($backup_size bytes)"
+              exit 1
+            fi
+            
+            echo "Backup size: $(du -h $BACKUP_FILE | cut -f1)"
+          else
+            echo "Warning: No backup file to test"
+          fi
+
+      - name: Checkout latest code
+        uses: actions/checkout@v4
+        with:
+          path: temp-checkout
+          ref: prod
+
+      - name: Sync code to deployment directory
+        run: |
+          echo "Syncing code to deployment directory..."
+          
+          cd "$GALLERY_DIR"
+          
+          # Backup current .env.production before sync
+          if [ -f "$ENV_FILE" ]; then
+            cp "$ENV_FILE" "/tmp/env-backup-sync"
+          fi
+          
+          # Sync new code (exclude sensitive files and backups)
+          rsync -av \
+            --exclude=".env.production" \
+            --exclude="backups" \
+            --exclude=".git" \
+            "$GITHUB_WORKSPACE/temp-checkout/" ./
+          
+          # Restore environment file
+          if [ -f "/tmp/env-backup-sync" ]; then
+            mv "/tmp/env-backup-sync" "$ENV_FILE"
+          fi
+          
+          # Cleanup temporary checkout
+          rm -rf "$GITHUB_WORKSPACE/temp-checkout"
+          
+          echo "Code sync completed"
+
+      - name: Run database migrations
+        run: |
+          echo "Running database migrations..."
+          
+          cd "$GALLERY_DIR"
+          
+          # Ensure database is running for migrations
+          if ! docker ps | grep -q gallery-db-1; then
+            echo "Warning: Database container not running, starting services first..."
+            docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d db
+            sleep 10
+          fi
+          
+          # Create migration tracking table if it doesn't exist
+          docker exec gallery-db-1 psql -U gallery -d gallery -c "
+            CREATE TABLE IF NOT EXISTS _migrations (
+              filename TEXT PRIMARY KEY,
+              applied_at TIMESTAMP DEFAULT NOW()
+            );" 2>/dev/null || echo "Migration table creation skipped"
+          
+          # Apply new migrations
+          new_migrations=0
+          migration_errors=0
+          
+          for f in db/init/*.sql; do
+            if [ -f "$f" ]; then
+              filename=$(basename "$f")
+              
+              # Check if migration already applied
+              applied=$(docker exec gallery-db-1 psql -U gallery -d gallery -tAc \
+                "SELECT 1 FROM _migrations WHERE filename = '$filename'" 2>/dev/null | tr -d ' ')
+              
+              if [ -z "$applied" ]; then
+                echo "Applying migration: $filename"
+                
+                if docker exec -i gallery-db-1 psql -U gallery -d gallery < "$f" 2>&1; then
+                  # Mark migration as applied
+                  docker exec gallery-db-1 psql -U gallery -d gallery -c \
+                    "INSERT INTO _migrations (filename) VALUES ('$filename');" 2>/dev/null
+                  new_migrations=$((new_migrations + 1))
+                  echo "Successfully applied: $filename"
+                else
+                  echo "Error: Failed to apply migration $filename"
+                  migration_errors=$((migration_errors + 1))
+                  break
+                fi
+              fi
+            fi
+          done
+          
+          if [ $migration_errors -gt 0 ]; then
+            echo "Migration errors detected, aborting deployment"
+            exit 1
+          fi
+          
+          echo "Applied $new_migrations new migrations"
+
+      - name: Build and start services
+        run: |
+          echo "Building and starting services..."
+          
+          cd "$GALLERY_DIR"
+          
+          # Build containers with no cache to ensure fresh build
+          echo "Building containers..."
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache
+          
+          # Start all services
+          echo "Starting services..."
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
+          
+          echo "Services started"
+
+      - name: Health check with auto-rollback
+        id: health_check
+        run: |
+          echo "Performing health checks..."
+          
+          cd "$GALLERY_DIR"
+          
+          # Wait for services to be healthy (60 second timeout)
+          echo "Waiting for backend service health..."
+          timeout 60 bash -c '
+            while true; do
+              if docker compose -f $COMPOSE_FILE ps --filter "status=healthy" | grep -q backend; then
+                echo "Backend service is healthy"
+                break
+              fi
+              echo "Waiting for backend health check..."
+              sleep 5
+            done
+          ' || {
+            echo "Health check timeout - backend service failed to become healthy"
+            exit 1
+          }
+          
+          # Additional API endpoint health check
+          echo "Testing API endpoint..."
+          sleep 5
+          
+          max_attempts=12
+          attempt=0
+          
+          while [ $attempt -lt $max_attempts ]; do
+            if curl -f -s http://localhost/api/health > /dev/null 2>&1; then
+              echo "API health check passed"
+              break
+            fi
+            
+            attempt=$((attempt + 1))
+            if [ $attempt -eq $max_attempts ]; then
+              echo "API health check failed after $max_attempts attempts"
+              exit 1
+            fi
+            
+            echo "API health check attempt $attempt/$max_attempts failed, retrying..."
+            sleep 5
+          done
+          
+          echo "All health checks passed"
+          echo "DEPLOYMENT_SUCCESS=true" >> $GITHUB_ENV
+
+      - name: Rollback on deployment failure
+        if: failure() && env.HAS_RUNNING_DEPLOYMENT == 'true'
+        run: |
+          echo "DEPLOYMENT FAILED - Initiating automatic rollback..."
+          
+          cd "$GALLERY_DIR"
+          
+          # Restore database from backup if available
+          if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
+            echo "Restoring database from backup..."
+            docker exec -i gallery-db-1 psql -U gallery -d gallery < "$BACKUP_FILE"
+            echo "Database restored from backup"
+          else
+            echo "Warning: No backup file available for database restore"
+          fi
+          
+          # Revert code to previous working commit
+          if [ -n "$ROLLBACK_COMMIT" ]; then
+            echo "Reverting code to previous commit: $ROLLBACK_COMMIT"
+            git checkout $ROLLBACK_COMMIT -- .
+            
+            # Restart services with previous code
+            echo "Restarting services with previous version..."
+            docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
+            
+            # Wait for rollback to complete
+            sleep 10
+            
+            # Verify rollback worked
+            if curl -f -s http://localhost/api/health > /dev/null 2>&1; then
+              echo "Rollback successful - service restored"
+            else
+              echo "Warning: Rollback may not have fully succeeded"
+            fi
+          else
+            echo "No previous commit available for rollback"
+          fi
+          
+          echo "Automatic rollback completed"
+
+      - name: Post-deployment cleanup
+        if: success()
+        run: |
+          echo "Performing post-deployment cleanup..."
+          
+          # Clean up old Docker images and containers
+          docker image prune -f > /dev/null 2>&1 || true
+          docker container prune -f > /dev/null 2>&1 || true
+          
+          echo "Docker cleanup completed"
+
+      - name: Generate deployment summary
+        if: always()
+        id: summary
+        run: |
+          cd "$GALLERY_DIR"
+          
+          echo "======================================"
+          if [ "$DEPLOYMENT_SUCCESS" = "true" ]; then
+            echo "DEPLOYMENT SUCCESSFUL"
+          else
+            echo "DEPLOYMENT FAILED"
+          fi
+          echo "======================================"
+          echo ""
+          echo "Version: $VERSION"
+          echo "Deployment Tag: $DEPLOY_TAG"
+          echo "Time: $DEPLOY_TIME"
+          echo "User: $DEPLOY_USER"
+          if [ -f "$BACKUP_FILE" ]; then
+            echo "Backup: $(basename $BACKUP_FILE)"
+          fi
+          echo "Site: https://jacobfain.gallery"
+          echo ""
+          echo "Container Status:"
+          docker compose -f $COMPOSE_FILE ps || echo "Could not retrieve container status"
+          echo ""
+          echo "======================================"
+
+      - name: Send deployment notification email
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Gallery Deployment ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Successful' || 'Failed' }}: ${{ env.VERSION }}"
+          to: jacobharryfain@gmail.com
+          from: "Gallery Deploy <noreply@jacobfain.gallery>"
+          body: |
+            Gallery Deployment Report
+            
+            Status: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'SUCCESS' || 'FAILED' }}
+            Version: ${{ env.VERSION }}
+            Time: ${{ env.DEPLOY_TIME }}
+            Deployment Tag: ${{ env.DEPLOY_TAG }}
+            
+            ${{ inputs.changelog && format('## Changelog{0}{1}', '\n', inputs.changelog) || '' }}
+            
+            ## Technical Details
+            - Backup Created: ${{ env.BACKUP_FILE && 'Yes' || 'No' }}
+            - Migrations Applied: Check logs for details
+            - Health Checks: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Passed' || 'Failed' }}
+            
+            ## Links
+            - Site: https://jacobfain.gallery
+            - View Logs: https://github.com/jacob-fain/gallery/actions
+            
+            ${{ env.DEPLOYMENT_SUCCESS != 'true' && 'Automatic rollback has been attempted. Please check the site and logs.' || '' }}
