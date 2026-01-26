@@ -29,12 +29,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Get current version
         id: current
@@ -127,11 +121,10 @@ jobs:
             changelog="## Initial Release\n\nComplete photography portfolio platform with:\n\n### Core Features\n- Full-stack photography portfolio with React frontend\n- Password-protected private galleries\n- Image optimization pipeline (WebP conversion)\n- Admin dashboard with analytics\n- Three-tier image storage (original, web, thumbnail)\n- S3 integration with signed URLs\n- Docker-based deployment\n\n### Technical Implementation\n- React 19 + TypeScript frontend\n- Node.js + Express backend\n- PostgreSQL database\n- AWS S3 storage\n- Cloudflare Tunnel deployment\n\n### Recent Development$others"
           fi
           
-          # Save to file and output
-          echo -e "$changelog" > /tmp/changelog.md
+          # Save changelog for GitHub release
           {
             echo 'changelog<<EOF'
-            cat /tmp/changelog.md
+            echo -e "$changelog"
             echo EOF
           } >> $GITHUB_OUTPUT
 
@@ -144,23 +137,13 @@ jobs:
           echo "Version: ${{ steps.version.outputs.new_version }}"
           echo ""
           echo "Changelog:"
-          cat /tmp/changelog.md
+          echo "${{ steps.changelog.outputs.changelog }}"
           echo ""
           echo "======================================"
 
-      - name: Create release tag
-        run: |
-          new_version="${{ steps.version.outputs.new_version }}"
-          git tag -a $new_version -m "Release $new_version"
-          git push origin $new_version
-
-      - name: Update prod branch
-        run: |
-          git checkout -B prod
-          git push origin prod --force
-
-      - name: Create GitHub release
+      - name: Create GitHub release and tag
         uses: actions/create-release@v1
+        id: create_release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -169,6 +152,13 @@ jobs:
           body: ${{ steps.changelog.outputs.changelog }}
           draft: false
           prerelease: false
+
+      - name: Update prod branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B prod
+          git push origin prod --force
 
   trigger_deploy:
     needs: create_release
