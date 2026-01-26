@@ -1,4 +1,4 @@
-name: Atomic Release and Deploy
+name: Release and Deploy
 
 on:
   workflow_dispatch:
