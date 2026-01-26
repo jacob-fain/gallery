@@ -1,0 +1,71 @@
+name: Deploy via Webhook
+
+on:
+  push:
+    branches: [prod]
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      changelog:
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy'
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: 
+      name: production
+      url: https://jacobfain.gallery
+    
+    steps:
+      - name: Create deployment variables
+        run: |
+          echo "VERSION=${{ inputs.version || 'manual' }}" >> $GITHUB_ENV
+          echo "DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_ENV
+
+      - name: Trigger deployment via jacob user
+        run: |
+          echo "Triggering deployment as jacob user..."
+          
+          # Use sudo to run the deployment as jacob user (who owns everything)
+          sudo -u jacob bash -c '
+            cd /home/jacob/gallery
+            echo "Starting deployment..."
+            git pull origin prod
+            ./deploy.sh
+            echo "Deployment completed successfully"
+          '
+          
+          echo "DEPLOYMENT_SUCCESS=true" >> $GITHUB_ENV
+
+      - name: Send notification email
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Gallery Deployment ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Successful' || 'Failed' }}: ${{ env.VERSION }}"
+          to: jacobharryfain@gmail.com
+          from: "Gallery Deploy <noreply@jacobfain.gallery>"
+          body: |
+            Gallery Deployment Report
+            
+            Status: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'SUCCESS' || 'FAILED' }}
+            Version: ${{ env.VERSION }}
+            Time: ${{ env.DEPLOY_TIME }}
+            
+            ${{ inputs.changelog && format('## Changelog{0}{1}', '\n', inputs.changelog) || '' }}
+            
+            ## Links
+            - Site: https://jacobfain.gallery
+            - View Logs: https://github.com/jacob-fain/gallery/actions
