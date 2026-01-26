@@ -95,8 +95,7 @@ jobs:
           echo "Creating backup before deployment..."
           
           # Ensure backup directory exists
-          sudo mkdir -p "$BACKUP_DIR"
-          sudo chown jacob:jacob "$BACKUP_DIR"
+          mkdir -p "$BACKUP_DIR"
           
           cd "$GALLERY_DIR"
           
@@ -167,6 +166,10 @@ jobs:
           echo "Syncing code to deployment directory..."
           
           cd "$GALLERY_DIR"
+          
+          # Configure git for rollback operations
+          git config user.name "github-runner"
+          git config user.email "github-runner@local"
           
           # Backup current .env.production before sync
           if [ -f "$ENV_FILE" ]; then
@@ -331,7 +334,13 @@ jobs:
           # Revert code to previous working commit
           if [ -n "$ROLLBACK_COMMIT" ]; then
             echo "Reverting code to previous commit: $ROLLBACK_COMMIT"
-            git checkout $ROLLBACK_COMMIT -- .
+            
+            # Configure git for the rollback user
+            git config user.name "github-runner"
+            git config user.email "github-runner@local"
+            
+            # Reset to previous commit
+            git reset --hard $ROLLBACK_COMMIT || echo "Git rollback failed, but continuing..."
             
             # Restart services with previous code
             echo "Restarting services with previous version..."
