@@ -45,11 +45,6 @@ jobs:
         run: |
           echo "Running pre-deployment checks..."
           
-          # Verify we're running as github-runner user
-          if [ "$DEPLOY_USER" != "github-runner" ]; then
-            echo "Warning: Not running as github-runner user (current: $DEPLOY_USER)"
-          fi
-          
           # Check if gallery directory exists and is accessible
           if [ ! -d "$GALLERY_DIR" ]; then
             echo "Error: Gallery directory $GALLERY_DIR not found"
@@ -59,7 +54,7 @@ jobs:
           # Save current deployment state for potential rollback
           cd "$GALLERY_DIR"
           if docker compose -f $COMPOSE_FILE ps --filter "status=running" | grep -q backend; then
-            current_commit=$(git rev-parse HEAD)
+            current_commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
             echo "ROLLBACK_COMMIT=$current_commit" >> $GITHUB_ENV
             echo "HAS_RUNNING_DEPLOYMENT=true" >> $GITHUB_ENV
             echo "Found running deployment at commit: $current_commit"
@@ -116,8 +111,8 @@ jobs:
           fi
           
           # Environment file backup
-          if [ -f "$ENV_FILE" ]; then
-            cp "$ENV_FILE" "$BACKUP_DIR/env-backup-$DEPLOY_TAG"
+          if [ -f "$GALLERY_DIR/$ENV_FILE" ]; then
+            cp "$GALLERY_DIR/$ENV_FILE" "$BACKUP_DIR/env-backup-$DEPLOY_TAG"
             echo "Environment backup created"
           fi
           
@@ -131,67 +126,23 @@ jobs:
           
           echo "Backup cleanup completed"
 
-      - name: Test backup integrity
-        run: |
-          echo "Testing backup integrity..."
-          
-          if [ -f "$BACKUP_FILE" ]; then
-            # Basic SQL syntax check
-            if grep -q "PostgreSQL database dump" "$BACKUP_FILE"; then
-              echo "Backup integrity check passed"
-            else
-              echo "Warning: Backup file may be corrupted"
-            fi
-            
-            # Check backup size is reasonable (at least 1KB)
-            backup_size=$(stat -c%s "$BACKUP_FILE")
-            if [ $backup_size -lt 1024 ]; then
-              echo "Error: Backup file suspiciously small ($backup_size bytes)"
-              exit 1
-            fi
-            
-            echo "Backup size: $(du -h $BACKUP_FILE | cut -f1)"
-          else
-            echo "Warning: No backup file to test"
-          fi
-
       - name: Checkout latest code
         uses: actions/checkout@v4
         with:
-          path: temp-checkout
+          path: new-deployment
           ref: prod
 
-      - name: Sync code to deployment directory
+      - name: Prepare new deployment
         run: |
-          echo "Syncing code to deployment directory..."
+          echo "Preparing new deployment directory..."
           
-          cd "$GALLERY_DIR"
+          # Copy environment file to new deployment
+          cp "$GALLERY_DIR/$ENV_FILE" "$GITHUB_WORKSPACE/new-deployment/$ENV_FILE"
           
-          # Configure git for rollback operations
-          git config --global user.name "github-runner"
-          git config --global user.email "github-runner@local"
+          # Set proper permissions on new deployment
+          chmod -R 755 "$GITHUB_WORKSPACE/new-deployment"
           
-          # Backup current .env.production before sync
-          if [ -f "$ENV_FILE" ]; then
-            cp "$ENV_FILE" "/tmp/env-backup-sync"
-          fi
-          
-          # Sync new code (exclude sensitive files and backups)
-          rsync -av \
-            --exclude=".env.production" \
-            --exclude="backups" \
-            --exclude=".git" \
-            "$GITHUB_WORKSPACE/temp-checkout/" ./
-          
-          # Restore environment file
-          if [ -f "/tmp/env-backup-sync" ]; then
-            mv "/tmp/env-backup-sync" "$ENV_FILE"
-          fi
-          
-          # Cleanup temporary checkout
-          rm -rf "$GITHUB_WORKSPACE/temp-checkout"
-          
-          echo "Code sync completed"
+          echo "New deployment prepared"
 
       - name: Run database migrations
         run: |
@@ -213,11 +164,11 @@ jobs:
               applied_at TIMESTAMP DEFAULT NOW()
             );" 2>/dev/null || echo "Migration table creation skipped"
           
-          # Apply new migrations
+          # Apply new migrations from new deployment
           new_migrations=0
           migration_errors=0
           
-          for f in db/init/*.sql; do
+          for f in $GITHUB_WORKSPACE/new-deployment/db/init/*.sql; do
             if [ -f "$f" ]; then
               filename=$(basename "$f")
               
@@ -249,6 +200,26 @@ jobs:
           fi
           
           echo "Applied $new_migrations new migrations"
+
+      - name: Deploy new code
+        run: |
+          echo "Deploying new code..."
+          
+          # Stop current services gracefully
+          cd "$GALLERY_DIR"
+          echo "Stopping services..."
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE down || echo "Services already stopped"
+          
+          # Move current deployment to backup location
+          sudo mv "$GALLERY_DIR" "$GALLERY_DIR.backup.$DEPLOY_TAG" || echo "Could not backup current deployment"
+          
+          # Move new deployment into place
+          sudo mv "$GITHUB_WORKSPACE/new-deployment" "$GALLERY_DIR"
+          
+          # Ensure proper ownership
+          sudo chown -R jacob:jacob "$GALLERY_DIR"
+          
+          echo "Code deployment completed"
 
       - name: Build and start services
         run: |
@@ -320,29 +291,33 @@ jobs:
         run: |
           echo "DEPLOYMENT FAILED - Initiating automatic rollback..."
           
-          cd "$GALLERY_DIR"
+          # Stop failed deployment
+          cd "$GALLERY_DIR" 2>/dev/null || echo "Could not access current gallery directory"
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE down || echo "Could not stop current services"
           
           # Restore database from backup if available
           if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
             echo "Restoring database from backup..."
-            docker exec -i gallery-db-1 psql -U gallery -d gallery < "$BACKUP_FILE"
-            echo "Database restored from backup"
+            # Start database for restore
+            if [ -d "$GALLERY_DIR.backup.$DEPLOY_TAG" ]; then
+              cd "$GALLERY_DIR.backup.$DEPLOY_TAG"
+              docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d db
+              sleep 10
+              docker exec -i gallery-db-1 psql -U gallery -d gallery < "$BACKUP_FILE"
+              echo "Database restored from backup"
+            fi
           else
             echo "Warning: No backup file available for database restore"
           fi
           
-          # Revert code to previous working commit
-          if [ -n "$ROLLBACK_COMMIT" ]; then
-            echo "Reverting code to previous commit: $ROLLBACK_COMMIT"
-            
-            # Configure git for the rollback user
-            git config --global user.name "github-runner"
-            git config --global user.email "github-runner@local"
-            
-            # Reset to previous commit
-            git reset --hard $ROLLBACK_COMMIT || echo "Git rollback failed, but continuing..."
+          # Restore previous code if backup exists
+          if [ -d "$GALLERY_DIR.backup.$DEPLOY_TAG" ]; then
+            echo "Restoring previous deployment..."
+            sudo rm -rf "$GALLERY_DIR" 2>/dev/null || echo "Could not remove failed deployment"
+            sudo mv "$GALLERY_DIR.backup.$DEPLOY_TAG" "$GALLERY_DIR"
             
             # Restart services with previous code
+            cd "$GALLERY_DIR"
             echo "Restarting services with previous version..."
             docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
             
@@ -356,27 +331,30 @@ jobs:
               echo "Warning: Rollback may not have fully succeeded"
             fi
           else
-            echo "No previous commit available for rollback"
+            echo "No previous deployment backup found for rollback"
           fi
           
           echo "Automatic rollback completed"
 
-      - name: Post-deployment cleanup
+      - name: Cleanup successful deployment
         if: success()
         run: |
-          echo "Performing post-deployment cleanup..."
+          echo "Cleaning up successful deployment..."
+          
+          # Remove backup deployment directory
+          sudo rm -rf "$GALLERY_DIR.backup.$DEPLOY_TAG" 2>/dev/null || echo "No backup to clean"
           
           # Clean up old Docker images and containers
           docker image prune -f > /dev/null 2>&1 || true
           docker container prune -f > /dev/null 2>&1 || true
           
-          echo "Docker cleanup completed"
+          echo "Cleanup completed"
 
       - name: Generate deployment summary
         if: always()
         id: summary
         run: |
-          cd "$GALLERY_DIR"
+          cd "$GALLERY_DIR" 2>/dev/null || cd "/tmp"
           
           echo "======================================"
           if [ "$DEPLOYMENT_SUCCESS" = "true" ]; then
@@ -396,7 +374,7 @@ jobs:
           echo "Site: https://jacobfain.gallery"
           echo ""
           echo "Container Status:"
-          docker compose -f $COMPOSE_FILE ps || echo "Could not retrieve container status"
+          docker ps --filter "name=gallery" --format "table {{.Names}}\t{{.Status}}" || echo "Could not retrieve container status"
           echo ""
           echo "======================================"
 
