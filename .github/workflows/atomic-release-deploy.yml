@@ -33,20 +33,6 @@ jobs:
     
     steps:
       - name: Initialize deployment
-      - name: Acquire deployment lock
-        run: |
-          LOCK_FILE="/tmp/gallery-deploy.lock"
-          if [ -f "$LOCK_FILE" ]; then
-            echo "ERROR: Another deployment is in progress"
-            echo "Lock file: $LOCK_FILE"
-            echo "Lock created: $(stat -c %y "$LOCK_FILE" 2>/dev/null || echo "unknown")"
-            exit 1
-          fi
-          
-          echo "$$" > "$LOCK_FILE"
-          echo "LOCK_FILE=$LOCK_FILE" >> $GITHUB_ENV
-          echo "Deployment lock acquired: $LOCK_FILE"
-
         run: |
           echo "DEPLOY_TAG=deploy-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_ENV
           echo "DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_ENV
@@ -108,15 +94,12 @@ jobs:
             commits=$(git log --oneline --no-merges)
           fi
           
-          if [ -z "''" ]; then
+          if [ -z "$commits" ]; then
             echo "No new commits since last release"
             changelog="## Changes\n\nNo new changes since last release."
           else
             # Generate changelog using Claude
-          # Note: Commit messages with quotes could break JSON - will fix if needed
-            echo "Preparing commit data for Claude analysis..."&&\
-echo  > /tmp/commits.txt &&\
-echo "Sending $(wc -l < /tmp/commits.txt) commits to Claude for analysis..."
+            echo "Sending $(echo "$commits" | wc -l) commits to Claude for analysis..."
             
             changelog=$(curl -s -X POST https://api.anthropic.com/v1/messages \
               -H "Content-Type: application/json" \
@@ -127,7 +110,7 @@ echo "Sending $(wc -l < /tmp/commits.txt) commits to Claude for analysis..."
                 \"max_tokens\": 1000,
                 \"messages\": [{
                   \"role\": \"user\", 
-                  \"content\": \"Generate a professional changelog from these git commits. Follow this exact format:\n\n## Changes\n\n### Features\n- [New features and improvements]\n\n### Bug Fixes\n- [Bug fixes and corrections]\n\n### Other Changes\n- [Other notable changes]\n\nMake descriptions clear and user-friendly, not raw commit messages. Group related changes together. If there are no changes in a category, omit that section entirely. Here are the commits:\n\n''\"
+                  \"content\": \"Generate a professional changelog from these git commits. Follow this exact format:\n\n## Changes\n\n### Features\n- [New features and improvements]\n\n### Bug Fixes\n- [Bug fixes and corrections]\n\n### Other Changes\n- [Other notable changes]\n\nMake descriptions clear and user-friendly, not raw commit messages. Group related changes together. If there are no changes in a category, omit that section entirely. Here are the commits:\n\n$commits\"
                 }]
               }" | jq -r '.content[0].text' 2>/dev/null)
             
@@ -138,7 +121,7 @@ echo "Sending $(wc -l < /tmp/commits.txt) commits to Claude for analysis..."
                 if [ -n "$line" ]; then
                   changelog="$changelog\n- $line"
                 fi
-              done <<< "''"
+              done <<< "$commits"
             fi
           fi
           
@@ -230,17 +213,6 @@ echo "Sending $(wc -l < /tmp/commits.txt) commits to Claude for analysis..."
           mkdir -p "$deployment_dir"
           
           # Copy all files to deployment package
-n          echo "Deployment package contents:"
-          ls -la "$deployment_dir/"
-          
-          if [ -f "$deployment_dir/$ENV_FILE" ]; then
-            echo "Environment file copied successfully:"
-            ls -la "$deployment_dir/$ENV_FILE"
-            echo "First few lines:"
-            head -5 "$deployment_dir/$ENV_FILE" | sed "s/=.*/=REDACTED/"
-          else
-            echo "ERROR: Environment file not found in deployment package"
-          fi
           rsync -av --exclude="deployment-package" . "$deployment_dir/"
           
           # Copy environment file to package
@@ -274,26 +246,12 @@ n          echo "Deployment package contents:"
           
           echo "Deployment completed"
 
-      - name: TEMP_MIGRATIONS_PLACEHOLDER
+      - name: Run database migrations
         run: |
           echo "Running database migrations..."
           
           cd "$GALLERY_DIR"
           
-          # Validate environment file before any docker commands
-          echo "Validating environment setup..."
-          if [ ! -f "$ENV_FILE" ]; then
-            echo "ERROR: Environment file $ENV_FILE not found"
-            ls -la . | grep env
-            exit 1
-          fi
-          
-          echo "Environment file found: $ENV_FILE"
-          echo "File size: $(wc -c < "$ENV_FILE") bytes"
-          
-          # Make sure file is readable
-          chmod 644 "$ENV_FILE"
-
           # Start database for migrations
           docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d db
           sleep 10
@@ -329,35 +287,15 @@ n          echo "Deployment package contents:"
           
           echo "Applied $new_migrations new migrations"
 
-      - name: Start services and health check (without migrations)
+      - name: Start services and health check
         run: |
           echo "Starting services and running health checks..."
-          
-          # Ensure we are in the correct directory
-          echo "Current directory: $(pwd)"
-          echo "Gallery directory: $GALLERY_DIR"
-          
-          if [ "$(pwd)" != "$GALLERY_DIR" ]; then
-            echo "ERROR: Not in gallery directory"
-            exit 1
-          fi
-          
-          # Final environment file check
-          if [ ! -f ".env.production" ]; then
-            echo "ERROR: .env.production not found in $(pwd)"
-            echo "Available files:"
-            ls -la | grep env
-            exit 1
-          fi
           
           cd "$GALLERY_DIR"
           
           # Build and start all services
-          echo "Building with environment file: $ENV_FILE" && \
-if [ ! -f "$ENV_FILE" ]; then echo "ERROR: Environment file $ENV_FILE not found"; exit 1; fi && \
-docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache
-          echo "Starting services with environment file: $ENV_FILE" && \
-docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           
           # Wait for backend health
           echo "Waiting for backend health..."
@@ -375,23 +313,6 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           }
           
           # API endpoint test
-          echo "Running comprehensive API health checks..."
-          
-          # Test multiple endpoints to ensure app is fully ready
-          health_endpoints=(
-            "http://localhost/api/health"
-            "http://localhost/api/galleries"
-          )
-          
-          for endpoint in "${health_endpoints[@]}"; do
-            echo "Testing endpoint: $endpoint"
-            if ! curl -f -s --max-time 10 "$endpoint" > /dev/null; then
-              echo "API endpoint $endpoint failed"
-              exit 1
-            fi
-            echo "✓ $endpoint responded successfully"
-          done
-
           echo "Testing API endpoint..."
           max_attempts=12
           attempt=0
@@ -411,7 +332,7 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
             sleep 5
           done
           
-          echo "Basic health checks passed - ready for migrations"
+          echo "All health checks passed"
           echo "DEPLOYMENT_SUCCESS=true" >> $GITHUB_ENV
 
       - name: Create GitHub release (only on success)
@@ -487,12 +408,6 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
               echo "Rollback successful"
             else
               echo "Warning: Rollback may not have succeeded"
-          
-          # Release deployment lock on failure
-          if [ -f "$LOCK_FILE" ]; then
-            rm -f "$LOCK_FILE" 2>/dev/null || echo "Could not remove lock file"
-            echo "Deployment lock released after rollback"
-          fi
             fi
           fi
 
@@ -507,12 +422,6 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           fi
           echo "======================================"
           echo ""
-          
-          # Release deployment lock
-          if [ -f "$LOCK_FILE" ]; then
-            rm -f "$LOCK_FILE" 2>/dev/null || echo "Could not remove lock file"
-            echo "Deployment lock released"
-          fi
           echo "Version: $VERSION"
           echo "Time: $DEPLOY_TIME"
           echo "User: $DEPLOY_USER"
@@ -521,21 +430,9 @@ docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           fi
           echo "Site: https://jacobfain.gallery"
           echo ""
-          
-          # Release deployment lock
-          if [ -f "$LOCK_FILE" ]; then
-            rm -f "$LOCK_FILE" 2>/dev/null || echo "Could not remove lock file"
-            echo "Deployment lock released"
-          fi
           echo "Container Status:"
           docker ps --filter "name=gallery" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Could not get status"
           echo ""
-          
-          # Release deployment lock
-          if [ -f "$LOCK_FILE" ]; then
-            rm -f "$LOCK_FILE" 2>/dev/null || echo "Could not remove lock file"
-            echo "Deployment lock released"
-          fi
 
       - name: Send notification email
         if: always()
