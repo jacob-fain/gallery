@@ -13,6 +13,10 @@ on:
           - minor
           - major
 
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   create_release:
     runs-on: ubuntu-latest
