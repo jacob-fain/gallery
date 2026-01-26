@@ -20,7 +20,7 @@ on:
 
 env:
   GALLERY_DIR: /home/jacob/gallery
-  BACKUP_DIR: /home/jacob/backups/gallery
+  BACKUP_DIR: /home/github-runner/backups
   COMPOSE_FILE: docker-compose.prod.yml
   ENV_FILE: .env.production
 
