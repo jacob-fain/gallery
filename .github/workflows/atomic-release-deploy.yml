@@ -263,6 +263,20 @@ n          echo "Deployment package contents:"
           
           cd "$GALLERY_DIR"
           
+          # Validate environment file before any docker commands
+          echo "Validating environment setup..."
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "ERROR: Environment file $ENV_FILE not found"
+            ls -la . | grep env
+            exit 1
+          fi
+          
+          echo "Environment file found: $ENV_FILE"
+          echo "File size: $(wc -c < "$ENV_FILE") bytes"
+          
+          # Make sure file is readable
+          chmod 644 "$ENV_FILE"
+
           # Start database for migrations
           docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d db
           sleep 10
@@ -302,11 +316,31 @@ n          echo "Deployment package contents:"
         run: |
           echo "Starting services and running health checks..."
           
+          # Ensure we are in the correct directory
+          echo "Current directory: $(pwd)"
+          echo "Gallery directory: $GALLERY_DIR"
+          
+          if [ "$(pwd)" != "$GALLERY_DIR" ]; then
+            echo "ERROR: Not in gallery directory"
+            exit 1
+          fi
+          
+          # Final environment file check
+          if [ ! -f ".env.production" ]; then
+            echo "ERROR: .env.production not found in $(pwd)"
+            echo "Available files:"
+            ls -la | grep env
+            exit 1
+          fi
+          
           cd "$GALLERY_DIR"
           
           # Build and start all services
-          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache
-          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
+          echo "Building with environment file: $ENV_FILE" && \
+if [ ! -f "$ENV_FILE" ]; then echo "ERROR: Environment file $ENV_FILE not found"; exit 1; fi && \
+docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache
+          echo "Starting services with environment file: $ENV_FILE" && \
+docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           
           # Wait for backend health
           echo "Waiting for backend health..."
