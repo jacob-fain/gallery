@@ -213,6 +213,17 @@ jobs:
           mkdir -p "$deployment_dir"
           
           # Copy all files to deployment package
+n          echo "Deployment package contents:"
+          ls -la "$deployment_dir/"
+          
+          if [ -f "$deployment_dir/$ENV_FILE" ]; then
+            echo "Environment file copied successfully:"
+            ls -la "$deployment_dir/$ENV_FILE"
+            echo "First few lines:"
+            head -5 "$deployment_dir/$ENV_FILE" | sed "s/=.*/=REDACTED/"
+          else
+            echo "ERROR: Environment file not found in deployment package"
+          fi
           rsync -av --exclude="deployment-package" . "$deployment_dir/"
           
           # Copy environment file to package
@@ -301,7 +312,7 @@ jobs:
           echo "Waiting for backend health..."
           timeout 60 bash -c '
             while true; do
-              if docker compose -f $COMPOSE_FILE ps --filter "status=healthy" | grep -q backend; then
+              if docker compose -f $COMPOSE_FILE ps backend | grep -q "(healthy)"; then
                 echo "Backend is healthy"
                 break
               fi
