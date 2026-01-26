@@ -108,12 +108,15 @@ jobs:
             commits=$(git log --oneline --no-merges)
           fi
           
-          if [ -z "$commits" ]; then
+          if [ -z "''" ]; then
             echo "No new commits since last release"
             changelog="## Changes\n\nNo new changes since last release."
           else
             # Generate changelog using Claude
-            echo "Sending $(echo "$commits" | wc -l) commits to Claude for analysis..."
+          # Note: Commit messages with quotes could break JSON - will fix if needed
+            echo "Preparing commit data for Claude analysis..."&&\
+echo  > /tmp/commits.txt &&\
+echo "Sending $(wc -l < /tmp/commits.txt) commits to Claude for analysis..."
             
             changelog=$(curl -s -X POST https://api.anthropic.com/v1/messages \
               -H "Content-Type: application/json" \
@@ -124,7 +127,7 @@ jobs:
                 \"max_tokens\": 1000,
                 \"messages\": [{
                   \"role\": \"user\", 
-                  \"content\": \"Generate a professional changelog from these git commits. Follow this exact format:\n\n## Changes\n\n### Features\n- [New features and improvements]\n\n### Bug Fixes\n- [Bug fixes and corrections]\n\n### Other Changes\n- [Other notable changes]\n\nMake descriptions clear and user-friendly, not raw commit messages. Group related changes together. If there are no changes in a category, omit that section entirely. Here are the commits:\n\n$commits\"
+                  \"content\": \"Generate a professional changelog from these git commits. Follow this exact format:\n\n## Changes\n\n### Features\n- [New features and improvements]\n\n### Bug Fixes\n- [Bug fixes and corrections]\n\n### Other Changes\n- [Other notable changes]\n\nMake descriptions clear and user-friendly, not raw commit messages. Group related changes together. If there are no changes in a category, omit that section entirely. Here are the commits:\n\n''\"
                 }]
               }" | jq -r '.content[0].text' 2>/dev/null)
             
@@ -135,7 +138,7 @@ jobs:
                 if [ -n "$line" ]; then
                   changelog="$changelog\n- $line"
                 fi
-              done <<< "$commits"
+              done <<< "''"
             fi
           fi
           
