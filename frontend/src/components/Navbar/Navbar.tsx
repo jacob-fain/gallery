@@ -16,6 +16,14 @@ export default function Navbar() {
           </Link>
           <div className={styles.links}>
             <NavLink
+              to="/photos"
+              className={({ isActive }) =>
+                isActive ? `${styles.link} ${styles.active}` : styles.link
+              }
+            >
+              Photos
+            </NavLink>
+            <NavLink
               to="/galleries"
               className={({ isActive }) =>
                 isActive ? `${styles.link} ${styles.active}` : styles.link

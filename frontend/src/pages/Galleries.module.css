@@ -1,4 +1,5 @@
-/* Edge-to-edge cover mosaic, matching the photo grid's tight spacing */
+/* Edge-to-edge cover mosaic - large covers sized for a small gallery
+   count (two per row on desktop), photo-grid gap spacing */
 .container {
   width: 100%;
   padding: var(--grid-gap);
@@ -6,8 +7,14 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
   gap: var(--grid-gap);
+}
+
+@media (max-width: 1200px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
