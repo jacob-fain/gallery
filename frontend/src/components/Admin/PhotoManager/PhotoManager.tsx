@@ -23,7 +23,8 @@ import styles from './PhotoManager.module.css';
 
 interface PhotoManagerProps {
   photos: Photo[];
-  gallery: Gallery;
+  // null renders gallery-agnostic mode (unassigned photos): no cover, reorder, or shuffle
+  gallery: Gallery | null;
   onPhotosChange: () => void;
 }
 
@@ -33,6 +34,7 @@ interface SortablePhotoCardProps {
   isSelected: boolean;
   isDeleting: boolean;
   coverSelectMode: boolean;
+  sortable: boolean;
   onToggleSelect: (photoId: string) => void;
   onCoverClick: (photoId: string) => void;
   onDelete: (photoId: string) => void;
@@ -45,6 +47,7 @@ function SortablePhotoCard({
   isSelected,
   isDeleting,
   coverSelectMode,
+  sortable,
   onToggleSelect,
   onCoverClick,
   onDelete,
@@ -57,7 +60,7 @@ function SortablePhotoCard({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: photo.id });
+  } = useSortable({ id: photo.id, disabled: !sortable });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -97,7 +100,7 @@ function SortablePhotoCard({
               alt={photo.original_filename}
               className={styles.image}
             />
-            <div className={styles.dragHint}>Drag to reorder</div>
+            {sortable && <div className={styles.dragHint}>Drag to reorder</div>}
           </div>
         )}
         {!coverSelectMode && (
@@ -234,7 +237,7 @@ export default function PhotoManager({
       setLocalPhotos(newOrder);
 
       // Save to backend
-      if (token) {
+      if (token && gallery) {
         try {
           await reorderPhotos(token, gallery.id, newOrder.map((p) => p.id));
         } catch (err) {
@@ -247,7 +250,7 @@ export default function PhotoManager({
   };
 
   const handleSetCover = async (photoId: string) => {
-    if (!token) return;
+    if (!token || !gallery) return;
 
     // Optimistic UI - show cover immediately
     setOptimisticCoverId(photoId);
@@ -315,7 +318,7 @@ export default function PhotoManager({
 
   // Shuffle photos randomly
   const handleShuffle = async () => {
-    if (!token) return;
+    if (!token || !gallery) return;
 
     setShuffling(true);
 
@@ -371,7 +374,7 @@ export default function PhotoManager({
     try {
       const galleries = await getAllGalleries(token);
       // Filter out current gallery
-      setAvailableGalleries(galleries.filter((g) => g.id !== gallery.id));
+      setAvailableGalleries(galleries.filter((g) => g.id !== gallery?.id));
       setSelectedTargetGallery('');
       setMoveModalOpen(true);
     } catch (err) {
@@ -439,7 +442,7 @@ export default function PhotoManager({
 
   const allSelected = selectedIds.size === localPhotos.length;
   const someSelected = selectedIds.size > 0;
-  const effectiveCoverId = optimisticCoverId || gallery.cover_image_id;
+  const effectiveCoverId = optimisticCoverId || gallery?.cover_image_id;
   const currentCover = localPhotos.find((p) => p.id === effectiveCoverId);
 
   return (
@@ -447,19 +450,23 @@ export default function PhotoManager({
       {/* Toolbar */}
       <div className={styles.toolbar}>
         <div className={styles.toolbarLeft}>
-          <button
-            className={`${styles.setCoverBtn} ${coverSelectMode ? styles.active : ''}`}
-            onClick={() => setCoverSelectMode(!coverSelectMode)}
-          >
-            {coverSelectMode ? 'Cancel' : 'Set Cover Photo'}
-          </button>
-          <button
-            className={styles.shuffleBtn}
-            onClick={() => setShuffleConfirm(true)}
-            disabled={shuffling || localPhotos.length < 2}
-          >
-            {shuffling ? 'Shuffling...' : 'Shuffle'}
-          </button>
+          {gallery && (
+            <>
+              <button
+                className={`${styles.setCoverBtn} ${coverSelectMode ? styles.active : ''}`}
+                onClick={() => setCoverSelectMode(!coverSelectMode)}
+              >
+                {coverSelectMode ? 'Cancel' : 'Set Cover Photo'}
+              </button>
+              <button
+                className={styles.shuffleBtn}
+                onClick={() => setShuffleConfirm(true)}
+                disabled={shuffling || localPhotos.length < 2}
+              >
+                {shuffling ? 'Shuffling...' : 'Shuffle'}
+              </button>
+            </>
+          )}
           {currentCover && !coverSelectMode && (
             <span className={styles.currentCover}>
               Cover: {currentCover.original_filename}
@@ -543,6 +550,7 @@ export default function PhotoManager({
                 isSelected={selectedIds.has(photo.id)}
                 isDeleting={deletingIds.has(photo.id)}
                 coverSelectMode={coverSelectMode}
+                sortable={!!gallery}
                 onToggleSelect={handleToggleSelect}
                 onCoverClick={handleSetCover}
                 onDelete={(id) => setDeleteConfirm(id)}

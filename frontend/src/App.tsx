@@ -11,6 +11,7 @@ import './styles/globals.css';
 import Home from './pages/Home';
 import Galleries from './pages/Galleries';
 import Gallery from './pages/Gallery';
+import AllPhotos from './pages/AllPhotos';
 
 // Admin pages - lazy load (reduces initial bundle for public visitors)
 const Login = lazy(() => import('./pages/admin/Login'));
@@ -18,6 +19,7 @@ const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
 const AdminGalleries = lazy(() => import('./pages/admin/Galleries'));
 const Photos = lazy(() => import('./pages/admin/Photos'));
 const Homepage = lazy(() => import('./pages/admin/Homepage'));
+const Unassigned = lazy(() => import('./pages/admin/Unassigned'));
 const Settings = lazy(() => import('./pages/admin/Settings'));
 const AdminLayout = lazy(() => import('./components/Admin/AdminLayout/AdminLayout'));
 
@@ -29,6 +31,7 @@ function PublicApp() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/galleries" element={<Galleries />} />
+          <Route path="/photos" element={<AllPhotos />} />
           <Route path="/g/:slug" element={<Gallery />} />
         </Routes>
       </main>
@@ -52,6 +55,7 @@ function AdminApp() {
                     <Route path="galleries" element={<AdminGalleries />} />
                     <Route path="galleries/:id/photos" element={<Photos />} />
                     <Route path="homepage" element={<Homepage />} />
+                    <Route path="unassigned" element={<Unassigned />} />
                     <Route path="settings" element={<Settings />} />
                   </Routes>
                 </AdminLayout>
