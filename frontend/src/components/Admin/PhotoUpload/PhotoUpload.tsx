@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, memo, type DragEvent, type ChangeEvent } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { uploadPhoto } from '../../../api/client';
+import { uploadPhoto, checkDuplicates, type DuplicateInfo } from '../../../api/client';
 import type { Photo } from '../../../types';
 import styles from './PhotoUpload.module.css';
 
@@ -8,8 +8,9 @@ interface UploadingFile {
   id: string;
   file: File;
   progress: number;
-  status: 'pending' | 'uploading' | 'processing' | 'complete' | 'error';
+  status: 'checking' | 'pending' | 'uploading' | 'processing' | 'complete' | 'error' | 'duplicate' | 'new';
   error?: string;
+  note?: string;
 }
 
 interface PhotoUploadProps {
@@ -22,9 +23,20 @@ interface UploadItemProps {
   onDismiss: (id: string) => void;
 }
 
+// SHA-256 of a file's bytes - matches the content_hash stored at upload
+// time because originals are preserved exactly as uploaded
+async function hashFile(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps) {
   const getStatusText = () => {
     switch (item.status) {
+      case 'checking': return 'Checking...';
       case 'pending': return 'Waiting...';
       case 'uploading': return `${item.progress}%`;
       case 'processing': return 'Processing...';
@@ -46,6 +58,18 @@ const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps
             Dismiss
           </button>
         </>
+      ) : item.status === 'duplicate' || item.status === 'new' ? (
+        <>
+          <span className={item.status === 'duplicate' ? styles.duplicateNote : styles.newNote}>
+            {item.note}
+          </span>
+          <button
+            className={styles.dismissBtn}
+            onClick={() => onDismiss(item.id)}
+          >
+            Dismiss
+          </button>
+        </>
       ) : (
         <div className={styles.progressWrapper}>
           <div className={styles.progressBar}>
@@ -53,7 +77,7 @@ const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps
               className={`${styles.progressFill} ${item.status === 'processing' ? styles.processing : ''}`}
               style={{
                 width:
-                  item.status === 'pending'
+                  item.status === 'pending' || item.status === 'checking'
                     ? '0%'
                     : item.status === 'uploading'
                     ? `${item.progress}%`
@@ -72,6 +96,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
   const { token } = useAuth();
   const [uploading, setUploading] = useState<UploadingFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [checkOnly, setCheckOnly] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Warn user before leaving page with active uploads
@@ -105,11 +130,74 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
       id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       file,
       progress: 0,
-      status: 'pending',
+      status: 'checking',
     }));
     setUploading((prev) => [...prev, ...newUploading]);
 
+    // Hash files in the browser and ask the server which already exist.
+    // If anything fails, fall through to uploading - the server rejects
+    // duplicates as a safety net.
+    const fileHashes = new Map<string, string>();
     for (const item of newUploading) {
+      try {
+        fileHashes.set(item.id, await hashFile(item.file));
+      } catch {
+        // Hashing unavailable - treat as new
+      }
+    }
+
+    let existing: Record<string, DuplicateInfo> = {};
+    try {
+      const uniqueHashes = [...new Set(fileHashes.values())];
+      if (uniqueHashes.length > 0) {
+        existing = await checkDuplicates(token, uniqueHashes);
+      }
+    } catch {
+      // Check failed - proceed with uploads
+    }
+
+    const toUpload: UploadingFile[] = [];
+    const seenInBatch = new Set<string>();
+    for (const item of newUploading) {
+      const hash = fileHashes.get(item.id);
+      const dup = hash ? existing[hash] : undefined;
+
+      if (dup) {
+        const where = dup.gallery_title ? ` in ${dup.gallery_title}` : dup.gallery_id === null ? ' (unassigned)' : '';
+        setUploading((prev) =>
+          prev.map((u) =>
+            u.id === item.id
+              ? { ...u, status: 'duplicate', note: `Already uploaded${where} as ${dup.original_filename}` }
+              : u
+          )
+        );
+      } else if (hash && seenInBatch.has(hash)) {
+        setUploading((prev) =>
+          prev.map((u) =>
+            u.id === item.id
+              ? { ...u, status: 'duplicate', note: 'Duplicate of another file in this batch' }
+              : u
+          )
+        );
+      } else if (checkOnly) {
+        setUploading((prev) =>
+          prev.map((u) =>
+            u.id === item.id ? { ...u, status: 'new', note: 'Not uploaded yet' } : u
+          )
+        );
+        if (hash) seenInBatch.add(hash);
+      } else {
+        setUploading((prev) =>
+          prev.map((u) => (u.id === item.id ? { ...u, status: 'pending' } : u))
+        );
+        if (hash) seenInBatch.add(hash);
+        toUpload.push(item);
+      }
+    }
+
+    if (checkOnly) return;
+
+    for (const item of toUpload) {
       // Mark as uploading
       setUploading((prev) =>
         prev.map((u) =>
@@ -151,7 +239,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         );
       }
     }
-  }, [token, galleryId, onUploadComplete]);
+  }, [token, galleryId, checkOnly, onUploadComplete]);
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -182,6 +270,8 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
     setUploading((prev) => prev.filter((u) => u.id !== id));
   }, []);
 
+  const hasResults = uploading.some((u) => u.status === 'duplicate' || u.status === 'new');
+
   return (
     <div className={styles.container}>
       <div
@@ -201,9 +291,36 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         />
         <div className={styles.dropzoneText}>
           <span className={styles.icon}>+</span>
-          <span>Drop photos here or click to upload</span>
-          <span className={styles.hint}>Supports JPEG, PNG, WebP, TIFF, HEIF</span>
+          <span>{checkOnly ? 'Drop photos here to check if they are uploaded' : 'Drop photos here or click to upload'}</span>
+          <span className={styles.hint}>
+            {checkOnly
+              ? 'Nothing will be uploaded'
+              : 'Supports JPEG, PNG, WebP, TIFF, HEIF. Already-uploaded photos are skipped.'}
+          </span>
         </div>
+      </div>
+
+      <div className={styles.optionsRow}>
+        <label className={styles.checkOnlyLabel}>
+          <input
+            type="checkbox"
+            checked={checkOnly}
+            onChange={(e) => setCheckOnly(e.target.checked)}
+          />
+          Check only — don't upload
+        </label>
+        {hasResults && (
+          <button
+            className={styles.clearBtn}
+            onClick={() =>
+              setUploading((prev) =>
+                prev.filter((u) => u.status !== 'duplicate' && u.status !== 'new')
+              )
+            }
+          >
+            Clear results
+          </button>
+        )}
       </div>
 
       {uploading.length > 0 && (

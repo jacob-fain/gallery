@@ -159,6 +159,19 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       });
     }
 
+    // Reject exact duplicates (hash of the raw upload bytes)
+    const contentHash = crypto
+      .createHash('sha256')
+      .update(req.file.buffer)
+      .digest('hex');
+    const duplicate = await photoService.getPhotoByContentHash(contentHash);
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        error: `Already uploaded as ${duplicate.original_filename}`,
+      });
+    }
+
     // Process image into 3 sizes and extract EXIF in parallel
     const [processed, exifData] = await Promise.all([
       imageService.processImage(req.file.buffer),
@@ -189,6 +202,7 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       height: processed.original.height,
       file_size: processed.original.size,
       exif_data: exifData || undefined,
+      content_hash: contentHash,
     });
 
     // Return photo with signed URLs
@@ -201,6 +215,57 @@ export const uploadPhoto = async (req: Request, res: Response) => {
 };
 
 // ============ Admin Controllers ============
+
+/**
+ * Check which content hashes are already uploaded
+ * Body: { hashes: string[] } (SHA-256 hex of original file bytes)
+ * Returns a map of hash -> { id, original_filename, gallery_id, gallery_title }
+ * for hashes that exist; missing hashes are simply absent.
+ */
+export const checkDuplicates = async (req: Request, res: Response) => {
+  try {
+    const { hashes } = req.body;
+
+    if (!Array.isArray(hashes) || hashes.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'hashes must be a non-empty array',
+      });
+    }
+    // Cap keeps the request under the 100kb express.json body limit
+    if (hashes.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        error: 'Maximum 1000 hashes per request',
+      });
+    }
+    if (!hashes.every((h) => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h))) {
+      return res.status(400).json({
+        success: false,
+        error: 'hashes must be lowercase SHA-256 hex strings',
+      });
+    }
+
+    const photos = await photoService.getPhotosByContentHashes(hashes);
+    const found: Record<
+      string,
+      { id: string; original_filename: string; gallery_id: string | null; gallery_title: string | null }
+    > = {};
+    for (const photo of photos) {
+      found[photo.content_hash!] = {
+        id: photo.id,
+        original_filename: photo.original_filename,
+        gallery_id: photo.gallery_id,
+        gallery_title: photo.gallery_title,
+      };
+    }
+
+    res.json({ success: true, data: found });
+  } catch (err) {
+    console.error('Error checking duplicates:', err);
+    res.status(500).json({ success: false, error: 'Failed to check duplicates' });
+  }
+};
 
 /**
  * Update a photo's metadata (featured, hidden, sort_order)
