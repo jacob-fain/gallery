@@ -70,8 +70,8 @@
 }
 
 .passwordError {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
   padding: 12px;
   border-radius: 4px;
   font-size: 0.875rem;

@@ -128,7 +128,7 @@
 }
 
 .bulkBtn.danger {
-  background: #dc2626;
+  background: var(--color-danger-solid);
 }
 
 .bulkBtnCancel {
@@ -341,17 +341,17 @@
 }
 
 .hideIconBtn:hover {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .hideIconBtn.isHidden {
-  color: #dc2626;
+  color: var(--color-danger);
 }
 
 .hideIconBtn.isHidden:hover {
-  background: #dcfce7;
-  color: #16a34a;
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .deleteIconBtn {
@@ -370,8 +370,8 @@
 }
 
 .deleteIconBtn:hover {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .deleteIconBtn:disabled {
@@ -380,7 +380,7 @@
 }
 
 .deleteIconBtn.loading {
-  background: #fee2e2;
+  background: var(--color-danger-bg);
 }
 
 .card.deleting {
@@ -390,8 +390,8 @@
 .spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid #fca5a5;
-  border-top-color: #dc2626;
+  border: 2px solid var(--color-danger-border);
+  border-top-color: var(--color-danger);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
@@ -465,7 +465,7 @@
 
 .deleteBtn {
   padding: 0.75rem 1.5rem;
-  background: #dc2626;
+  background: var(--color-danger-solid);
   border: none;
   border-radius: 4px;
   color: white;

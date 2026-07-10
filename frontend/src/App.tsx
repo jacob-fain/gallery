@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { isAdminSubdomain } from './utils/subdomain';
 import { getSettings } from './api/client';
 import { AuthProvider } from './contexts/AuthContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import Navbar from './components/Navbar/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import './styles/globals.css';
@@ -97,8 +98,10 @@ export default function App() {
   }, []);
 
   return (
-    <BrowserRouter>
-      {isAdmin ? <AdminApp /> : <PublicApp />}
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        {isAdmin ? <AdminApp /> : <PublicApp />}
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
