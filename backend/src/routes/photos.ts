@@ -11,6 +11,9 @@ const router = Router();
 // POST /api/photos/upload - Upload photo (admin only)
 router.post('/upload', authMiddleware, upload.single('photo'), photoController.uploadPhoto);
 
+// GET /api/photos/admin/unassigned - List photos without a gallery
+router.get('/admin/unassigned', authMiddleware, photoController.listUnassignedPhotos);
+
 // PUT /api/photos/reorder - Reorder photos in a gallery
 router.put('/reorder', authMiddleware, photoController.reorderPhotos);
 
@@ -24,6 +27,9 @@ router.put('/:id', authMiddleware, photoController.updatePhoto);
 router.delete('/:id', authMiddleware, photoController.deletePhoto);
 
 // ============ Public Routes ============
+
+// GET /api/photos - List all publicly visible photos
+router.get('/', photoController.listAllPhotos);
 
 // GET /api/photos/:id - Get single photo
 router.get('/:id', photoController.getPhoto);

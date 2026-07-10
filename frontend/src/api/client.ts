@@ -82,6 +82,16 @@ export async function getFeaturedPhotos(): Promise<Photo[]> {
   return data;
 }
 
+export async function getAllPhotos(limit?: number): Promise<Photo[]> {
+  const cacheKey = limit ? `allPhotos:${limit}` : 'allPhotos';
+  const cached = getCached<Photo[]>(cacheKey);
+  if (cached) return cached;
+
+  const data = await fetchApi<Photo[]>(limit ? `/photos?limit=${limit}` : '/photos');
+  setCache(cacheKey, data);
+  return data;
+}
+
 export async function getGalleries(): Promise<Gallery[]> {
   const cacheKey = 'galleries';
   const cached = getCached<Gallery[]>(cacheKey);
@@ -247,6 +257,7 @@ export async function deleteGallery(token: string, id: string): Promise<{ delete
   clearCache('galleries');
   clearCache('gallery:');
   clearCache('photos:');
+  clearCache('allPhotos');
   return result;
 }
 
@@ -282,9 +293,13 @@ export async function getPhotosByGallery(token: string, galleryId: string): Prom
   return fetchApiAuth<Photo[]>(`/galleries/${galleryId}/photos/admin`, token);
 }
 
+export async function getUnassignedPhotos(token: string): Promise<Photo[]> {
+  return fetchApiAuth<Photo[]>('/photos/admin/unassigned', token);
+}
+
 export async function uploadPhoto(
   token: string,
-  galleryId: string,
+  galleryId: string | null,
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<Photo> {
@@ -292,7 +307,9 @@ export async function uploadPhoto(
     const xhr = new XMLHttpRequest();
     const formData = new FormData();
     formData.append('photo', file);
-    formData.append('galleryId', galleryId);
+    if (galleryId) {
+      formData.append('galleryId', galleryId);
+    }
 
     xhr.upload.addEventListener('progress', (e) => {
       if (e.lengthComputable && onProgress) {
@@ -305,6 +322,8 @@ export async function uploadPhoto(
         const data: ApiResponse<Photo> = JSON.parse(xhr.responseText);
         if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data) {
           clearCache('photos:');
+          clearCache('allPhotos');
+  clearCache('allPhotos');
           clearCache('featured');
           clearCache('galleries');
           resolve(data.data);
@@ -336,6 +355,7 @@ export async function updatePhoto(
     body: JSON.stringify(data),
   });
   clearCache('photos:');
+  clearCache('allPhotos');
   clearCache('featured');
   clearCache('galleries');
   return result;
@@ -346,6 +366,7 @@ export async function deletePhoto(token: string, id: string): Promise<{ deleted:
     method: 'DELETE',
   });
   clearCache('photos:');
+  clearCache('allPhotos');
   clearCache('featured');
   clearCache('galleries');
   return result;
@@ -362,6 +383,7 @@ export async function reorderPhotos(
     body: JSON.stringify({ gallery_id: galleryId, photo_ids: photoIds }),
   });
   clearCache('photos:');
+  clearCache('allPhotos');
   clearCache('featured');
   clearCache('galleries');
   return result;
@@ -378,6 +400,7 @@ export async function movePhotos(
     body: JSON.stringify({ photo_ids: photoIds, target_gallery_id: targetGalleryId }),
   });
   clearCache('photos:');
+  clearCache('allPhotos');
   clearCache('featured');
   clearCache('galleries');
   return result;

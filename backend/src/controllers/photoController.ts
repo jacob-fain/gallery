@@ -14,8 +14,10 @@ export const getPhoto = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Photo not found' });
     }
 
-    // Check if photo's gallery is public
-    const gallery = await galleryService.getGalleryById(photo.gallery_id);
+    // Check if photo's gallery is public (unassigned photos are public)
+    const gallery = photo.gallery_id
+      ? await galleryService.getGalleryById(photo.gallery_id)
+      : null;
     if (gallery && !gallery.is_public) {
       return res.status(403).json({
         success: false,
@@ -29,6 +31,40 @@ export const getPhoto = async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Error fetching photo:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch photo' });
+  }
+};
+
+/**
+ * List every publicly visible photo (public galleries and unassigned)
+ * Supports an optional ?limit= query param
+ */
+export const listAllPhotos = async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+      return res.status(400).json({ success: false, error: 'limit must be a positive integer' });
+    }
+
+    const photos = await photoService.getAllPublicPhotos(limit);
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error fetching all photos:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch photos' });
+  }
+};
+
+/**
+ * List photos not assigned to any gallery (admin)
+ */
+export const listUnassignedPhotos = async (_req: Request, res: Response) => {
+  try {
+    const photos = await photoService.getUnassignedPhotos();
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error fetching unassigned photos:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch unassigned photos' });
   }
 };
 
@@ -103,16 +139,15 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'No photo file provided' });
     }
 
-    // Validate galleryId
-    const { galleryId } = req.body;
-    if (!galleryId) {
-      return res.status(400).json({ success: false, error: 'Gallery ID is required' });
-    }
+    // galleryId is optional - photos can be uploaded unassigned
+    const galleryId: string | null = req.body.galleryId || null;
 
-    // Validate gallery exists
-    const gallery = await galleryService.getGalleryById(galleryId);
-    if (!gallery) {
-      return res.status(404).json({ success: false, error: 'Gallery not found' });
+    // Validate gallery exists when one is specified
+    if (galleryId) {
+      const gallery = await galleryService.getGalleryById(galleryId);
+      if (!gallery) {
+        return res.status(404).json({ success: false, error: 'Gallery not found' });
+      }
     }
 
     // Validate image format
