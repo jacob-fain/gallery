@@ -51,6 +51,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                 Homepage
               </NavLink>
               <NavLink
+                to="/unassigned"
+                className={({ isActive }) =>
+                  isActive ? `${styles.link} ${styles.active}` : styles.link
+                }
+              >
+                Unassigned
+              </NavLink>
+              <NavLink
                 to="/settings"
                 className={({ isActive }) =>
                   isActive ? `${styles.link} ${styles.active}` : styles.link

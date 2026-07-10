@@ -155,15 +155,15 @@ export const getFileStream = async (key: string): Promise<Readable> => {
  * - Original: .jpg (preserved as uploaded)
  * - Web/Thumbnail: .webp (optimized format)
  *
- * @param galleryId - Gallery UUID
+ * @param galleryId - Gallery UUID, or null for unassigned photos
  * @param photoId - Photo UUID
  * @returns Object with keys for original, web, and thumbnail versions
  */
 export const generatePhotoKeys = (
-  galleryId: string,
+  galleryId: string | null,
   photoId: string
 ): { original: string; web: string; thumbnail: string } => {
-  const basePath = `galleries/${galleryId}/${photoId}`;
+  const basePath = `galleries/${galleryId ?? 'unassigned'}/${photoId}`;
   return {
     original: `${basePath}/original.jpg`,
     web: `${basePath}/web.webp`,
@@ -176,11 +176,11 @@ export const generatePhotoKeys = (
  * Uses Promise.allSettled to attempt all deletions even if some fail
  * (prevents orphaned files in S3)
  *
- * @param galleryId - Gallery UUID
+ * @param galleryId - Gallery UUID, or null for unassigned photos
  * @param photoId - Photo UUID
  */
 export const deletePhotoFiles = async (
-  galleryId: string,
+  galleryId: string | null,
   photoId: string
 ): Promise<void> => {
   if (!isS3Configured()) {

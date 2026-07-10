@@ -25,7 +25,7 @@ export interface Gallery {
 
 export interface Photo {
   id: string;
-  gallery_id: string;
+  gallery_id: string | null;
   filename: string;
   original_filename: string;
   s3_key: string;
