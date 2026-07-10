@@ -46,6 +46,8 @@ export interface Photo {
   thumbnailUrl?: string;
   // EXIF metadata
   exif_data?: ExifData;
+  // SHA-256 of the original file (duplicate detection)
+  content_hash?: string | null;
   // Joined fields from featured query
   gallery_title?: string;
   gallery_slug?: string;

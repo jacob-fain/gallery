@@ -48,6 +48,7 @@ export interface Photo {
   download_count: number;
   uploaded_at: Date;
   exif_data?: ExifData;
+  content_hash?: string | null;
 }
 
 // Photo with signed S3 URLs for frontend consumption
@@ -97,6 +98,7 @@ export interface CreatePhotoInput {
   height: number;
   file_size: number;
   exif_data?: ExifData;
+  content_hash?: string;
 }
 
 // Input type for creating a gallery

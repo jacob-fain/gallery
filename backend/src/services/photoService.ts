@@ -198,9 +198,9 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> => {
     `INSERT INTO photos (
       gallery_id, filename, original_filename,
       s3_key, s3_thumbnail_key, s3_web_key,
-      width, height, file_size, exif_data
+      width, height, file_size, exif_data, content_hash
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     RETURNING *`,
     [
       data.gallery_id,
@@ -213,9 +213,39 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> => {
       data.height,
       data.file_size,
       data.exif_data ? JSON.stringify(data.exif_data) : null,
+      data.content_hash || null,
     ]
   );
   return result.rows[0];
+};
+
+/**
+ * Find a photo by the SHA-256 hash of its original file
+ */
+export const getPhotoByContentHash = async (hash: string): Promise<Photo | null> => {
+  const result = await query(
+    `SELECT * FROM photos WHERE content_hash = $1 LIMIT 1`,
+    [hash]
+  );
+  return result.rows[0] || null;
+};
+
+/**
+ * Find which of the given content hashes are already uploaded
+ * Returns one row per matched hash with the photo and its gallery title
+ */
+export const getPhotosByContentHashes = async (
+  hashes: string[]
+): Promise<(Photo & { gallery_title: string | null })[]> => {
+  const result = await query(
+    `SELECT DISTINCT ON (p.content_hash) p.*, g.title as gallery_title
+     FROM photos p
+     LEFT JOIN galleries g ON p.gallery_id = g.id
+     WHERE p.content_hash = ANY($1)
+     ORDER BY p.content_hash, p.uploaded_at ASC`,
+    [hashes]
+  );
+  return result.rows;
 };
 
 /**
