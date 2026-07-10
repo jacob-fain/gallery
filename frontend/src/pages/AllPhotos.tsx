@@ -1,18 +1,9 @@
 import { useEffect, useState } from 'react';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
 import { getAllPhotos } from '../api/client';
+import { shuffle } from '../utils/shuffle';
 import type { Photo } from '../types';
 import styles from './AllPhotos.module.css';
-
-// Fisher-Yates shuffle
-function shuffle(photos: Photo[]): Photo[] {
-  const shuffled = [...photos];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
 
 export default function AllPhotos() {
   const [photos, setPhotos] = useState<Photo[]>([]);

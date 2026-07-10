@@ -53,7 +53,6 @@ export default function Galleries() {
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Galleries</h1>
       <div className={styles.grid}>
         <Link to="/photos" className={cardStyles.card}>
           <div className={cardStyles.imageWrapper}>
