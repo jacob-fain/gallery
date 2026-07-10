@@ -176,27 +176,25 @@ export const generatePhotoKeys = (
  * Uses Promise.allSettled to attempt all deletions even if some fail
  * (prevents orphaned files in S3)
  *
- * @param galleryId - Gallery UUID, or null for unassigned photos
- * @param photoId - Photo UUID
+ * Takes the keys stored on the photo record - the S3 folder name is a
+ * separate UUID from the photo's DB id, so keys must never be regenerated
+ * from the id.
+ *
+ * @param keys - The photo's stored S3 keys (s3_key, s3_web_key, s3_thumbnail_key)
+ * @param photoId - Photo UUID (for error logging only)
  */
 export const deletePhotoFiles = async (
-  galleryId: string | null,
+  keys: string[],
   photoId: string
 ): Promise<void> => {
   if (!isS3Configured()) {
     return; // Nothing to delete if S3 not configured
   }
 
-  const keys = generatePhotoKeys(galleryId, photoId);
-
-  const results = await Promise.allSettled([
-    deleteFile(keys.original),
-    deleteFile(keys.web),
-    deleteFile(keys.thumbnail),
-  ]);
+  const results = await Promise.allSettled(keys.map((key) => deleteFile(key)));
 
   const failures = results.filter((r) => r.status === 'rejected');
   if (failures.length > 0) {
-    console.error(`Failed to delete ${failures.length}/3 files for photo ${photoId}`);
+    console.error(`Failed to delete ${failures.length}/${keys.length} files for photo ${photoId}`);
   }
 };

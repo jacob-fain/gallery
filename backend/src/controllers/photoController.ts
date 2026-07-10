@@ -237,14 +237,17 @@ export const deletePhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // Check if photo exists and get gallery_id for S3 path
+    // Check if photo exists and get its stored S3 keys
     const photo = await photoService.getPhotoById(id);
     if (!photo) {
       return res.status(404).json({ success: false, error: 'Photo not found' });
     }
 
     // Delete from S3 first (best effort)
-    await s3Service.deletePhotoFiles(photo.gallery_id, id);
+    await s3Service.deletePhotoFiles(
+      [photo.s3_key, photo.s3_web_key, photo.s3_thumbnail_key],
+      id
+    );
 
     // Delete from database
     await photoService.deletePhoto(id);
