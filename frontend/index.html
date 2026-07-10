@@ -7,6 +7,14 @@
     <title>Jacob Fain Photography</title>
   </head>
   <body>
+    <script>
+      // Apply persisted theme before first paint to avoid a flash of the wrong theme
+      try {
+        if (localStorage.getItem('theme') === 'dark') {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      } catch (e) {}
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
