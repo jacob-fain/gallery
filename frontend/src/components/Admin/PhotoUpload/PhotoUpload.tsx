@@ -13,7 +13,7 @@ interface UploadingFile {
 }
 
 interface PhotoUploadProps {
-  galleryId: string;
+  galleryId: string | null;
   onUploadComplete: (photo: Photo) => void;
 }
 

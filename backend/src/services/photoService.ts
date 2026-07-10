@@ -17,7 +17,7 @@ export const getFeaturedPhotos = async (): Promise<Photo[]> => {
   const result = await query(
     `SELECT p.*, g.title as gallery_title, g.slug as gallery_slug
      FROM photos p
-     JOIN galleries g ON p.gallery_id = g.id
+     LEFT JOIN galleries g ON p.gallery_id = g.id
      WHERE p.featured_order IS NOT NULL AND p.is_hidden = false
      ORDER BY p.featured_order ASC`
   );
@@ -29,7 +29,7 @@ export const getFeaturedPhotosAdmin = async (): Promise<Photo[]> => {
   const result = await query(
     `SELECT p.*, g.title as gallery_title, g.slug as gallery_slug
      FROM photos p
-     JOIN galleries g ON p.gallery_id = g.id
+     LEFT JOIN galleries g ON p.gallery_id = g.id
      WHERE p.featured_order IS NOT NULL
      ORDER BY p.featured_order ASC`
   );
@@ -216,6 +216,34 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> => {
     ]
   );
   return result.rows[0];
+};
+
+/**
+ * Get every publicly visible photo (public galleries and unassigned photos)
+ * @param limit - Optional cap on the number of photos returned
+ */
+export const getAllPublicPhotos = async (limit?: number): Promise<Photo[]> => {
+  const result = await query(
+    `SELECT p.* FROM photos p
+     LEFT JOIN galleries g ON p.gallery_id = g.id
+     WHERE p.is_hidden = false AND (g.is_public = true OR p.gallery_id IS NULL)
+     ORDER BY p.uploaded_at DESC
+     ${limit ? 'LIMIT $1' : ''}`,
+    limit ? [limit] : []
+  );
+  return result.rows;
+};
+
+/**
+ * Get all photos not assigned to any gallery (admin)
+ */
+export const getUnassignedPhotos = async (): Promise<Photo[]> => {
+  const result = await query(
+    `SELECT * FROM photos
+     WHERE gallery_id IS NULL
+     ORDER BY uploaded_at DESC`
+  );
+  return result.rows;
 };
 
 /**
