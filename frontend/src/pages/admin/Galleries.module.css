@@ -104,13 +104,13 @@
 }
 
 .public {
-  background: #dcfce7;
-  color: #16a34a;
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .private {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .actions {
@@ -134,12 +134,12 @@
 }
 
 .actionBtn.danger {
-  color: #dc2626;
-  border-color: #dc2626;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 .actionBtn.danger:hover {
-  background: #fee2e2;
+  background: var(--color-danger-bg);
 }
 
 .empty {
@@ -156,8 +156,8 @@
 }
 
 .error {
-  color: #dc2626;
-  background: #fee2e2;
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
   border-radius: 4px;
   margin-bottom: 1rem;
 }
@@ -213,7 +213,7 @@
 
 .deleteBtn {
   padding: 0.75rem 1.5rem;
-  background: #dc2626;
+  background: var(--color-danger-solid);
   border: none;
   border-radius: 4px;
   color: white;
