@@ -297,6 +297,37 @@ export async function getUnassignedPhotos(token: string): Promise<Photo[]> {
   return fetchApiAuth<Photo[]>('/photos/admin/unassigned', token);
 }
 
+// Duplicate detection
+export interface DuplicateInfo {
+  id: string;
+  original_filename: string;
+  gallery_id: string | null;
+  gallery_title: string | null;
+}
+
+// Returns a map of content hash -> existing photo, for hashes already uploaded
+export async function checkDuplicates(
+  token: string,
+  hashes: string[]
+): Promise<Record<string, DuplicateInfo>> {
+  const found: Record<string, DuplicateInfo> = {};
+  // Chunk to stay under the API's per-request hash limit
+  for (let i = 0; i < hashes.length; i += 500) {
+    const chunk = hashes.slice(i, i + 500);
+    const data = await fetchApiAuth<Record<string, DuplicateInfo>>(
+      '/photos/admin/check-duplicates',
+      token,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hashes: chunk }),
+      }
+    );
+    Object.assign(found, data);
+  }
+  return found;
+}
+
 export async function uploadPhoto(
   token: string,
   galleryId: string | null,

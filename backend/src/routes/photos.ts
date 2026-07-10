@@ -14,6 +14,9 @@ router.post('/upload', authMiddleware, upload.single('photo'), photoController.u
 // GET /api/photos/admin/unassigned - List photos without a gallery
 router.get('/admin/unassigned', authMiddleware, photoController.listUnassignedPhotos);
 
+// POST /api/photos/admin/check-duplicates - Check which content hashes exist
+router.post('/admin/check-duplicates', authMiddleware, photoController.checkDuplicates);
+
 // PUT /api/photos/reorder - Reorder photos in a gallery
 router.put('/reorder', authMiddleware, photoController.reorderPhotos);
 
