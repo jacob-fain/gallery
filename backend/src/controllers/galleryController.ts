@@ -236,7 +236,12 @@ export const deleteGallery = async (req: Request, res: Response) => {
 
     // Delete all photos from S3 (best effort - don't fail if S3 has issues)
     await Promise.allSettled(
-      photos.map((photo) => s3Service.deletePhotoFiles(id, photo.id))
+      photos.map((photo) =>
+        s3Service.deletePhotoFiles(
+          [photo.s3_key, photo.s3_web_key, photo.s3_thumbnail_key],
+          photo.id
+        )
+      )
     );
 
     // Delete gallery from DB (CASCADE will delete photo records)
