@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
+import ThemeToggle from '../../ThemeToggle/ThemeToggle';
 import styles from './AdminLayout.module.css';
 
 interface AdminLayoutProps {
@@ -61,6 +62,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
             </div>
           </div>
           <div className={styles.right}>
+            <ThemeToggle />
             <a
               href={mainSiteUrl}
               target="_blank"
