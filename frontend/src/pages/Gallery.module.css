@@ -33,6 +33,12 @@
   transform: scale(0.95);
 }
 
+/* Shuffle button stacks above the download button */
+.shuffleBtn {
+  composes: downloadBtn;
+  bottom: 84px;
+}
+
 .title {
   font-size: 1.5rem;
   font-weight: 500;
