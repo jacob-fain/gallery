@@ -4,6 +4,14 @@ import { uploadPhoto, checkDuplicates, type DuplicateInfo } from '../../../api/c
 import type { Photo } from '../../../types';
 import styles from './PhotoUpload.module.css';
 
+// Matches the server-side multer limit
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+// Files are hashed and duplicate-checked in batches so uploads can start
+// while later files are still being hashed
+const CHECK_BATCH_SIZE = 20;
+// Parallel uploads
+const UPLOAD_CONCURRENCY = 3;
+
 interface UploadingFile {
   id: string;
   file: File;
@@ -11,7 +19,18 @@ interface UploadingFile {
   status: 'checking' | 'pending' | 'uploading' | 'processing' | 'complete' | 'error' | 'duplicate' | 'new';
   error?: string;
   note?: string;
+  retryable?: boolean;
 }
+
+interface BatchStats {
+  total: number;
+  uploaded: number;
+  skipped: number;
+  fresh: number;
+  failed: number;
+}
+
+const EMPTY_STATS: BatchStats = { total: 0, uploaded: 0, skipped: 0, fresh: 0, failed: 0 };
 
 interface PhotoUploadProps {
   galleryId: string | null;
@@ -21,6 +40,7 @@ interface PhotoUploadProps {
 interface UploadItemProps {
   item: UploadingFile;
   onDismiss: (id: string) => void;
+  onRetry: (id: string) => void;
 }
 
 // SHA-256 of a file's bytes - matches the content_hash stored at upload
@@ -33,7 +53,7 @@ async function hashFile(file: File): Promise<string> {
     .join('');
 }
 
-const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps) {
+const UploadItem = memo(function UploadItem({ item, onDismiss, onRetry }: UploadItemProps) {
   const getStatusText = () => {
     switch (item.status) {
       case 'checking': return 'Checking...';
@@ -51,6 +71,14 @@ const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps
       {item.error ? (
         <>
           <span className={styles.error}>{item.error}</span>
+          {item.retryable && (
+            <button
+              className={styles.dismissBtn}
+              onClick={() => onRetry(item.id)}
+            >
+              Retry
+            </button>
+          )}
           <button
             className={styles.dismissBtn}
             onClick={() => onDismiss(item.id)}
@@ -95,9 +123,15 @@ const UploadItem = memo(function UploadItem({ item, onDismiss }: UploadItemProps
 export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUploadProps) {
   const { token } = useAuth();
   const [uploading, setUploading] = useState<UploadingFile[]>([]);
+  const [stats, setStats] = useState<BatchStats>(EMPTY_STATS);
   const [isDragging, setIsDragging] = useState(false);
   const [checkOnly, setCheckOnly] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Mirror of the upload list for retry lookups outside render
+  const itemsRef = useRef<UploadingFile[]>([]);
+  useEffect(() => {
+    itemsRef.current = uploading;
+  }, [uploading]);
 
   // Warn user before leaving page with active uploads
   useEffect(() => {
@@ -122,124 +156,182 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
     };
   }, [uploading]);
 
+  const updateItem = useCallback((id: string, patch: Partial<UploadingFile>) => {
+    setUploading((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
+  }, []);
+
+  const uploadOne = useCallback(async (item: UploadingFile) => {
+    if (!token) return;
+
+    updateItem(item.id, { status: 'uploading', progress: 0, error: undefined });
+
+    try {
+      const photo = await uploadPhoto(token, galleryId, item.file, (progress) => {
+        setUploading((prev) =>
+          prev.map((u) => {
+            if (u.id !== item.id) return u;
+            // When upload hits 100%, switch to processing status
+            if (progress === 100) {
+              return { ...u, progress: 100, status: 'processing' };
+            }
+            return { ...u, progress };
+          })
+        );
+      });
+      onUploadComplete(photo);
+      setStats((s) => ({ ...s, uploaded: s.uploaded + 1 }));
+      updateItem(item.id, { status: 'complete', progress: 100 });
+      // Remove after delay so user sees the success state
+      setTimeout(() => {
+        setUploading((prev) => prev.filter((u) => u.id !== item.id));
+      }, 1500);
+    } catch (err) {
+      setStats((s) => ({ ...s, failed: s.failed + 1 }));
+      updateItem(item.id, {
+        status: 'error',
+        error: err instanceof Error ? err.message : 'Upload failed',
+        retryable: true,
+      });
+    }
+  }, [token, galleryId, onUploadComplete, updateItem]);
+
+  const handleRetry = useCallback((id: string) => {
+    const item = itemsRef.current.find((u) => u.id === id);
+    if (!item) return;
+    setStats((s) => ({ ...s, failed: Math.max(0, s.failed - 1) }));
+    uploadOne(item);
+  }, [uploadOne]);
+
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     if (!token) return;
 
     const fileArray = Array.from(files);
-    const newUploading: UploadingFile[] = fileArray.map((file) => ({
-      id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      file,
-      progress: 0,
-      status: 'checking',
-    }));
-    setUploading((prev) => [...prev, ...newUploading]);
+    if (fileArray.length === 0) return;
 
-    // Hash files in the browser and ask the server which already exist.
-    // If anything fails, fall through to uploading - the server rejects
-    // duplicates as a safety net.
-    const fileHashes = new Map<string, string>();
-    for (const item of newUploading) {
-      try {
-        fileHashes.set(item.id, await hashFile(item.file));
-      } catch {
-        // Hashing unavailable - treat as new
-      }
-    }
-
-    let existing: Record<string, DuplicateInfo> = {};
-    try {
-      const uniqueHashes = [...new Set(fileHashes.values())];
-      if (uniqueHashes.length > 0) {
-        existing = await checkDuplicates(token, uniqueHashes);
-      }
-    } catch {
-      // Check failed - proceed with uploads
-    }
-
-    const toUpload: UploadingFile[] = [];
-    const seenInBatch = new Set<string>();
-    for (const item of newUploading) {
-      const hash = fileHashes.get(item.id);
-      const dup = hash ? existing[hash] : undefined;
-
-      if (dup) {
-        const where = dup.gallery_title ? ` in ${dup.gallery_title}` : dup.gallery_id === null ? ' (unassigned)' : '';
-        setUploading((prev) =>
-          prev.map((u) =>
-            u.id === item.id
-              ? { ...u, status: 'duplicate', note: `Already uploaded${where} as ${dup.original_filename}` }
-              : u
-          )
-        );
-      } else if (hash && seenInBatch.has(hash)) {
-        setUploading((prev) =>
-          prev.map((u) =>
-            u.id === item.id
-              ? { ...u, status: 'duplicate', note: 'Duplicate of another file in this batch' }
-              : u
-          )
-        );
-      } else if (checkOnly) {
-        setUploading((prev) =>
-          prev.map((u) =>
-            u.id === item.id ? { ...u, status: 'new', note: 'Not uploaded yet' } : u
-          )
-        );
-        if (hash) seenInBatch.add(hash);
-      } else {
-        setUploading((prev) =>
-          prev.map((u) => (u.id === item.id ? { ...u, status: 'pending' } : u))
-        );
-        if (hash) seenInBatch.add(hash);
-        toUpload.push(item);
-      }
-    }
-
-    if (checkOnly) return;
-
-    for (const item of toUpload) {
-      // Mark as uploading
+    // Starting fresh (nothing in flight): clear finished rows and reset counters
+    const processed = stats.uploaded + stats.skipped + stats.fresh + stats.failed;
+    if (stats.total === 0 || processed >= stats.total) {
       setUploading((prev) =>
-        prev.map((u) =>
-          u.id === item.id ? { ...u, status: 'uploading' } : u
+        prev.filter(
+          (u) => u.status === 'checking' || u.status === 'pending' || u.status === 'uploading' || u.status === 'processing'
         )
       );
-
-      try {
-        const photo = await uploadPhoto(token, galleryId, item.file, (progress) => {
-          setUploading((prev) =>
-            prev.map((u) => {
-              if (u.id !== item.id) return u;
-              // When upload hits 100%, switch to processing status
-              if (progress === 100) {
-                return { ...u, progress: 100, status: 'processing' };
-              }
-              return { ...u, progress };
-            })
-          );
-        });
-        onUploadComplete(photo);
-        // Mark as complete
-        setUploading((prev) =>
-          prev.map((u) =>
-            u.id === item.id ? { ...u, status: 'complete', progress: 100 } : u
-          )
-        );
-        // Remove after delay so user sees the success state
-        setTimeout(() => {
-          setUploading((prev) => prev.filter((u) => u.id !== item.id));
-        }, 1500);
-      } catch (err) {
-        setUploading((prev) =>
-          prev.map((u) =>
-            u.id === item.id
-              ? { ...u, status: 'error', error: err instanceof Error ? err.message : 'Upload failed' }
-              : u
-          )
-        );
-      }
+      setStats({ ...EMPTY_STATS, total: fileArray.length });
+    } else {
+      setStats((s) => ({ ...s, total: s.total + fileArray.length }));
     }
-  }, [token, galleryId, checkOnly, onUploadComplete]);
+
+    // Client-side validation - matches server limits so bad files fail fast
+    const newItems: UploadingFile[] = fileArray.map((file) => {
+      const invalidReason = !file.type.startsWith('image/')
+        ? 'Not an image file'
+        : file.size > MAX_FILE_SIZE
+        ? 'Larger than the 50MB upload limit'
+        : null;
+      return {
+        id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        progress: 0,
+        status: invalidReason ? ('error' as const) : ('checking' as const),
+        error: invalidReason ?? undefined,
+        retryable: false,
+      };
+    });
+    setUploading((prev) => [...prev, ...newItems]);
+
+    const invalidCount = newItems.filter((i) => i.status === 'error').length;
+    if (invalidCount > 0) {
+      setStats((s) => ({ ...s, failed: s.failed + invalidCount }));
+    }
+    const validItems = newItems.filter((i) => i.status === 'checking');
+
+    // Producer hashes and duplicate-checks files in batches, feeding the
+    // upload queue; workers upload concurrently while later batches are
+    // still being hashed. If hashing or the check fails, files fall
+    // through to upload - the server rejects duplicates as a safety net.
+    const queue: UploadingFile[] = [];
+    let producerDone = false;
+    const seenHashes = new Set<string>();
+
+    const producer = (async () => {
+      for (let i = 0; i < validItems.length; i += CHECK_BATCH_SIZE) {
+        const batch = validItems.slice(i, i + CHECK_BATCH_SIZE);
+
+        const batchHashes = new Map<string, string>();
+        for (const item of batch) {
+          try {
+            batchHashes.set(item.id, await hashFile(item.file));
+          } catch {
+            // Hashing unavailable - treat as new
+          }
+        }
+
+        let existing: Record<string, DuplicateInfo> = {};
+        try {
+          const unchecked = [...new Set(batchHashes.values())].filter((h) => !seenHashes.has(h));
+          if (unchecked.length > 0) {
+            existing = await checkDuplicates(token, unchecked);
+          }
+        } catch {
+          // Check failed - proceed with uploads
+        }
+
+        for (const item of batch) {
+          const hash = batchHashes.get(item.id);
+          const dup = hash ? existing[hash] : undefined;
+
+          if (dup) {
+            const where = dup.gallery_title
+              ? ` in ${dup.gallery_title}`
+              : dup.gallery_id === null
+              ? ' (unassigned)'
+              : '';
+            setStats((s) => ({ ...s, skipped: s.skipped + 1 }));
+            updateItem(item.id, {
+              status: 'duplicate',
+              note: `Already uploaded${where} as ${dup.original_filename}`,
+            });
+          } else if (hash && seenHashes.has(hash)) {
+            setStats((s) => ({ ...s, skipped: s.skipped + 1 }));
+            updateItem(item.id, {
+              status: 'duplicate',
+              note: 'Duplicate of another file in this batch',
+            });
+          } else if (checkOnly) {
+            setStats((s) => ({ ...s, fresh: s.fresh + 1 }));
+            updateItem(item.id, { status: 'new', note: 'Not uploaded yet' });
+            if (hash) seenHashes.add(hash);
+          } else {
+            if (hash) seenHashes.add(hash);
+            updateItem(item.id, { status: 'pending' });
+            queue.push(item);
+          }
+        }
+      }
+      producerDone = true;
+    })();
+
+    if (checkOnly) {
+      await producer;
+      return;
+    }
+
+    const workers = Array.from({ length: UPLOAD_CONCURRENCY }, () =>
+      (async () => {
+        for (;;) {
+          const item = queue.shift();
+          if (!item) {
+            if (producerDone) return;
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            continue;
+          }
+          await uploadOne(item);
+        }
+      })()
+    );
+
+    await Promise.all([producer, ...workers]);
+  }, [token, checkOnly, stats, uploadOne, updateItem]);
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -271,6 +363,14 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
   }, []);
 
   const hasResults = uploading.some((u) => u.status === 'duplicate' || u.status === 'new');
+  const processed = stats.uploaded + stats.skipped + stats.fresh + stats.failed;
+  const batchDone = stats.total > 0 && processed >= stats.total;
+
+  const summaryParts: string[] = [];
+  if (stats.uploaded > 0 || !checkOnly) summaryParts.push(`${stats.uploaded} uploaded`);
+  if (stats.skipped > 0) summaryParts.push(`${stats.skipped} skipped`);
+  if (stats.fresh > 0) summaryParts.push(`${stats.fresh} not uploaded yet`);
+  if (stats.failed > 0) summaryParts.push(`${stats.failed} failed`);
 
   return (
     <div className={styles.container}>
@@ -295,7 +395,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
           <span className={styles.hint}>
             {checkOnly
               ? 'Nothing will be uploaded'
-              : 'Supports JPEG, PNG, WebP, TIFF, HEIF. Already-uploaded photos are skipped.'}
+              : 'JPEG, PNG, WebP, TIFF, HEIF up to 50MB. Already-uploaded photos are skipped.'}
           </span>
         </div>
       </div>
@@ -323,10 +423,25 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         )}
       </div>
 
+      {stats.total > 0 && (
+        <div className={styles.summary}>
+          <div className={styles.summaryBar}>
+            <div
+              className={`${styles.summaryFill} ${batchDone ? styles.summaryDone : ''}`}
+              style={{ width: `${Math.round((processed / stats.total) * 100)}%` }}
+            />
+          </div>
+          <span className={styles.summaryText}>
+            {batchDone ? 'Done' : `${processed}/${stats.total}`}
+            {summaryParts.length > 0 && ` · ${summaryParts.join(' · ')}`}
+          </span>
+        </div>
+      )}
+
       {uploading.length > 0 && (
         <div className={styles.uploads}>
           {uploading.map((item) => (
-            <UploadItem key={item.id} item={item} onDismiss={dismissError} />
+            <UploadItem key={item.id} item={item} onDismiss={dismissError} onRetry={handleRetry} />
           ))}
         </div>
       )}
