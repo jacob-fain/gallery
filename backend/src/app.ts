@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
+import multer from 'multer';
 import routes from './routes';
 
 const app = express();
@@ -46,6 +47,20 @@ app.use((_req, res) => {
 
 // Global error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Upload errors get specific statuses and messages instead of a generic 500
+  if (err instanceof multer.MulterError) {
+    const isTooLarge = err.code === 'LIMIT_FILE_SIZE';
+    res.status(isTooLarge ? 413 : 400).json({
+      success: false,
+      error: isTooLarge ? 'File is larger than the 50MB upload limit' : err.message,
+    });
+    return;
+  }
+  if (err.message.startsWith('Unsupported file type')) {
+    res.status(415).json({ success: false, error: err.message });
+    return;
+  }
+
   console.error('Unhandled error:', err);
   res.status(500).json({
     success: false,

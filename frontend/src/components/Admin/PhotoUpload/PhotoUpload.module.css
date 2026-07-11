@@ -215,3 +215,36 @@
 .clearBtn:hover {
   background: var(--color-hover);
 }
+
+/* Batch summary */
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.summaryBar {
+  flex: 1;
+  height: 6px;
+  background: var(--color-background);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.summaryFill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 3px;
+  transition: width 0.2s ease-out, background 0.3s ease;
+}
+
+.summaryFill.summaryDone {
+  background: var(--color-success-solid);
+}
+
+.summaryText {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
