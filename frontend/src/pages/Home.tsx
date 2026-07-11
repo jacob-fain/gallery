@@ -90,14 +90,6 @@ export default function Home() {
                     loading="lazy"
                   />
                 </div>
-                {photo.gallery_slug && (
-                  <Link
-                    to={`/g/${photo.gallery_slug}`}
-                    className={styles.featuredCaption}
-                  >
-                    {photo.gallery_title}
-                  </Link>
-                )}
               </article>
             ))}
           </div>
