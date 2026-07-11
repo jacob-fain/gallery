@@ -265,6 +265,19 @@ export const getAllPublicPhotos = async (limit?: number): Promise<Photo[]> => {
 };
 
 /**
+ * Get every photo including hidden ones, with gallery titles (admin)
+ */
+export const getAllPhotosAdmin = async (): Promise<(Photo & { gallery_title: string | null })[]> => {
+  const result = await query(
+    `SELECT p.*, g.title as gallery_title
+     FROM photos p
+     LEFT JOIN galleries g ON p.gallery_id = g.id
+     ORDER BY p.uploaded_at DESC`
+  );
+  return result.rows;
+};
+
+/**
  * Get all photos not assigned to any gallery (admin)
  */
 export const getUnassignedPhotos = async (): Promise<Photo[]> => {

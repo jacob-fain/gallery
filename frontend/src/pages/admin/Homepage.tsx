@@ -8,6 +8,8 @@ import {
   reorderHomepagePhotos,
   getAllGalleries,
   getPhotosByGallery,
+  getAllPhotosAdmin,
+  getUnassignedPhotos,
 } from '../../api/client';
 import type { Photo, Gallery } from '../../types';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -62,7 +64,7 @@ function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoPro
         {isHero && <div className={styles.heroBadge}>Hero</div>}
       </div>
       <div className={styles.photoInfo}>
-        <span className={styles.galleryName}>{photo.gallery_title}</span>
+        <span className={styles.galleryName}>{photo.gallery_title || 'Unassigned'}</span>
         <div className={styles.photoActions}>
           {!isHero && (
             <button
@@ -161,28 +163,35 @@ export default function Homepage() {
     }
   };
 
+  const handleGallerySelect = async (source: string) => {
+    if (!token || !source) return;
+    setSelectedGallery(source);
+    setLoadingGalleryPhotos(true);
+    try {
+      // Photos don't need to belong to a gallery to go on the homepage
+      const data =
+        source === 'all'
+          ? await getAllPhotosAdmin(token)
+          : source === 'unassigned'
+          ? await getUnassignedPhotos(token)
+          : await getPhotosByGallery(token, source);
+      setGalleryPhotos(data);
+    } catch (err) {
+      console.error('Failed to load photos:', err);
+    } finally {
+      setLoadingGalleryPhotos(false);
+    }
+  };
+
   const openPicker = async () => {
     if (!token) return;
     setShowPicker(true);
+    handleGallerySelect('all');
     try {
       const data = await getAllGalleries(token);
       setGalleries(data);
     } catch (err) {
       console.error('Failed to load galleries:', err);
-    }
-  };
-
-  const handleGallerySelect = async (galleryId: string) => {
-    if (!token || !galleryId) return;
-    setSelectedGallery(galleryId);
-    setLoadingGalleryPhotos(true);
-    try {
-      const data = await getPhotosByGallery(token, galleryId);
-      setGalleryPhotos(data);
-    } catch (err) {
-      console.error('Failed to load gallery photos:', err);
-    } finally {
-      setLoadingGalleryPhotos(false);
     }
   };
 
@@ -318,12 +327,13 @@ export default function Homepage() {
             </div>
 
             <div className={styles.gallerySelect}>
-              <label>Select a gallery:</label>
+              <label>Show photos from:</label>
               <select
                 value={selectedGallery}
                 onChange={(e) => handleGallerySelect(e.target.value)}
               >
-                <option value="">Choose gallery...</option>
+                <option value="all">All photos</option>
+                <option value="unassigned">Unassigned</option>
                 {galleries.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.title}
