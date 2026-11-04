@@ -2,7 +2,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"   # localhost only: the Cloudflare tunnel and deploy health check use localhost:80; Caddy serves the LAN on 192.168.0.125:80
     depends_on:
       backend:
         condition: service_healthy
