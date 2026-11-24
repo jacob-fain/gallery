@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import express from 'express';
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
-import { storedFilename, upload } from './upload';
+import { createErrorHandler } from '../middleware/errorHandler';
+import { HEIC_NOT_SUPPORTED, storedFilename, upload } from './upload';
 
 // A multipart body exactly as a browser sends it: the filename parameter is
 // raw UTF-8 bytes with no charset declared.
@@ -25,9 +26,7 @@ describe('upload middleware', () => {
     app.post('/up', upload.single('photo'), (req, res) => {
       res.json({ name: req.file?.originalname });
     });
-    app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-      res.status(415).json({ error: err.message });
-    });
+    app.use(createErrorHandler({}));
     server = app.listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -48,10 +47,28 @@ describe('upload middleware', () => {
     expect(res.status).toBe(200);
   });
 
-  it('rejects an untyped file with any other extension, HEIC included', async () => {
-    for (const name of ['notes.txt', 'IMG_0001.HEIC']) {
-      const res = await post(name, 'application/octet-stream');
-      expect(res.status).toBe(415);
+  it('rejects an untyped file with any other extension', async () => {
+    const res = await post('notes.txt', 'application/octet-stream');
+    expect(res.status).toBe(415);
+    expect(await res.json()).toEqual({
+      success: false,
+      error: 'Unsupported file type. Allowed: JPEG, PNG, WebP, TIFF',
+    });
+  });
+
+  it('refuses HEIC and HEIF by type or by extension, saying how to export a JPEG', async () => {
+    const cases: [string, string][] = [
+      ['IMG_0001.HEIC', 'image/heic'],
+      ['IMG_0001.heif', 'image/heif'],
+      ['IMG_0001.HEIC', 'application/octet-stream'],
+      ['IMG_0001.heif', ''],
+      ['photo', 'image/heic'],
+      ['IMG_0001.heic', 'image/jpeg'],
+    ];
+    for (const [name, type] of cases) {
+      const res = await post(name, type);
+      expect(res.status, `${name} ${type}`).toBe(415);
+      expect(await res.json()).toEqual({ success: false, error: HEIC_NOT_SUPPORTED });
     }
   });
 });

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import multer from 'multer';
+import { UnsupportedUploadError } from '../config/upload';
 import { logger } from '../utils/logger';
 import { routePattern } from './requestLog';
 
@@ -38,7 +39,7 @@ export const createErrorHandler = (env: NodeJS.ProcessEnv = process.env) => (
     });
     return;
   }
-  if (err.message.startsWith('Unsupported file type')) {
+  if (err instanceof UnsupportedUploadError) {
     res.status(415).json({ success: false, error: err.message });
     return;
   }

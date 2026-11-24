@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Request, Response } from 'express';
+import { HEIC_NOT_SUPPORTED } from '../config/upload';
 
 vi.mock('../services/photoService', async (importOriginal) => ({
   isDuplicateContentError: (await importOriginal<typeof import('../services/photoService')>())
@@ -14,6 +15,7 @@ vi.mock('../services/imageService', async (importOriginal) => {
   const png = { contentType: 'image/png', extension: 'png', extensions: ['png'] };
   return {
     UnsupportedImageError: real.UnsupportedImageError,
+    HeicNotSupportedError: real.HeicNotSupportedError,
     ImageTooLargeError: real.ImageTooLargeError,
     readImageInfo: vi.fn(async () => ({ format: png, width: 10, height: 10, metadata: {} })),
     processImage: vi.fn(async () => ({
@@ -136,6 +138,15 @@ describe('uploadPhoto format', () => {
     );
     const res = await call();
     expect(res.status).toHaveBeenCalledWith(415);
+    expect(imageService.processImage).not.toHaveBeenCalled();
+    expect(s3Service.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it('answers 415 with how to export a JPEG for HEIC bytes under another name, before storing anything', async () => {
+    vi.mocked(imageService.readImageInfo).mockRejectedValueOnce(new imageService.HeicNotSupportedError());
+    const res = await call();
+    expect(res.status).toHaveBeenCalledWith(415);
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: HEIC_NOT_SUPPORTED });
     expect(imageService.processImage).not.toHaveBeenCalled();
     expect(s3Service.uploadFile).not.toHaveBeenCalled();
   });

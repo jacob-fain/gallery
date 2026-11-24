@@ -4,18 +4,27 @@ import multer from 'multer';
 // Configure multer for memory storage (buffer for Sharp processing)
 const storage = multer.memoryStorage();
 
-const allowedMimeTypes = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/tiff',
-  'image/heif',
-  'image/heic',
-];
+const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/tiff'];
 
-// HEIC/HEIF are left out: an untyped HEIC is usually an iPhone photo,
-// which sharp's prebuilt binaries most likely cannot decode (#131).
 const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff'];
+
+/** A file the upload filter refuses; the error handler answers 415 with its message. */
+export class UnsupportedUploadError extends Error {}
+
+export const HEIC_NOT_SUPPORTED =
+  "HEIC photos aren't supported yet. Export as JPEG (on iPhone: Settings > Camera > Formats > Most Compatible)";
+
+// iPhone photos are HEIF with HEVC compression. sharp's prebuilt libvips
+// decodes HEIF only when it is AVIF-compressed (HEVC is left out for patent
+// licensing), so these would fail late in processing (#131). They are refused
+// by type or by name, whatever else the browser claims.
+const HEIC_MIME = /^image\/hei[cf](-sequence)?$/;
+const HEIC_EXTENSIONS = ['.heic', '.heif'];
+
+const extensionOf = (file: Express.Multer.File) => path.extname(file.originalname).toLowerCase();
+
+const isHeic = (file: Express.Multer.File): boolean =>
+  HEIC_MIME.test(file.mimetype) || HEIC_EXTENSIONS.includes(extensionOf(file));
 
 // A file the browser gives no type arrives as application/octet-stream. Those
 // are accepted by extension; the controller still checks the bytes with sharp
@@ -23,15 +32,18 @@ const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff'];
 const isAllowedUpload = (file: Express.Multer.File): boolean => {
   if (allowedMimeTypes.includes(file.mimetype)) return true;
   const untyped = file.mimetype === '' || file.mimetype === 'application/octet-stream';
-  return untyped && allowedExtensions.includes(path.extname(file.originalname).toLowerCase());
+  return untyped && allowedExtensions.includes(extensionOf(file));
 };
 
-// File filter: only accept image formats supported by Sharp
+// multer runs the filter on the part's headers, so a refused file is drained
+// without being buffered.
 const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
-  if (isAllowedUpload(file)) {
+  if (isHeic(file)) {
+    cb(new UnsupportedUploadError(HEIC_NOT_SUPPORTED));
+  } else if (isAllowedUpload(file)) {
     cb(null, true);
   } else {
-    cb(new Error('Unsupported file type. Allowed: JPEG, PNG, WebP, TIFF, HEIF'));
+    cb(new UnsupportedUploadError('Unsupported file type. Allowed: JPEG, PNG, WebP, TIFF'));
   }
 };
 

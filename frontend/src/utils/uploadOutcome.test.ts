@@ -17,6 +17,12 @@ describe('uploadOutcome', () => {
     }
   });
 
+  it('shows the server refusal of a HEIC file as it is, with no retry', () => {
+    const message =
+      "HEIC photos aren't supported yet. Export as JPEG (on iPhone: Settings > Camera > Formats > Most Compatible)";
+    expect(uploadOutcome(rejected(message, 415))).toEqual({ kind: 'failed', error: message, retryable: false });
+  });
+
   it('offers a retry for server errors, timeouts, rate limits and lost connections', () => {
     for (const status of [0, 408, 429, 500, 503]) {
       expect(uploadOutcome(rejected('Try again', status))).toMatchObject({ kind: 'failed', retryable: true });
