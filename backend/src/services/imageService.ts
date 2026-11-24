@@ -1,6 +1,7 @@
 import sharp, { type Metadata, type OutputInfo } from 'sharp';
 import exifReader from 'exif-reader';
 import { originalFormatFor, type OriginalFormat } from './imageFormats';
+import { HEIC_NOT_SUPPORTED } from '../config/upload';
 import { Semaphore } from '../utils/semaphore';
 
 // Image size configurations optimized for photography portfolio
@@ -50,6 +51,17 @@ const SHARP_INPUT = { limitInputPixels: MAX_INPUT_PIXELS } as const;
 /** The bytes are not an image in a format uploads accept. */
 export class UnsupportedImageError extends Error {}
 
+/**
+ * HEIF with HEVC compression (an iPhone photo). Its header reads, but sharp's
+ * prebuilt libvips has no HEVC decoder, so it would fail in processing (#131).
+ * The upload filter refuses it by type and name; this catches one renamed.
+ */
+export class HeicNotSupportedError extends UnsupportedImageError {
+  constructor() {
+    super(HEIC_NOT_SUPPORTED);
+  }
+}
+
 /** The image has more pixels than MAX_INPUT_PIXELS. */
 export class ImageTooLargeError extends Error {}
 
@@ -76,6 +88,7 @@ export const readImageInfo = async (buffer: Buffer): Promise<ImageInfo> => {
   } catch {
     throw new UnsupportedImageError('Not a readable image');
   }
+  if (metadata.format === 'heif' && metadata.compression === 'hevc') throw new HeicNotSupportedError();
   const format = originalFormatFor(metadata.format, metadata.compression);
   if (!format || !metadata.width || !metadata.height) {
     throw new UnsupportedImageError(`Unsupported image format: ${metadata.format ?? 'unknown'}`);
