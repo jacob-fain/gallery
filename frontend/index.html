@@ -20,6 +20,10 @@
     <meta name="twitter:title" content="Jacob Fain Photography" />
     <meta name="twitter:description" content="Photography portfolio of Jacob Fain." />
     <meta name="twitter:image" content="https://jacobfain.gallery/og-image.jpg" />
+    <!-- The build rewrites this to the same fingerprinted file the
+         @font-face in globals.css loads. A font preload needs crossorigin
+         even from the same origin, or the browser fetches the file twice. -->
+    <link rel="preload" href="/src/assets/fonts/inter/InterVariable-latin.woff2" as="font" type="font/woff2" crossorigin />
     <!-- Applies the theme before first paint. A file, not inline, so the
          Content-Security-Policy can allow only same-origin scripts. -->
     <script src="/theme.js"></script>
