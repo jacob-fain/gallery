@@ -19,6 +19,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../../../contexts/auth';
 import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries, updatePhoto } from '../../../api/client';
 import type { Photo, Gallery } from '../../../types';
+import { describeFailures, isPhotoGone, settleBulk } from '../../../utils/bulkResults';
 import styles from './PhotoManager.module.css';
 
 interface PhotoManagerProps {
@@ -174,6 +175,8 @@ export default function PhotoManager({
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [localPhotos, setLocalPhotos] = useState<Photo[]>(photos);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Shown above the grid when an action fails; actions used to fail silently.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [coverSelectMode, setCoverSelectMode] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
@@ -241,7 +244,7 @@ export default function PhotoManager({
         try {
           await reorderPhotos(token, gallery.id, newOrder.map((p) => p.id));
         } catch (err) {
-          console.error('Failed to reorder photos:', err);
+          setActionError(err instanceof Error ? err.message : 'Failed to save the new order');
           // Revert on error
           setLocalPhotos(photos);
         }
@@ -260,8 +263,7 @@ export default function PhotoManager({
       await setCoverImage(token, gallery.id, photoId);
       onPhotosChange();
     } catch (err) {
-      console.error('Failed to set cover:', err);
-      // Revert on error
+      setActionError(err instanceof Error ? err.message : 'Failed to set the cover');
       setOptimisticCoverId(null);
     }
   };
@@ -272,14 +274,23 @@ export default function PhotoManager({
     // Add to deleting set for immediate visual feedback
     setDeletingIds((prev) => new Set(prev).add(photoId));
 
+    setActionError(null);
     try {
-      await deletePhoto(token, photoId);
+      await deletePhoto(token, photoId).catch((err) => {
+        // Already gone counts as deleted.
+        if (!isPhotoGone(err)) throw err;
+      });
       setDeleteConfirm(null);
-      // Remove from local photos immediately for snappy UI
       setLocalPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(photoId);
+        return next;
+      });
       onPhotosChange();
     } catch (err) {
-      console.error('Failed to delete photo:', err);
+      setDeleteConfirm(null);
+      setActionError(err instanceof Error ? err.message : 'Failed to delete photo');
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -306,8 +317,7 @@ export default function PhotoManager({
       await updatePhoto(token, photoId, { is_hidden: !photo.is_hidden });
       onPhotosChange();
     } catch (err) {
-      console.error('Failed to toggle hidden:', err);
-      // Revert on error
+      setActionError(err instanceof Error ? err.message : 'Failed to change visibility');
       setLocalPhotos((prev) =>
         prev.map((p) =>
           p.id === photoId ? { ...p, is_hidden: photo.is_hidden } : p
@@ -337,7 +347,7 @@ export default function PhotoManager({
       await reorderPhotos(token, gallery.id, shuffled.map((p) => p.id));
       onPhotosChange();
     } catch (err) {
-      console.error('Failed to shuffle photos:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to shuffle');
       // Revert on error
       setLocalPhotos(photos);
     } finally {
@@ -353,15 +363,19 @@ export default function PhotoManager({
     // Mark all selected as deleting
     setDeletingIds(new Set(selectedIds));
 
+    setActionError(null);
+    const ids = Array.from(selectedIds);
     try {
-      await Promise.all(
-        Array.from(selectedIds).map((id) => deletePhoto(token, id))
-      );
-      setSelectedIds(new Set());
+      // Every request settles, so one failure cannot hide which photos were
+      // deleted: those leave the grid and the selection, failures stay.
+      const results = await Promise.allSettled(ids.map((id) => deletePhoto(token, id)));
+      const outcome = settleBulk(ids, results, isPhotoGone);
+      const done = new Set(outcome.done);
+      setLocalPhotos((prev) => prev.filter((p) => !done.has(p.id)));
+      setSelectedIds(new Set(outcome.failed.map((f) => f.id)));
       setBulkDeleteConfirm(false);
+      setActionError(describeFailures('Deleted', 'deleted', outcome));
       onPhotosChange();
-    } catch (err) {
-      console.error('Failed to delete photos:', err);
     } finally {
       setBulkActionLoading(false);
       setDeletingIds(new Set());
@@ -378,7 +392,7 @@ export default function PhotoManager({
       setSelectedTargetGallery('');
       setMoveModalOpen(true);
     } catch (err) {
-      console.error('Failed to fetch galleries:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to load galleries');
     }
   };
 
@@ -393,7 +407,9 @@ export default function PhotoManager({
       setMoveModalOpen(false);
       onPhotosChange();
     } catch (err) {
-      console.error('Failed to move photos:', err);
+      setMoveModalOpen(false);
+      setActionError(err instanceof Error ? err.message : 'Failed to move photos');
+      onPhotosChange();
     } finally {
       setMoving(false);
     }
@@ -416,17 +432,24 @@ export default function PhotoManager({
       )
     );
 
+    setActionError(null);
+    const ids = Array.from(selectedIds);
     try {
-      await Promise.all(
-        Array.from(selectedIds).map((id) =>
-          updatePhoto(token, id, { is_hidden: shouldHide })
-        )
+      const results = await Promise.allSettled(
+        ids.map((id) => updatePhoto(token, id, { is_hidden: shouldHide }))
+      );
+      const outcome = settleBulk(ids, results);
+      // Put back the ones that did not change, keep the rest.
+      const failed = new Set(outcome.failed.map((f) => f.id));
+      setLocalPhotos((prev) =>
+        prev.map((p) => (failed.has(p.id) ? { ...p, is_hidden: !shouldHide } : p))
+      );
+      setActionError(
+        shouldHide
+          ? describeFailures('Hid', 'hidden', outcome)
+          : describeFailures('Showed', 'shown', outcome)
       );
       onPhotosChange();
-    } catch (err) {
-      console.error('Failed to toggle hidden:', err);
-      // Revert on error
-      setLocalPhotos(photos);
     } finally {
       setBulkActionLoading(false);
     }
@@ -531,6 +554,15 @@ export default function PhotoManager({
           )}
         </div>
       </div>
+
+      {actionError && (
+        <div className={styles.actionError} role="alert">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <DndContext
         sensors={sensors}
