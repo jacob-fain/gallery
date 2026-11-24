@@ -15,7 +15,17 @@ ExecStart=/usr/local/lib/gallery-deploy/poll
 StateDirectory=gallery-deploy
 StateDirectoryMode=0700
 # sudo needs to gain privileges for homelab-gallery-apply, so
-# NoNewPrivileges stays off; the sudoers rule allows that one command.
+# NoNewPrivileges stays off; the sudoers rules allow two commands only. The
+# sandbox below also applies to those commands, which is why GHCR
+# credentials live in /etc/homelab/gallery-docker and pre-deploy dumps in
+# /var/backups rather than under /root or /home.
 PrivateTmp=yes
 ProtectHome=yes
+ProtectSystem=full
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
 TimeoutStartSec=30min

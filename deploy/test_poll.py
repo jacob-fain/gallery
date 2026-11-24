@@ -111,6 +111,35 @@ class HandleTests(unittest.TestCase):
         self.assertIn("migrations failed", notified[0])
 
 
+class StaleInProgressTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        poll.STATE_DIR = self.tmp.name
+        self.real_now = poll.now
+
+    def tearDown(self):
+        poll.now = self.real_now
+        self.tmp.cleanup()
+
+    def test_a_dead_pollers_in_progress_is_retried_once_stale(self):
+        started = datetime.datetime(2026, 11, 24, 12, 0, tzinfo=datetime.timezone.utc)
+        status = [{"state": "in_progress", "created_at": "2026-11-24T12:00:00Z"}]
+
+        # Shortly after: left alone, and the ETag is not saved.
+        poll.now = lambda: started + datetime.timedelta(minutes=5)
+        api, run = FakeApi([deployment()], statuses=status), fake_run(0, "ok")
+        poll.handle(api, "production", run=run)
+        self.assertEqual(run.calls, [])
+        self.assertIsNone(poll.read_etag("production"))
+
+        # Past the stale limit: the next poll still sees the list and applies.
+        poll.now = lambda: started + datetime.timedelta(minutes=31)
+        api, run = FakeApi([deployment()], statuses=status), fake_run(0, "deployed build x")
+        poll.handle(api, "production", run=run)
+        self.assertEqual(len(run.calls), 1)
+        self.assertEqual(api.posted[-1]["state"], "success")
+
+
 class RetryableTests(unittest.TestCase):
     at = datetime.datetime(2026, 11, 24, 12, 0, tzinfo=datetime.timezone.utc)
 

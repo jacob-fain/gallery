@@ -10,15 +10,27 @@
 # mount host paths or change how containers run.
 #
 # Exit codes: 0 deployed, 2 bad arguments, 75 busy (lock held), 1 failed.
+#
+# Restoring after a failed start puts the previous images back but not the
+# previous schema, so every migration must stay readable by the release
+# before it (backend/migrations/README.md).
 # The last line of output is a one-line result for the deployment status.
 set -euo pipefail
 umask 077
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# GHCR pull credentials live here (root 0700), not in /root/.docker: the
+# poller's service hides /home and /root, and this keeps the token out of
+# root's general Docker config.
+export DOCKER_CONFIG=/etc/homelab/gallery-docker
 
 readonly REGISTRY=ghcr.io/jacob-fain
-readonly LOCK=/run/lock/homelab-gallery.lock
+# /run is root-only; /run/lock is world-writable, where any user could hold
+# the lock first.
+readonly LOCK=/run/homelab-gallery.lock
 readonly LOCK_WAIT_SECONDS=900
 readonly HEALTH_WAIT_SECONDS=180
+readonly PREDEPLOY_DUMPS=/var/backups/gallery-predeploy
+readonly PREDEPLOY_KEEP=10
 readonly DIGEST_RE='^sha256:[0-9a-f]{64}$'
 readonly BUILD_RE='^[0-9a-f]{16}$'
 
@@ -28,12 +40,18 @@ fail() { echo "$1"; exit "${2:-1}"; }
 env_name=$1 frontend_digest=$2 backend_digest=$3
 
 case "$env_name" in
-  prod)    dir=/opt/docker/gallery;         health=http://127.0.0.1/api/health/ready ;;
-  staging) dir=/opt/docker/gallery-staging; health=http://127.0.0.1:8081/api/health/ready ;;
+  prod)    dir=/opt/docker/gallery;         health=http://127.0.0.1/api/health/ready;      db=gallery-db-1 ;;
+  staging) dir=/opt/docker/gallery-staging; health=http://127.0.0.1:8081/api/health/ready; db="" ;;
   *)       fail "environment must be prod or staging" 2 ;;
 esac
 [[ $frontend_digest =~ $DIGEST_RE ]] || fail "frontend digest must be sha256:<64 hex>" 2
 [[ $backend_digest =~ $DIGEST_RE ]] || fail "backend digest must be sha256:<64 hex>" 2
+
+# DOCKER_CONFIG also moves where the CLI looks for plugins, so compose must be
+# installed system-wide (docker-compose-plugin puts it in
+# /usr/libexec/docker/cli-plugins). Checked before anything changes.
+docker compose version >/dev/null 2>&1 \
+  || fail "docker compose is not available with DOCKER_CONFIG=$DOCKER_CONFIG; install the system-wide compose plugin"
 
 frontend_image=$REGISTRY/gallery-frontend@$frontend_digest
 backend_image=$REGISTRY/gallery-backend@$backend_digest
@@ -65,11 +83,29 @@ expected=$(docker image inspect "$backend_image" \
 next=$dir/pinned.env.next
 printf 'FRONTEND_IMAGE=%s\nBACKEND_IMAGE=%s\n' "$frontend_image" "$backend_image" > "$next"
 
-# Migrations run first, from the new image. A failure stops here with the
-# running release untouched (each migration rolls back on its own).
+# Production: a verified dump right before migrating, so a migration that
+# goes wrong can be undone from the state the old release last saw.
+if [[ -n $db ]]; then
+  mkdir -p "$PREDEPLOY_DUMPS"
+  dump=$PREDEPLOY_DUMPS/$(date -u +%Y%m%dT%H%M%SZ)-$expected.sql.gz
+  if ! docker exec "$db" pg_dump -U gallery -d gallery | gzip > "$dump" \
+     || ! gzip -t "$dump" \
+     || ! gzip -dc "$dump" | tail -n 5 | grep -q 'PostgreSQL database dump complete'; then
+    rm -f "$dump" "$next"
+    fail "pre-deploy database dump failed; nothing was changed"
+  fi
+  # Keep the newest PREDEPLOY_KEEP dumps.
+  find "$PREDEPLOY_DUMPS" -maxdepth 1 -name '*.sql.gz' -printf '%T@ %p\n' \
+    | sort -rn | tail -n +$((PREDEPLOY_KEEP + 1)) | cut -d' ' -f2- | xargs -r rm -f
+fi
+
+# Migrations run first, from the new image. Each one rolls back on its own,
+# so a failure stops here with the running release and its schema as they
+# were. After a successful run the schema has changed, which the previous
+# release must still be able to read.
 if ! compose "$next" --profile migrate run --rm migrate; then
   rm -f "$next"
-  fail "migrations failed; the running release is unchanged"
+  fail "migrations failed and were rolled back; the running release is unchanged"
 fi
 
 rm -f "$dir/pinned.env.prev"
@@ -80,8 +116,10 @@ mv "$next" "$dir/pinned.env"
 restore_and_fail() {
   if [[ -f $dir/pinned.env.prev ]]; then
     mv "$dir/pinned.env.prev" "$dir/pinned.env"
-    compose "$dir/pinned.env" up -d --remove-orphans || true
-    fail "$1; restored the previous images"
+    if compose "$dir/pinned.env" up -d --remove-orphans; then
+      fail "$1; restored the previous images"
+    fi
+    fail "$1; restoring the previous images also failed, the site may be down"
   fi
   fail "$1; no previous release to restore"
 }

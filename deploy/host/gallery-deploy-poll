@@ -30,6 +30,7 @@ EXIT_BUSY = 75
 # An apply runs at most APPLY_TIMEOUT_SECONDS, so an in_progress status older
 # than this was left by a poller that died mid-run and is retried.
 STALE_IN_PROGRESS = datetime.timedelta(minutes=30)
+FINAL_STATES = ("success", "failure", "error", "inactive")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 # GitHub environment name -> argument for homelab-gallery-apply.
@@ -114,8 +115,10 @@ def post_status(api, deployment, state, description, env):
 
 
 def notify(title, message):
-    if os.path.exists(NOTIFY):
-        subprocess.run([NOTIFY, title, message], check=False, timeout=30)
+    # Through sudo: the alert credentials are readable only by root. The
+    # notify script limits lengths, strips control characters and holds
+    # alerts during quiet hours.
+    subprocess.run(["sudo", "-n", NOTIFY, title, message], check=False, timeout=30)
 
 
 def handle(api, env, run=subprocess.run):
@@ -130,7 +133,12 @@ def handle(api, env, run=subprocess.run):
 
     _, statuses, _ = api.request("GET", f"{deployment['statuses_url']}?per_page=1")
     if statuses and not retryable(statuses[0], now()):
-        write_etag(env, new_etag)
+        # The ETag is saved only once the status is final. A recent
+        # in_progress may belong to a poller that died: if its ETag were
+        # saved, every later poll would get a 304 and never reach the stale
+        # retry.
+        if statuses[0]["state"] in FINAL_STATES:
+            write_etag(env, new_etag)
         return f"deployment {deployment['id']} already {statuses[0]['state']}"
 
     payload = deployment.get("payload") or {}
