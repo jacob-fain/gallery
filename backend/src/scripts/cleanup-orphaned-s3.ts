@@ -21,8 +21,7 @@
  *   node dist/scripts/cleanup-orphaned-s3.js --delete   # delete orphans
  */
 
-import dotenv from 'dotenv';
-import path from 'path';
+import { loadDotenv } from '../config/env';
 import { Pool } from 'pg';
 import {
   S3Client,
@@ -30,8 +29,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 
-// Load environment variables from root .env
-dotenv.config({ path: path.join(__dirname, '../../../.env') });
+loadDotenv();
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 const PREFIX = 'galleries/';

@@ -10,8 +10,7 @@
  * Usage: node dist/scripts/backfill-webp.js
  */
 
-import dotenv from 'dotenv';
-import path from 'path';
+import { loadDotenv } from '../config/env';
 import { Pool } from 'pg';
 import {
   S3Client,
@@ -22,8 +21,7 @@ import {
 import sharp from 'sharp';
 import { Readable } from 'stream';
 
-// Load environment variables from root .env
-dotenv.config({ path: path.join(__dirname, '../../../.env') });
+loadDotenv();
 
 // WebP settings (same as imageService.ts)
 const IMAGE_SIZES = {
@@ -101,6 +99,29 @@ async function processPhoto(
     .toBuffer();
 }
 
+export interface BackfillRow {
+  id: string;
+  s3_key: string;
+  s3_web_key: string;
+}
+
+const folderOf = (key: string): string | null => {
+  const slash = key.lastIndexOf('/');
+  return slash > 0 ? key.slice(0, slash) : null;
+};
+
+/**
+ * The WebP files go in the folder that already holds the photo's files.
+ * Neither id can rebuild it: the folder is named by its own UUID, not the
+ * photo's id, and the gallery id is null for an unassigned photo and stale
+ * for a moved one.
+ */
+export const webpKeysFor = (photo: BackfillRow): { web: string; thumbnail: string } => {
+  const dir = folderOf(photo.s3_web_key) ?? folderOf(photo.s3_key);
+  if (!dir) throw new Error(`Photo ${photo.id} has no key folder to write into`);
+  return { web: `${dir}/web.webp`, thumbnail: `${dir}/thumb.webp` };
+};
+
 async function backfillWebp() {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -109,7 +130,7 @@ async function backfillWebp() {
   try {
     // Get all photos
     const result = await pool.query(
-      `SELECT id, gallery_id, s3_key, s3_web_key, s3_thumbnail_key FROM photos ORDER BY uploaded_at ASC`
+      `SELECT id, s3_key, s3_web_key, s3_thumbnail_key FROM photos ORDER BY uploaded_at ASC`
     );
 
     const photos = result.rows;
@@ -138,10 +159,7 @@ async function backfillWebp() {
           processPhoto(originalBuffer, IMAGE_SIZES.thumbnail.maxWidth, IMAGE_SIZES.thumbnail.quality),
         ]);
 
-        // Generate new S3 keys
-        const basePath = `galleries/${photo.gallery_id}/${photo.id}`;
-        const newWebKey = `${basePath}/web.webp`;
-        const newThumbKey = `${basePath}/thumb.webp`;
+        const { web: newWebKey, thumbnail: newThumbKey } = webpKeysFor(photo);
 
         // Upload new WebP versions
         await Promise.all([
@@ -181,4 +199,6 @@ async function backfillWebp() {
   }
 }
 
-backfillWebp();
+if (require.main === module) {
+  backfillWebp();
+}

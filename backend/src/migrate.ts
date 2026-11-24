@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Client } from 'pg';
-import dotenv from 'dotenv';
+import { loadDotenv } from './config/env';
 
 /** Where migrations ship: beside dist/ in the image, beside src/ in a checkout. */
 export const MIGRATIONS_DIR = path.join(__dirname, '../migrations');
@@ -86,8 +86,7 @@ export const runMigrations = async (
 // Run as a command: node dist/migrate.js. Exits non-zero on any failure, so
 // a deploy that runs this first stops before swapping containers.
 if (require.main === module) {
-  // Same env file the server reads in development; absent in containers.
-  dotenv.config({ path: path.join(__dirname, '../../.env') });
+  loadDotenv();
   const url = process.env.DATABASE_URL;
   if (!url) {
     console.error('DATABASE_URL is required');

@@ -9,12 +9,10 @@
  * Usage: node dist/scripts/seed-admin.js
  */
 
-import dotenv from 'dotenv';
-import path from 'path';
+import { loadDotenv } from '../config/env';
 import { Pool } from 'pg';
 
-// Load environment variables from root .env
-dotenv.config({ path: path.join(__dirname, '../../../.env') });
+loadDotenv();
 
 import { hashPassword } from '../services/authService';
 
