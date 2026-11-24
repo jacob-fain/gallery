@@ -61,6 +61,14 @@ describe('admin requests and session expiry', () => {
       message: 'Already uploaded as a.jpg',
     });
   });
+
+  it('names an oversized upload rejected by the proxy instead of a parse error', async () => {
+    vi.stubGlobal('XMLHttpRequest', fakeXhr(413, '<html>413 Request Entity Too Large</html>'));
+    await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
+      status: 413,
+      message: 'File is larger than the server accepts',
+    });
+  });
 });
 
 describe('fresh photo fetches', () => {
