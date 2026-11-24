@@ -17,6 +17,7 @@ import { writeZip } from '../services/zipStream';
 import { logger } from '../utils/logger';
 import { galleryAccessToken } from '../utils/galleryAccessHeader';
 import { issueDownloadTicket, redeemDownloadTicket } from '../services/downloadTickets';
+import { isGallerySlug } from '../middleware/validateIds';
 
 const PRIVATE_NEEDS_PASSWORD = 'A private gallery needs a password';
 const SLUG_TAKEN = 'A gallery with this slug already exists';
@@ -75,7 +76,9 @@ export const trackGalleryView = (req: Request, res: Response) => {
   const access = galleryAccessToken(req);
   const token = access ? verifyGalleryAccessToken(access) : null;
   recordGalleryView(req.params.slug, token);
-  res.json({ success: true });
+  // No body: the client never reads one, and Chrome reports a response
+  // whose body is never read as still loading, for as long as the page lives.
+  res.status(204).end();
 };
 
 export const getGalleryPhotos = async (req: Request, res: Response) => {
@@ -162,8 +165,7 @@ export const createGallery = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate slug format (lowercase alphanumeric, hyphens between words, no leading/trailing hyphens)
-    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
+    if (!isGallerySlug(slug)) {
       return res.status(400).json({
         success: false,
         error: 'Slug must be lowercase alphanumeric with hyphens only (no leading/trailing hyphens)',
@@ -222,7 +224,7 @@ export const updateGallery = async (req: Request, res: Response) => {
 
     // If changing slug, validate and check uniqueness
     if (slug !== undefined && slug !== existing.slug) {
-      if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
+      if (!isGallerySlug(slug)) {
         return res.status(400).json({
           success: false,
           error: 'Slug must be lowercase alphanumeric with hyphens only (no leading/trailing hyphens)',

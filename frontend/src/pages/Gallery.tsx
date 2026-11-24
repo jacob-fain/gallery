@@ -15,6 +15,7 @@ import PageTitle from '../components/PageTitle';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
 import { useGalleryViewTracking } from '../utils/galleryViewTracking';
+import { isGallerySlug } from '../utils/slug';
 import type { Gallery as GalleryType, PublicPhoto, PrivateGalleryResponse } from '../types';
 import styles from './Gallery.module.css';
 
@@ -29,7 +30,9 @@ function isPrivateGallery(
 const getStorageKey = (slug: string) => `gallery_access_${slug}`;
 
 export default function Gallery() {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug: rawSlug } = useParams<{ slug: string }>();
+  // React Router decodes the path, so /g/a%2Fb arrives as "a/b".
+  const slug = isGallerySlug(rawSlug) ? rawSlug : undefined;
   const [gallery, setGallery] = useState<GalleryType | PrivateGalleryResponse | null>(null);
   const [photos, setPhotos] = useState<PublicPhoto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,11 +153,11 @@ export default function Gallery() {
     }
   };
 
-  if (loading) {
+  if (loading && slug) {
     return <div className="loading">Loading...</div>;
   }
 
-  if (loadError === 'failed') {
+  if (loadError === 'failed' && slug) {
     return (
       <LoadError
         onRetry={() => {
@@ -166,7 +169,7 @@ export default function Gallery() {
     );
   }
 
-  if (loadError === 'missing' || !gallery) {
+  if (loadError === 'missing' || !gallery || !slug) {
     return (
       <NotFound
         title="Gallery not found"

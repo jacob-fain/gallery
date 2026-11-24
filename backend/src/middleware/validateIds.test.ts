@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import app from '../app';
-import { isUuid, validateBodyIds, MAX_IDS, JSON_BODY_LIMIT } from './validateIds';
+import { isGallerySlug, isUuid, validateBodyIds, MAX_IDS, JSON_BODY_LIMIT } from './validateIds';
 
 describe('isUuid', () => {
   it('accepts UUIDs and rejects everything else', () => {
@@ -10,6 +10,17 @@ describe('isUuid', () => {
     expect(isUuid('3F2B8C1E-9A4D-4E6F-8B2A-1C3D5E7F9A0B')).toBe(true);
     for (const bad of ['abc', '', '3f2b8c1e-9a4d-4e6f-8b2a', "1' or '1'='1", 42, null, undefined, ['x']]) {
       expect(isUuid(bad)).toBe(false);
+    }
+  });
+});
+
+describe('isGallerySlug', () => {
+  it('accepts the slug format galleries are saved with and rejects everything else', () => {
+    for (const good of ['people', 'smith-wedding', '2024', 'a-1-b']) {
+      expect(isGallerySlug(good)).toBe(true);
+    }
+    for (const bad of ['', 'People', 'a/b', 'people?access=1', '?x', '../galleries/people', '..', '-a', 'a-', 'a--b', 'a b', 42, null, undefined]) {
+      expect(isGallerySlug(bad)).toBe(false);
     }
   });
 });
@@ -42,6 +53,30 @@ describe('malformed ids through the app', () => {
     // Identical to a well-formed id that names no photo.
     expect(await res.json()).toEqual({ success: false, error: 'Photo not found' });
   });
+
+  // Express decodes each path segment, so these arrive as "people?access=1",
+  // "?x", "../galleries/people", "a/b" and "People".
+  describe.each(['people%3Faccess%3D1', '%3Fx', '..%2Fgalleries%2Fpeople', 'a%2Fb', 'People'])(
+    'gallery slug %s',
+    (slug) => {
+      it.each([
+        ['GET', ''],
+        ['GET', '/photos'],
+        ['POST', '/verify'],
+        ['POST', '/view'],
+        ['POST', '/download-ticket'],
+        ['GET', '/download'],
+      ])('%s /galleries/:slug%s answers 404', async (method, path) => {
+        const res = await fetch(`${base}/galleries/${slug}${path}`, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: method === 'POST' ? JSON.stringify({ password: 'x' }) : undefined,
+        });
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual({ success: false, error: 'Gallery not found' });
+      });
+    }
+  );
 
   it('admits a full list of ids past the body parser', async () => {
     // Body parsing runs before auth: an oversized body would answer 413,

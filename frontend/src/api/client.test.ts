@@ -249,6 +249,44 @@ describe('concurrent public fetches', () => {
   });
 });
 
+describe('gallery slugs in API paths', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  // The page gets a slug React Router has decoded, so /g/people%3Faccess%3D1
+  // hands these "people?access=1". Each must stay one path segment.
+  it.each([
+    ['people?access=1', 'people%3Faccess%3D1'],
+    ['?x', '%3Fx'],
+    ['../galleries/people', '..%2Fgalleries%2Fpeople'],
+    ['a/b', 'a%2Fb'],
+  ])('encodes %s in every gallery request', async (slug, encoded) => {
+    const fetchMock = respond(200, {
+      success: true,
+      data: { title: 'T', slug, accessToken: 't', verified: true, ticket: 'tk' },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getGallery(slug);
+    await getGalleryPhotos(slug);
+    await getGalleryPhotos(slug, 'tok');
+    await verifyGalleryPassword(slug, 'pw');
+    expect(await getGalleryDownloadUrl(slug)).toBe(`/api/galleries/${encoded}/download`);
+    expect(await getGalleryDownloadUrl(slug, 'tok')).toBe(`/api/galleries/${encoded}/download?ticket=tk`);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `/api/galleries/${encoded}`,
+      `/api/galleries/${encoded}/photos`,
+      `/api/galleries/${encoded}/photos`,
+      `/api/galleries/${encoded}/verify`,
+      `/api/galleries/${encoded}/download-ticket`,
+    ]);
+  });
+});
+
 describe('known private galleries', () => {
   afterEach(() => {
     clearCache();

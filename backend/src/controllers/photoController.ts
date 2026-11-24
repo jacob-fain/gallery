@@ -135,7 +135,8 @@ export const trackView = (req: Request, res: Response) => {
   // Counted only for visible photos (the write checks). The answer is the
   // same either way, so tracking cannot be used to learn which ids exist.
   recordPhotoView(req.params.id);
-  res.json({ success: true });
+  // No body, as for gallery views (galleryController.trackGalleryView).
+  res.status(204).end();
 };
 
 /**
@@ -143,7 +144,7 @@ export const trackView = (req: Request, res: Response) => {
  */
 export const trackDownload = (req: Request, res: Response) => {
   recordPhotoDownload(req.params.id);
-  res.json({ success: true });
+  res.status(204).end();
 };
 
 const alreadyUploaded = (existing: Photo | null) => ({

@@ -556,7 +556,7 @@ export async function getGalleryDownloadUrl(slug: string, accessToken?: string):
  * Track a photo view - call when user opens/navigates to a photo in lightbox
  */
 export function trackPhotoView(photoId: string): void {
-  fetch(`${API_BASE}/photos/${photoId}/view`, { method: 'POST' }).catch(() => {
+  fetch(`${API_BASE}/photos/${encodeURIComponent(photoId)}/view`, { method: 'POST' }).catch(() => {
     // Silently ignore errors - tracking should not affect UX
   });
 }
