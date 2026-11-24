@@ -1,0 +1,31 @@
+[Unit]
+Description=Apply pending gallery deployments from GitHub
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=gallery-deploy
+Group=gallery-deploy
+# GITHUB_TOKEN=... (fine-grained, jacob-fain/gallery: Deployments RW,
+# Contents R, Metadata R). Mode 0600, owned by gallery-deploy.
+EnvironmentFile=/etc/homelab/gallery-deploy.env
+ExecStart=/usr/local/lib/gallery-deploy/poll
+# ETags so an unchanged GitHub answer costs nothing (a 304).
+StateDirectory=gallery-deploy
+StateDirectoryMode=0700
+# sudo needs to gain privileges for homelab-gallery-apply, so
+# NoNewPrivileges stays off; the sudoers rules allow two commands only. The
+# sandbox below also applies to those commands, which is why GHCR
+# credentials live in /etc/homelab/gallery-docker and pre-deploy dumps in
+# /var/backups rather than under /root or /home.
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+TimeoutStartSec=30min
