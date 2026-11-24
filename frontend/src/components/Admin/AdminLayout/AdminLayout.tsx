@@ -1,6 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/auth';
+import { UploadQueueProvider } from '../../../contexts/UploadQueueContext';
+import { useUploadSummary } from '../../../contexts/uploads';
 import ThemeToggle from '../../ThemeToggle/ThemeToggle';
+import UploadIndicator from '../UploadIndicator/UploadIndicator';
 import styles from './AdminLayout.module.css';
 
 interface AdminLayoutProps {
@@ -8,10 +11,21 @@ interface AdminLayoutProps {
 }
 
 export default function AdminLayout({ children }: AdminLayoutProps) {
+  return (
+    <UploadQueueProvider>
+      <AdminShell>{children}</AdminShell>
+    </UploadQueueProvider>
+  );
+}
+
+function AdminShell({ children }: AdminLayoutProps) {
   const { user, logout } = useAuth();
+  const uploads = useUploadSummary();
   const navigate = useNavigate();
 
   const handleLogout = () => {
+    // Signing out stops every upload still running.
+    if (uploads.active && !window.confirm('Uploads are still running. Log out and cancel them?')) return;
     logout();
     navigate('/login');
   };
@@ -86,7 +100,10 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           </div>
         </div>
       </nav>
-      <main className={styles.content}>{children}</main>
+      <main className={styles.content}>
+        {children}
+        <UploadIndicator />
+      </main>
     </div>
   );
 }

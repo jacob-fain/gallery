@@ -16,6 +16,9 @@ const fakeXhr = (status: number, responseText: string) =>
     addEventListener(event: string, fn: () => void) {
       this.listeners[event] = fn;
     }
+    fire(event: string) {
+      this.listeners[event]?.();
+    }
     open() {}
     setRequestHeader() {}
     send() {
@@ -61,6 +64,25 @@ describe('admin requests and session expiry', () => {
       status: 409,
       message: 'Already uploaded as a.jpg',
     });
+  });
+
+  it('aborts the request when its signal fires', async () => {
+    const abort = vi.fn();
+    vi.stubGlobal(
+      'XMLHttpRequest',
+      class extends fakeXhr(0, '') {
+        send() {}
+        abort() {
+          abort();
+          this.fire('abort');
+        }
+      }
+    );
+    const controller = new AbortController();
+    const upload = uploadPhoto('t', null, new File(['x'], 'a.jpg'), undefined, controller.signal);
+    controller.abort();
+    await expect(upload).rejects.toMatchObject({ status: 0, message: 'Upload aborted' });
+    expect(abort).toHaveBeenCalledOnce();
   });
 
   it('names an oversized upload rejected by the proxy instead of a parse error', async () => {
