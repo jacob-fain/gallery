@@ -446,10 +446,11 @@ export async function reorderPhotos(
   return result;
 }
 
+// A null targetGalleryId moves the photos to Unassigned.
 export async function movePhotos(
   token: string,
   photoIds: string[],
-  targetGalleryId: string
+  targetGalleryId: string | null
 ): Promise<{ moved: number }> {
   const result = await fetchApiAuth<{ moved: number }>('/photos/move', token, {
     method: 'PUT',
