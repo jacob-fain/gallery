@@ -1,15 +1,9 @@
 import type { ExifData } from '../../types';
+import { formatShutterSpeed, normalizeIso } from '../../utils/exif';
 import styles from './ExifOverlay.module.css';
 
 interface ExifOverlayProps {
   exif?: ExifData;
-}
-
-function formatShutterSpeed(speed: number): string {
-  if (speed >= 1) {
-    return `${speed}s`;
-  }
-  return `1/${Math.round(1 / speed)}s`;
 }
 
 function formatLens(lens: string): string {
@@ -46,7 +40,8 @@ export default function ExifOverlay({ exif }: ExifOverlayProps) {
   const settings: string[] = [];
   if (exif.aperture) settings.push(`f/${exif.aperture}`);
   if (exif.shutterSpeed) settings.push(formatShutterSpeed(exif.shutterSpeed));
-  if (exif.iso) settings.push(`ISO ${exif.iso}`);
+  const iso = normalizeIso(exif.iso);
+  if (iso) settings.push(`ISO ${iso}`);
   if (exif.focalLength) settings.push(`${exif.focalLength}mm`);
 
   // Don't render if no useful data

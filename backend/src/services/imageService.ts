@@ -40,6 +40,7 @@ export interface ExifData {
   aperture?: number;
   shutterSpeed?: number;
   focalLength?: number;
+  // Camera wall-clock time, with OffsetTimeOriginal appended when recorded.
   dateTaken?: string;
 }
 
@@ -155,6 +156,31 @@ export const isValidImage = async (buffer: Buffer): Promise<boolean> => {
 };
 
 /**
+ * ISOSpeedRatings is a SHORT tag with a count, so some cameras write several
+ * values (e.g. [100, 100]). The first is the ISO the photo was taken at.
+ */
+export const normalizeIso = (value: unknown): number | undefined => {
+  const iso = Array.isArray(value) ? value[0] : value;
+  return typeof iso === 'number' && Number.isFinite(iso) && iso > 0 ? iso : undefined;
+};
+
+/**
+ * DateTimeOriginal is the camera's wall-clock time with no zone. exif-reader
+ * returns it as a Date whose UTC fields hold that wall-clock time, so the
+ * digits are read back in UTC. The result carries OffsetTimeOriginal when the
+ * camera recorded one (a real instant), and otherwise no zone at all, so
+ * nothing downstream mistakes it for UTC.
+ */
+export const formatDateTaken = (date: unknown, offset: unknown): string | undefined => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return undefined;
+  const wallClock = date.toISOString().slice(0, 19);
+  if (typeof offset === 'string' && /^[+-]\d{2}:\d{2}$/.test(offset.trim())) {
+    return wallClock + offset.trim();
+  }
+  return wallClock;
+};
+
+/**
  * Extract EXIF metadata from an image buffer
  * Returns null if no EXIF data is present or parsing fails
  */
@@ -183,8 +209,9 @@ export const extractExifData = async (buffer: Buffer): Promise<ExifData | null> 
     }
 
     // Exposure settings
-    if (exif.Photo?.ISOSpeedRatings) {
-      result.iso = exif.Photo.ISOSpeedRatings;
+    const iso = normalizeIso(exif.Photo?.ISOSpeedRatings);
+    if (iso !== undefined) {
+      result.iso = iso;
     }
     if (exif.Photo?.FNumber) {
       result.aperture = exif.Photo.FNumber;
@@ -197,8 +224,9 @@ export const extractExifData = async (buffer: Buffer): Promise<ExifData | null> 
     }
 
     // Date taken
-    if (exif.Photo?.DateTimeOriginal) {
-      result.dateTaken = exif.Photo.DateTimeOriginal.toISOString();
+    const dateTaken = formatDateTaken(exif.Photo?.DateTimeOriginal, exif.Photo?.OffsetTimeOriginal);
+    if (dateTaken) {
+      result.dateTaken = dateTaken;
     }
 
     // Only return if we got at least some data
