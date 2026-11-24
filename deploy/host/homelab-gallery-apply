@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Applies a gallery release on the home server. Installed by the homelab
+# session as /usr/local/sbin/homelab-gallery-apply (root:root 0755); the
+# gallery-deploy user may run exactly this file through sudo, nothing else.
+#
+# Usage: homelab-gallery-apply <prod|staging> <frontend-digest> <backend-digest>
+#
+# A caller chooses only which image digests run. Image names, compose files,
+# env files and ports are fixed here and on the host, so a deployment cannot
+# mount host paths or change how containers run.
+#
+# Exit codes: 0 deployed, 2 bad arguments, 75 busy (lock held), 1 failed.
+# The last line of output is a one-line result for the deployment status.
+set -euo pipefail
+umask 077
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+readonly REGISTRY=ghcr.io/jacob-fain
+readonly LOCK=/run/lock/homelab-gallery.lock
+readonly LOCK_WAIT_SECONDS=900
+readonly HEALTH_WAIT_SECONDS=180
+readonly DIGEST_RE='^sha256:[0-9a-f]{64}$'
+readonly BUILD_RE='^[0-9a-f]{16}$'
+
+fail() { echo "$1"; exit "${2:-1}"; }
+
+[[ $# -eq 3 ]] || fail "usage: homelab-gallery-apply <prod|staging> <frontend-digest> <backend-digest>" 2
+env_name=$1 frontend_digest=$2 backend_digest=$3
+
+case "$env_name" in
+  prod)    dir=/opt/docker/gallery;         health=http://127.0.0.1/api/health/ready ;;
+  staging) dir=/opt/docker/gallery-staging; health=http://127.0.0.1:8081/api/health/ready ;;
+  *)       fail "environment must be prod or staging" 2 ;;
+esac
+[[ $frontend_digest =~ $DIGEST_RE ]] || fail "frontend digest must be sha256:<64 hex>" 2
+[[ $backend_digest =~ $DIGEST_RE ]] || fail "backend digest must be sha256:<64 hex>" 2
+
+frontend_image=$REGISTRY/gallery-frontend@$frontend_digest
+backend_image=$REGISTRY/gallery-backend@$backend_digest
+
+# One lock for everything that touches the gallery containers: deploys, the
+# nightly backup and update night all take it, so none needs the others'
+# schedules.
+exec 9>"$LOCK"
+flock -w "$LOCK_WAIT_SECONDS" 9 || fail "busy: another gallery job holds the lock" 75
+
+cd "$dir"
+
+compose() {
+  local pins=$1; shift
+  docker compose --project-directory "$dir" -f "$dir/docker-compose.yml" \
+    --env-file "$dir/.env.production" --env-file "$pins" "$@"
+}
+
+docker pull -q "$frontend_image" >/dev/null || fail "could not pull $frontend_image"
+docker pull -q "$backend_image" >/dev/null || fail "could not pull $backend_image"
+
+# The build id the new backend will report, read from the image itself so a
+# caller cannot claim one. Images built outside the release workflow report
+# "dev" and are refused.
+expected=$(docker image inspect "$backend_image" \
+  --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^BUILD_ID=//p')
+[[ $expected =~ $BUILD_RE ]] || fail "backend image has no release build id"
+
+next=$dir/pinned.env.next
+printf 'FRONTEND_IMAGE=%s\nBACKEND_IMAGE=%s\n' "$frontend_image" "$backend_image" > "$next"
+
+# Migrations run first, from the new image. A failure stops here with the
+# running release untouched (each migration rolls back on its own).
+if ! compose "$next" --profile migrate run --rm migrate; then
+  rm -f "$next"
+  fail "migrations failed; the running release is unchanged"
+fi
+
+rm -f "$dir/pinned.env.prev"
+[[ -f $dir/pinned.env ]] && cp "$dir/pinned.env" "$dir/pinned.env.prev"
+mv "$next" "$dir/pinned.env"
+
+# Puts the previous images back after a failed swap, then reports why.
+restore_and_fail() {
+  if [[ -f $dir/pinned.env.prev ]]; then
+    mv "$dir/pinned.env.prev" "$dir/pinned.env"
+    compose "$dir/pinned.env" up -d --remove-orphans || true
+    fail "$1; restored the previous images"
+  fi
+  fail "$1; no previous release to restore"
+}
+
+compose "$dir/pinned.env" up -d --remove-orphans || restore_and_fail "containers did not start"
+
+answered=""
+for (( waited = 0; waited < HEALTH_WAIT_SECONDS; waited += 5 )); do
+  answered=$(curl -fsS -m 5 "$health" 2>/dev/null | sed -n 's/.*"build":"\([0-9a-z]*\)".*/\1/p' || true)
+  [[ $answered == "$expected" ]] && { echo "deployed build $expected"; exit 0; }
+  sleep 5
+done
+restore_and_fail "build $expected never reported ready (last answer: ${answered:-none})"

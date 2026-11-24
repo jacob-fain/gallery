@@ -90,3 +90,28 @@ jobs:
           docker run --rm -v "$PWD:/repo" -w /repo
           ghcr.io/gitleaks/gitleaks:v8.30.1
           detect --source . --no-banner --redact --config .gitleaks.toml
+
+  deploy-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck deploy/host/homelab-gallery-apply
+      - name: Poller tests
+        run: python3 -m unittest deploy/test_poll.py
+      - name: Wrapper refuses bad arguments before touching anything
+        run: |
+          set +e
+          for args in "" "dev a b" "prod sha256:short sha256:short" "staging sha256:$(printf 'a%.0s' {1..64}) latest"; do
+            out=$(bash deploy/host/homelab-gallery-apply $args 2>&1); code=$?
+            echo "[$code] $out"
+            [ "$code" = 2 ] || { echo "expected exit 2 for: $args"; exit 1; }
+          done
+      - name: Compose files are valid
+        run: |
+          printf 'FRONTEND_IMAGE=f\nBACKEND_IMAGE=b\n' > /tmp/pins.env
+          for f in deploy/compose/prod.yml deploy/compose/staging.yml; do
+            docker compose -f "$f" --env-file /tmp/pins.env config -q 2>/dev/null
+          done
+
