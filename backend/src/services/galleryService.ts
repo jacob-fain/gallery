@@ -1,4 +1,4 @@
-import { query } from '../config/db';
+import { query, withTransaction } from '../config/db';
 import { Gallery, Photo, GalleryWithCoverUrl, CreateGalleryInput, UpdateGalleryInput } from '../types';
 import { hashPassword, verifyPassword } from './authService';
 import { getSignedUrl } from './s3Service';
@@ -123,17 +123,15 @@ export const getGalleryPhotos = async (galleryId: string): Promise<Photo[]> => {
 };
 
 export const incrementGalleryViews = async (galleryId: string): Promise<void> => {
-  // Increment counter and log analytics event in parallel
-  await Promise.all([
-    query(
-      `UPDATE galleries SET view_count = view_count + 1 WHERE id = $1`,
-      [galleryId]
-    ),
-    query(
-      `INSERT INTO analytics_events (event_type, gallery_id) VALUES ('gallery_view', $1)`,
-      [galleryId]
-    ),
-  ]);
+  // One statement, so the counter and the event log cannot disagree.
+  await query(
+    `WITH counted AS (
+       UPDATE galleries SET view_count = view_count + 1 WHERE id = $1 RETURNING id
+     )
+     INSERT INTO analytics_events (event_type, gallery_id)
+     SELECT 'gallery_view', id FROM counted`,
+    [galleryId]
+  );
 };
 
 export const incrementGalleryDownloads = async (galleryId: string): Promise<void> => {
@@ -175,64 +173,121 @@ export const createGallery = async (data: CreateGalleryInput): Promise<Gallery> 
   return result.rows[0];
 };
 
+// Name of the UNIQUE constraint on galleries.slug from 001_schema.sql.
+const SLUG_CONSTRAINT = 'galleries_slug_key';
+
 /**
- * Update an existing gallery
+ * True when a create or update failed because another gallery took the slug
+ * between the availability check and the write.
+ */
+export const isSlugConflictError = (err: unknown): boolean => {
+  const pgErr = err as { code?: string; constraint?: string } | null;
+  return pgErr?.code === '23505' && pgErr.constraint === SLUG_CONSTRAINT;
+};
+
+/** Thrown by updateGallery when the change would leave a private gallery with no password. */
+export class PrivateGalleryNeedsPasswordError extends Error {
+  constructor() {
+    super('A private gallery needs a password');
+    this.name = 'PrivateGalleryNeedsPasswordError';
+  }
+}
+
+/**
+ * Update an existing gallery. The row is locked while the change is checked
+ * against its current visibility and password, so two concurrent edits (one
+ * making it private, one removing the password) cannot together leave a
+ * private gallery nobody can open.
+ * @returns The updated gallery, or null when it does not exist
+ * @throws PrivateGalleryNeedsPasswordError
  */
 export const updateGallery = async (
   id: string,
   data: UpdateGalleryInput
 ): Promise<Gallery | null> => {
-  // Build dynamic update query based on provided fields
-  // Column names are from a fixed set of if conditions, not user input - safe from SQL injection
-  const updates: string[] = [];
-  const values: (string | boolean | null)[] = [];
-  let paramIndex = 1;
+  // Hashed before the transaction: bcrypt is slow and the row stays locked
+  // until the transaction ends. null removes the password.
+  const passwordHash =
+    data.password === undefined ? undefined : data.password ? await hashPassword(data.password) : null;
 
-  if (data.title !== undefined) {
-    updates.push(`title = $${paramIndex++}`);
-    values.push(data.title);
-  }
-  if (data.slug !== undefined) {
-    updates.push(`slug = $${paramIndex++}`);
-    values.push(data.slug);
-  }
-  if (data.description !== undefined) {
-    updates.push(`description = $${paramIndex++}`);
-    values.push(data.description);
-  }
-  if (data.is_public !== undefined) {
-    updates.push(`is_public = $${paramIndex++}`);
-    values.push(data.is_public);
-  }
-  if (data.password !== undefined) {
-    updates.push(`password_hash = $${paramIndex++}`);
-    // null removes password, string sets new password
-    values.push(data.password ? await hashPassword(data.password) : null);
-  }
+  return withTransaction(async (client) => {
+    const current = await client.query(`SELECT * FROM galleries WHERE id = $1 FOR UPDATE`, [id]);
+    const existing: Gallery | undefined = current.rows[0];
+    if (!existing) return null;
 
-  if (updates.length === 0) {
-    return getGalleryById(id);
-  }
+    if (
+      !privateGalleryHasPassword({
+        isPublic: data.is_public ?? existing.is_public,
+        hasStoredPassword: Boolean(existing.password_hash),
+        password: data.password,
+      })
+    ) {
+      throw new PrivateGalleryNeedsPasswordError();
+    }
 
-  values.push(id);
-  const result = await query(
-    `UPDATE galleries SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-    values
-  );
-  return result.rows[0] || null;
+    // Column names are from a fixed set of if conditions, not user input - safe from SQL injection
+    const updates: string[] = [];
+    const values: (string | boolean | null)[] = [];
+    let paramIndex = 1;
+
+    if (data.title !== undefined) {
+      updates.push(`title = $${paramIndex++}`);
+      values.push(data.title);
+    }
+    if (data.slug !== undefined) {
+      updates.push(`slug = $${paramIndex++}`);
+      values.push(data.slug);
+    }
+    if (data.description !== undefined) {
+      updates.push(`description = $${paramIndex++}`);
+      values.push(data.description);
+    }
+    if (data.is_public !== undefined) {
+      updates.push(`is_public = $${paramIndex++}`);
+      values.push(data.is_public);
+    }
+    if (passwordHash !== undefined) {
+      updates.push(`password_hash = $${paramIndex++}`);
+      values.push(passwordHash);
+    }
+
+    if (updates.length === 0) {
+      return existing;
+    }
+
+    values.push(id);
+    const result = await client.query(
+      `UPDATE galleries SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  });
 };
 
 /**
- * Delete a gallery (photos are cascade deleted by DB)
- * Note: S3 files must be deleted separately before calling this
+ * Delete a gallery and its photos in one transaction, returning the S3 keys
+ * of exactly the photos deleted so the caller removes the objects after the
+ * commit. Locking the gallery first makes a concurrent upload into it wait
+ * and then fail, instead of adding a photo the delete would miss. Because
+ * the keys come from the DELETE itself, a photo moved out of the gallery
+ * meanwhile keeps its row and its objects.
+ * @returns The deleted photos' S3 keys, or null when the gallery does not exist
  */
-export const deleteGallery = async (id: string): Promise<boolean> => {
-  const result = await query(
-    `DELETE FROM galleries WHERE id = $1 RETURNING id`,
-    [id]
-  );
-  return result.rowCount !== null && result.rowCount > 0;
-};
+export const deleteGallery = async (id: string): Promise<{ s3Keys: string[] } | null> =>
+  withTransaction(async (client) => {
+    const locked = await client.query(`SELECT id FROM galleries WHERE id = $1 FOR UPDATE`, [id]);
+    if (locked.rowCount === 0) return null;
+
+    const photos = await client.query<{ s3_key: string; s3_web_key: string; s3_thumbnail_key: string }>(
+      `DELETE FROM photos WHERE gallery_id = $1 RETURNING s3_key, s3_web_key, s3_thumbnail_key`,
+      [id]
+    );
+    await client.query(`DELETE FROM galleries WHERE id = $1`, [id]);
+
+    return {
+      s3Keys: photos.rows.flatMap((p) => [p.s3_key, p.s3_web_key, p.s3_thumbnail_key]),
+    };
+  });
 
 /**
  * Set the cover image for a gallery
@@ -276,17 +331,21 @@ export const verifyGalleryPassword = async (
 };
 
 /**
- * Reorder galleries
+ * Reorder galleries in one statement, so a failure leaves the old order
+ * intact and two concurrent reorders cannot interleave row by row. A
+ * repeated id takes its first position.
  * @param galleryIds - Array of gallery IDs in desired order
  */
 export const reorderGalleries = async (galleryIds: string[]): Promise<void> => {
-  const updates = galleryIds.map((galleryId, index) =>
-    query(
-      `UPDATE galleries SET sort_order = $1 WHERE id = $2`,
-      [index, galleryId]
-    )
+  await query(
+    `UPDATE galleries g
+     SET sort_order = t.pos
+     FROM (
+       SELECT id, MIN(n) - 1 AS pos FROM unnest($1::uuid[]) WITH ORDINALITY AS u(id, n) GROUP BY id
+     ) t
+     WHERE g.id = t.id`,
+    [galleryIds]
   );
-  await Promise.all(updates);
 };
 
 /**
