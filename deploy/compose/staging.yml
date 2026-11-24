@@ -56,9 +56,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # tini as PID 1 forwards SIGTERM, so a restart stops cleanly instead of
-    # waiting out the kill timeout.
+    # tini as PID 1 forwards SIGTERM, so a restart drains requests instead of
+    # waiting out the kill timeout. The grace period outlasts the backend's
+    # own 25 s shutdown cap.
     init: true
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
       interval: 10s
