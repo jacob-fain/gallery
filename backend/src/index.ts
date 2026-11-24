@@ -5,6 +5,8 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 import app from './app';
 import pool, { testConnection } from './config/db';
 import { createShutdown } from './shutdown';
+import { drainTracking } from './services/eventTracking';
+import { scheduleAnalyticsRollup } from './services/analyticsRollup';
 
 const PORT = process.env.PORT || 3001;
 
@@ -22,8 +24,13 @@ const start = async () => {
     console.log(`Health check: http://localhost:${PORT}/api/health`);
   });
 
+  const rollup = scheduleAnalyticsRollup();
+
   const shutdown = createShutdown({
     server,
+    drain: async () => {
+      await Promise.all([drainTracking(), rollup.stop()]);
+    },
     closePool: () => pool.end(),
     exit: (code) => process.exit(code),
   });

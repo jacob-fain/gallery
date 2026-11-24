@@ -131,38 +131,6 @@ export const reorderFeaturedPhotos = async (photoIds: string[]): Promise<void> =
   }
 };
 
-export const incrementPhotoViews = async (photoId: string): Promise<void> => {
-  // Get gallery_id for analytics and increment counter in parallel
-  const [photoResult] = await Promise.all([
-    query(`SELECT gallery_id FROM photos WHERE id = $1`, [photoId]),
-    query(`UPDATE photos SET view_count = view_count + 1 WHERE id = $1`, [photoId]),
-  ]);
-
-  // Log analytics event with both photo and gallery IDs
-  if (photoResult.rows[0]) {
-    await query(
-      `INSERT INTO analytics_events (event_type, gallery_id, photo_id) VALUES ('photo_view', $1, $2)`,
-      [photoResult.rows[0].gallery_id, photoId]
-    );
-  }
-};
-
-export const incrementPhotoDownloads = async (photoId: string): Promise<void> => {
-  // Get gallery_id for analytics and increment counter in parallel
-  const [photoResult] = await Promise.all([
-    query(`SELECT gallery_id FROM photos WHERE id = $1`, [photoId]),
-    query(`UPDATE photos SET download_count = download_count + 1 WHERE id = $1`, [photoId]),
-  ]);
-
-  // Log analytics event with both photo and gallery IDs
-  if (photoResult.rows[0]) {
-    await query(
-      `INSERT INTO analytics_events (event_type, gallery_id, photo_id) VALUES ('photo_download', $1, $2)`,
-      [photoResult.rows[0].gallery_id, photoId]
-    );
-  }
-};
-
 /**
  * Signed URL for the full-size original, served as an attachment under the
  * photo's uploaded filename.
@@ -227,9 +195,11 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> =>
       `INSERT INTO photos (
         gallery_id, filename, original_filename,
         s3_key, s3_thumbnail_key, s3_web_key,
-        width, height, file_size, exif_data, content_hash, sort_order
+        width, height, file_size, exif_data, content_hash, sort_order, is_hidden
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      -- New uploads start hidden so nothing is public before it is reviewed;
+      -- the admin publishes them with Show.
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true)
       RETURNING *`,
       [
         data.gallery_id,
