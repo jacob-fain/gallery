@@ -39,17 +39,47 @@ export const pathOnly = (url: string): string => {
   return cut === -1 ? url : url.slice(0, cut);
 };
 
+// Bounds on the related errors an error line carries: enough to tell which
+// address a connect failed on, never a whole chain.
+const MAX_INNER_ERRORS = 3;
+const MAX_INNER_MESSAGE = 300;
+
+const errorCode = (err: Error): string | number | undefined => {
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' || typeof code === 'number' ? code : undefined;
+};
+
+/** A cause or inner error as name, message and code, without its stack or own causes. */
+const summarizeError = (err: unknown): LogFields => {
+  if (!(err instanceof Error)) return { message: redactString(String(err).slice(0, MAX_INNER_MESSAGE)) };
+  const out: LogFields = { name: err.name, message: redactString(err.message.slice(0, MAX_INNER_MESSAGE)) };
+  const code = errorCode(err);
+  if (code !== undefined) out.code = code;
+  return out;
+};
+
 /**
  * An error as loggable fields. Only the name, message, code and stack are
- * kept: driver errors carry other fields (a failed query's parameters, a
- * request's headers) that must not be logged.
+ * kept, plus a summary of its cause and of the first few errors an
+ * AggregateError holds (a connect that tried several addresses has an empty
+ * message and only the inner errors say why). Driver errors carry other
+ * fields (a failed query's parameters, a request's headers) that must not be
+ * logged.
  */
 export const serializeError = (err: unknown): LogFields => {
   if (!(err instanceof Error)) return { message: redactString(String(err)) };
   const out: LogFields = { name: err.name, message: redactString(err.message) };
-  const code = (err as { code?: unknown }).code;
-  if (typeof code === 'string' || typeof code === 'number') out.code = code;
+  const code = errorCode(err);
+  if (code !== undefined) out.code = code;
   if (err.stack) out.stack = redactString(err.stack);
+  // Read structurally: the build's ES2020 lib declares neither Error.cause
+  // nor AggregateError, though Node has both.
+  const { cause, errors } = err as { cause?: unknown; errors?: unknown };
+  if (cause !== undefined) out.cause = summarizeError(cause);
+  if (err.name === 'AggregateError' && Array.isArray(errors)) {
+    out.errors = errors.slice(0, MAX_INNER_ERRORS).map(summarizeError);
+    if (errors.length > MAX_INNER_ERRORS) out.moreErrors = errors.length - MAX_INNER_ERRORS;
+  }
   return out;
 };
 
@@ -84,8 +114,9 @@ interface LoggerOptions {
   now?: () => Date;
 }
 
-const threshold = (raw: string | undefined): Threshold =>
-  raw && raw in RANK ? (raw as Threshold) : 'info';
+// An own-key check, so "toString" and other prototype keys are not levels.
+// (Object.hasOwn is not in the build's ES2020 lib.)
+const isThreshold = (value: string): value is Threshold => Object.prototype.hasOwnProperty.call(RANK, value);
 
 // Warnings and errors go to stderr, the rest to stdout; Docker keeps both.
 const defaultWrite = (level: LogLevel, line: string) => {
@@ -99,8 +130,34 @@ export const createLogger = ({
   write = defaultWrite,
   now = () => new Date(),
 }: LoggerOptions = {}): Logger => {
+  // An unset or empty LOG_LEVEL means info. Any other value that names no
+  // level also means info, and is reported once so a typo does not silently
+  // hide debug lines or flood the log.
+  let reported: string | undefined;
+  const threshold = (): Threshold => {
+    const raw = level()?.trim().toLowerCase();
+    if (!raw) return 'info';
+    if (isThreshold(raw)) return raw;
+    if (raw !== reported) {
+      reported = raw;
+      write(
+        'warn',
+        JSON.stringify({
+          time: now().toISOString(),
+          level: 'warn',
+          msg: 'unknown LOG_LEVEL, using info',
+          logLevel: redactString(raw.slice(0, 32)),
+        })
+      );
+    }
+    return 'info';
+  };
+  // Checked once on creation, so a bad value is reported at startup rather
+  // than on the first line logged.
+  threshold();
+
   const log = (lvl: LogLevel, msg: string, fields?: LogFields) => {
-    if (RANK[lvl] < RANK[threshold(level())]) return;
+    if (RANK[lvl] < RANK[threshold()]) return;
     const requestId = requestContext.getStore()?.requestId;
     const entry: LogFields = {
       time: now().toISOString(),

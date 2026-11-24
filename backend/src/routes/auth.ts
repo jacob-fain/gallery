@@ -1,10 +1,10 @@
-import { Router } from 'express';
+import { createRouter } from '../middleware/requestLog';
 import * as authController from '../controllers/authController';
 import { authMiddleware } from '../middleware/auth';
 import { loginRateLimit } from '../middleware/rateLimit';
 import { requireAdminOrigin } from '../middleware/session';
 
-const router = Router();
+const router = createRouter();
 
 // POST /api/auth/login - Authenticate and set the session cookie. The origin
 // check stops another site from signing the browser in to an account it

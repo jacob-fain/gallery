@@ -63,6 +63,42 @@ describe('redaction', () => {
     expect(out.stack).not.toContain('sig=1');
   });
 
+  it('summarizes the cause of an error, redacted and without its stack', () => {
+    const cause = Object.assign(new Error('password authentication failed for postgresql://u:hunter2@db/x'), {
+      code: '28P01',
+      parameters: ['secret value'],
+    });
+    const out = serializeError(new Error('could not start', { cause }));
+    expect(out.cause).toEqual({
+      name: 'Error',
+      message: 'password authentication failed for postgresql://[redacted]@db/x',
+      code: '28P01',
+    });
+    expect(serializeError(new Error('x', { cause: 'plain reason' })).cause).toEqual({ message: 'plain reason' });
+    expect(serializeError(new Error('x'))).not.toHaveProperty('cause');
+  });
+
+  it('summarizes the first three errors of an AggregateError and counts the rest', () => {
+    const refused = (address: string) =>
+      Object.assign(new Error(`connect ECONNREFUSED ${address}:5432`), { code: 'ECONNREFUSED', address });
+    const err = Object.assign(
+      new AggregateError([refused('::1'), refused('127.0.0.1'), refused('10.0.0.1'), refused('10.0.0.2')], ''),
+      { code: 'ECONNREFUSED' }
+    );
+    const out = serializeError(err);
+    expect(out).toMatchObject({ name: 'AggregateError', message: '', code: 'ECONNREFUSED', moreErrors: 1 });
+    expect(out.errors).toEqual([
+      { name: 'Error', message: 'connect ECONNREFUSED ::1:5432', code: 'ECONNREFUSED' },
+      { name: 'Error', message: 'connect ECONNREFUSED 127.0.0.1:5432', code: 'ECONNREFUSED' },
+      { name: 'Error', message: 'connect ECONNREFUSED 10.0.0.1:5432', code: 'ECONNREFUSED' },
+    ]);
+  });
+
+  it('bounds the message of a cause or inner error', () => {
+    const out = serializeError(new Error('outer', { cause: new Error('x'.repeat(5000)) }));
+    expect(((out.cause as { message: string }).message).length).toBe(300);
+  });
+
   it('pathOnly cuts the query and fragment', () => {
     expect(pathOnly('/api/photos/1/download?access=abc')).toBe('/api/photos/1/download');
     expect(pathOnly('/a#b')).toBe('/a');
@@ -98,11 +134,61 @@ describe('createLogger', () => {
     expect(silent.lines).toEqual([]);
   });
 
-  it('defaults to info for an unknown level', () => {
+  it('defaults to info for an unknown level, reporting it once at creation', () => {
     const { logger, lines } = capture('loud');
+    expect(lines).toEqual([
+      {
+        level: 'warn',
+        entry: {
+          time: '2026-01-02T03:04:05.000Z',
+          level: 'warn',
+          msg: 'unknown LOG_LEVEL, using info',
+          logLevel: 'loud',
+        },
+      },
+    ]);
     logger.debug('no');
     logger.info('yes');
-    expect(lines.map((l) => l.entry.msg)).toEqual(['yes']);
+    logger.info('again');
+    expect(lines.map((l) => l.entry.msg)).toEqual(['unknown LOG_LEVEL, using info', 'yes', 'again']);
+  });
+
+  it('does not take prototype keys such as toString for levels', () => {
+    for (const level of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+      const { logger, lines } = capture(level);
+      logger.debug('no');
+      logger.info('yes');
+      expect(lines.map((l) => l.entry.msg)).toEqual(['unknown LOG_LEVEL, using info', 'yes']);
+    }
+  });
+
+  it('reads the level regardless of case and surrounding space', () => {
+    const debug = capture('DEBUG');
+    debug.logger.debug('shown');
+    expect(debug.lines.map((l) => l.entry.msg)).toEqual(['shown']);
+    const silent = capture(' Silent ');
+    silent.logger.error('no');
+    expect(silent.lines).toEqual([]);
+  });
+
+  it('treats an unset or empty level as info without a warning', () => {
+    for (const level of [undefined, '']) {
+      const lines: string[] = [];
+      const logger = createLogger({ level: () => level, write: (_l, line) => lines.push(line) });
+      logger.debug('no');
+      logger.info('yes');
+      expect(lines.map((l) => JSON.parse(l).msg)).toEqual(['yes']);
+    }
+  });
+
+  it('reports a level that becomes invalid later, once', () => {
+    let level = 'info';
+    const lines: string[] = [];
+    const logger = createLogger({ level: () => level, write: (_l, line) => lines.push(line) });
+    level = 'verbose';
+    logger.info('a');
+    logger.info('b');
+    expect(lines.map((l) => JSON.parse(l).msg)).toEqual(['unknown LOG_LEVEL, using info', 'a', 'b']);
   });
 
   it('adds the request id of the request being handled', () => {

@@ -56,8 +56,10 @@ export const latestMigration = async (): Promise<string | null> => {
 };
 
 export const getMetrics = async (_req: Request, res: Response) => {
-  // The snapshot is still useful with the database down, so a failed lookup
-  // reports the schema as unknown instead of failing the route.
+  // The admin session check has already read the database, so this route
+  // never answers while it is down. A failed lookup here (a lost connection,
+  // a permissions problem) reports the schema as unknown rather than hiding
+  // the in-memory counters.
   let migration: string | null = null;
   try {
     migration = await latestMigration();
