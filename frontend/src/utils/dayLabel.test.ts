@@ -1,3 +1,6 @@
+// These tests set process.env.TZ, so they need Node types, which the app
+// tsconfig keeps out of browser code.
+/// <reference types="node" />
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatDayLabel } from './dayLabel';
 
