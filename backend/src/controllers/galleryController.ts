@@ -7,7 +7,7 @@ import {
   generateGalleryAccessToken,
   verifyGalleryAccessToken,
 } from '../services/authService';
-import { publicGallery, adminGallery } from '../services/galleryView';
+import { publicGallery, publicGalleryCard, adminGallery } from '../services/galleryView';
 import { toPublicPhotos } from '../services/photoView';
 import { cachePublicly } from '../middleware/cacheControl';
 import { nextOffset, parseAdminPage } from '../services/photoPaging';
@@ -21,7 +21,7 @@ export const listGalleries = async (_req: Request, res: Response) => {
   try {
     const galleries = await galleryService.getPublicGalleriesWithCovers();
     cachePublicly(res);
-    res.json({ success: true, data: galleries.map(publicGallery) });
+    res.json({ success: true, data: galleries.map(publicGalleryCard) });
   } catch (err) {
     console.error('Error fetching galleries:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch galleries' });
@@ -52,15 +52,26 @@ export const getGallery = async (req: Request, res: Response) => {
       });
     }
 
-    // Increment view count for public galleries
-    recordGalleryView(gallery.id);
-
+    // Not counted here: a cached response never reaches the server. The page
+    // counts its view with POST /galleries/:slug/view once it is shown.
     cachePublicly(res);
     res.json({ success: true, data: publicGallery(gallery) });
   } catch (err) {
     console.error('Error fetching gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch gallery' });
   }
+};
+
+/**
+ * Count a view of a gallery page. Counted only for a public gallery or one
+ * the access token unlocks (the write checks). The answer is the same either
+ * way, so tracking cannot be used to learn which slugs exist.
+ */
+export const trackGalleryView = (req: Request, res: Response) => {
+  const { access } = req.query;
+  const token = typeof access === 'string' ? verifyGalleryAccessToken(access) : null;
+  recordGalleryView(req.params.slug, token?.galleryId ?? null);
+  res.json({ success: true });
 };
 
 export const getGalleryPhotos = async (req: Request, res: Response) => {

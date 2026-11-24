@@ -15,9 +15,12 @@ import './styles/globals.css';
 // Public pages - keep eager (small, always needed)
 import Home from './pages/Home';
 import Galleries from './pages/Galleries';
-import Gallery from './pages/Gallery';
-import AllPhotos from './pages/AllPhotos';
 import NotFound from './pages/NotFound';
+
+// The photo grid pages carry the lightbox and the masonry layout, which the
+// homepage and the galleries list do not need.
+const Gallery = lazyWithReload(() => import('./pages/Gallery'));
+const AllPhotos = lazyWithReload(() => import('./pages/AllPhotos'));
 
 // Admin pages - lazy load (reduces initial bundle for public visitors)
 const Login = lazyWithReload(() => import('./pages/admin/Login'));
@@ -29,18 +32,20 @@ const Unassigned = lazyWithReload(() => import('./pages/admin/Unassigned'));
 const Settings = lazyWithReload(() => import('./pages/admin/Settings'));
 const AdminLayout = lazyWithReload(() => import('./components/Admin/AdminLayout/AdminLayout'));
 
-function PublicApp() {
+export function PublicApp() {
   return (
     <>
       <Navbar />
       <main className="main-content">
-        <Routes>
-          <Route path="/" element={<><PageTitle /><Home /></>} />
-          <Route path="/galleries" element={<><PageTitle page="Galleries" /><Galleries /></>} />
-          <Route path="/photos" element={<><PageTitle page="Photos" /><AllPhotos /></>} />
-          <Route path="/g/:slug" element={<Gallery />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Suspense fallback={<div className="loading">Loading...</div>}>
+          <Routes>
+            <Route path="/" element={<><PageTitle /><Home /></>} />
+            <Route path="/galleries" element={<><PageTitle page="Galleries" /><Galleries /></>} />
+            <Route path="/photos" element={<><PageTitle page="Photos" /><AllPhotos /></>} />
+            <Route path="/g/:slug" element={<Gallery />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
       </main>
     </>
   );

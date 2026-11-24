@@ -33,6 +33,7 @@ vi.mock('../services/s3Service', async (importOriginal) => ({
 }));
 
 const galleryService = await import('../services/galleryService');
+const eventTracking = await import('../services/eventTracking');
 const photoService = await import('../services/photoService');
 const settingsService = await import('../services/settingsService');
 const { generateGalleryAccessToken } = await import('../services/authService');
@@ -157,6 +158,62 @@ describe('public photo lists carry no internal fields', () => {
     expect(Object.keys(body.data).sort()).toEqual(
       ['exif_data', 'gallery_id', 'height', 'id', 'thumbnailUrl', 'webUrl', 'width'].sort()
     );
+  });
+});
+
+describe('public gallery objects carry no internal fields', () => {
+  it('GET /galleries lists id, title, slug and the cover', async () => {
+    vi.mocked(galleryService.getPublicGalleriesWithCovers).mockResolvedValue([
+      { ...gallery(true), coverUrl: 'thumb?sig', coverWebUrl: 'web?sig', coverWidth: 1200, coverHeight: 800 },
+    ]);
+    const { body } = await get('/galleries');
+    expect(body.data).toEqual([
+      {
+        id: GALLERY_ID,
+        title: 'Iceland',
+        slug: 'iceland',
+        coverUrl: 'thumb?sig',
+        coverWebUrl: 'web?sig',
+        coverWidth: 1200,
+        coverHeight: 800,
+      },
+    ]);
+  });
+
+  it('GET /galleries/:slug returns id, title and slug, and counts no view', async () => {
+    const { body } = await get('/galleries/iceland');
+    expect(body.data).toEqual({ id: GALLERY_ID, title: 'Iceland', slug: 'iceland' });
+    expect(eventTracking.recordGalleryView).not.toHaveBeenCalled();
+  });
+
+  it('GET /galleries/:slug for a private gallery returns what the password screen needs', async () => {
+    vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue(gallery(false));
+    const { body } = await get('/galleries/iceland');
+    expect(body.data).toEqual({ title: 'Iceland', slug: 'iceland', is_public: false, requires_password: true });
+  });
+});
+
+describe('gallery view tracking', () => {
+  const post = async (path: string) => {
+    const res = await fetch(`${base}${path}`, { method: 'POST' });
+    return { status: res.status, cache: res.headers.get('cache-control'), body: await res.json() };
+  };
+
+  it('passes the slug, with no gallery when there is no valid token', async () => {
+    vi.mocked(eventTracking.recordGalleryView).mockClear();
+    expect(await post('/galleries/iceland/view')).toEqual({ status: 200, cache: 'no-store', body: { success: true } });
+    await post('/galleries/iceland/view?access=forged');
+    expect(vi.mocked(eventTracking.recordGalleryView).mock.calls).toEqual([
+      ['iceland', null],
+      ['iceland', null],
+    ]);
+  });
+
+  it('passes the gallery a valid token unlocks', async () => {
+    vi.mocked(eventTracking.recordGalleryView).mockClear();
+    const token = generateGalleryAccessToken(GALLERY_ID, 'iceland');
+    await post(`/galleries/iceland/view?access=${encodeURIComponent(token)}`);
+    expect(eventTracking.recordGalleryView).toHaveBeenCalledWith('iceland', GALLERY_ID);
   });
 });
 

@@ -17,7 +17,6 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useAuth } from '../../contexts/auth';
 import {
   getAllGalleries,
   createGallery,
@@ -78,7 +77,7 @@ function SortableRow({ gallery, copiedId, onCopyLink, onEdit, onDelete }: Sortab
           {gallery.is_public ? 'Public' : 'Private'}
         </span>
       </td>
-      <td>{gallery.view_count.toLocaleString()}</td>
+      <td>{(gallery.view_count ?? 0).toLocaleString()}</td>
       <td className={styles.actions}>
         <button
           className={styles.actionBtn}
@@ -110,7 +109,6 @@ function SortableRow({ gallery, copiedId, onCopyLink, onEdit, onDelete }: Sortab
 }
 
 export default function Galleries() {
-  const { token } = useAuth();
   const [galleries, setGalleries] = useState<Gallery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -142,41 +140,36 @@ export default function Galleries() {
       setGalleries(newOrder);
 
       // Save to backend
-      if (token) {
-        try {
-          await reorderGalleries(token, newOrder.map((g) => g.id));
-        } catch (err) {
-          console.error('Failed to reorder galleries:', err);
-          // Revert on error
-          fetchGalleries();
-        }
+      try {
+        await reorderGalleries(newOrder.map((g) => g.id));
+      } catch (err) {
+        console.error('Failed to reorder galleries:', err);
+        // Revert on error
+        fetchGalleries();
       }
     }
   };
 
   const fetchGalleries = useCallback(async () => {
-    if (!token) return;
-
     try {
-      const data = await getAllGalleries(token);
+      const data = await getAllGalleries();
       setGalleries(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load galleries');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchGalleries();
   }, [fetchGalleries]);
 
   const handleCreate = async (data: CreateGalleryInput | UpdateGalleryInput) => {
-    if (!token) return;
     setFormLoading(true);
 
     try {
-      await createGallery(token, data as CreateGalleryInput);
+      await createGallery(data as CreateGalleryInput);
       setModalMode('closed');
       await fetchGalleries();
     } finally {
@@ -185,11 +178,11 @@ export default function Galleries() {
   };
 
   const handleUpdate = async (data: CreateGalleryInput | UpdateGalleryInput) => {
-    if (!token || !editingGallery) return;
+    if (!editingGallery) return;
     setFormLoading(true);
 
     try {
-      await updateGallery(token, editingGallery.id, data as UpdateGalleryInput);
+      await updateGallery(editingGallery.id, data as UpdateGalleryInput);
       setModalMode('closed');
       setEditingGallery(null);
       await fetchGalleries();
@@ -199,10 +192,8 @@ export default function Galleries() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!token) return;
-
     try {
-      await deleteGallery(token, id);
+      await deleteGallery(id);
       setDeleteConfirm(null);
       await fetchGalleries();
     } catch (err) {

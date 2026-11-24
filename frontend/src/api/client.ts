@@ -21,6 +21,10 @@ const API_BASE = import.meta.env.VITE_API_URL ||
 // Makes back navigation instant. Photo URLs in a response stay valid for at
 // least 50 minutes when the API sends them (MIN_REMAINING_LIFETIME_MS in
 // backend/src/services/s3Service.ts), so this must stay well under that.
+//
+// Only the public getters below fill it, and only public pages call them.
+// The admin UI is a separate page load (its own origin in production), so its
+// cache never holds these entries and admin mutations have nothing to clear.
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CacheEntry<T> {
@@ -29,6 +33,9 @@ interface CacheEntry<T> {
 }
 
 const cache = new Map<string, CacheEntry<unknown>>();
+// Requests still in flight, so callers that ask for the same data at once
+// (a remount, StrictMode's double effects) share one request.
+const inflight = new Map<string, Promise<unknown>>();
 
 function getCached<T>(key: string): T | null {
   const entry = cache.get(key);
@@ -41,19 +48,18 @@ function getCached<T>(key: string): T | null {
   return null;
 }
 
-function setCache<T>(key: string, data: T): void {
-  cache.set(key, { data, expires: Date.now() + CACHE_TTL_MS });
-}
-
-// Clear cache for a specific prefix (used when data is modified)
+// Clear cache for a specific prefix
 export function clearCache(prefix?: string): void {
   if (!prefix) {
     cache.clear();
+    inflight.clear();
     return;
   }
-  for (const key of cache.keys()) {
-    if (key.startsWith(prefix)) {
-      cache.delete(key);
+  for (const map of [cache, inflight]) {
+    for (const key of map.keys()) {
+      if (key.startsWith(prefix)) {
+        map.delete(key);
+      }
     }
   }
 }
@@ -93,28 +99,48 @@ async function fetchApiBody<T>(endpoint: string, options: FetchOptions = {}): Pr
   return data as ApiBody<T> & { data: T };
 }
 
-export async function getFeaturedPhotos(): Promise<PublicPhoto[]> {
-  const cacheKey = 'featured';
-  const cached = getCached<PublicPhoto[]>(cacheKey);
-  if (cached) return cached;
-
-  const data = await fetchApi<PublicPhoto[]>('/featured');
-  setCache(cacheKey, data);
-  return data;
+// A fresh request never joins one in flight, since that one may carry the
+// expired URLs. It takes over the key instead: only the newest request for a
+// key fills the cache, so an older response cannot overwrite a fresher one.
+function fetchCached<T>(key: string, endpoint: string, options: FetchOptions = {}): Promise<T> {
+  return cachedRequest(key, options, () => fetchApi<T>(endpoint, options));
 }
 
-export async function getAllPhotos(limit?: number, options: FetchOptions = {}): Promise<PublicPhoto[]> {
-  const cacheKey = limit ? `allPhotos:${limit}` : 'allPhotos';
-  const cached = options.fresh ? null : getCached<PublicPhoto[]>(cacheKey);
-  if (cached) return cached;
+function cachedRequest<T>(key: string, options: FetchOptions, load: () => Promise<T>): Promise<T> {
+  if (!options.fresh) {
+    const cached = getCached<T>(key);
+    if (cached) return Promise.resolve(cached);
+    const pending = inflight.get(key);
+    if (pending) return pending as Promise<T>;
+  }
 
-  let data: PublicPhoto[];
-  if (limit) {
-    data = await fetchApi<PublicPhoto[]>(`/photos?limit=${limit}`, options);
-  } else {
-    // The API sends the list in pages. All Photos shuffles the whole set and
-    // its lightbox walks all of it, so every page is fetched.
-    data = [];
+  const request: Promise<T> = load().then(
+    (data) => {
+      if (inflight.get(key) === request) {
+        inflight.delete(key);
+        cache.set(key, { data, expires: Date.now() + CACHE_TTL_MS });
+      }
+      return data;
+    },
+    (error: unknown) => {
+      if (inflight.get(key) === request) inflight.delete(key);
+      throw error;
+    }
+  );
+  inflight.set(key, request);
+  return request;
+}
+
+export function getFeaturedPhotos(): Promise<PublicPhoto[]> {
+  return fetchCached<PublicPhoto[]>('featured', '/featured');
+}
+
+export function getAllPhotos(limit?: number, options: FetchOptions = {}): Promise<PublicPhoto[]> {
+  if (limit) return fetchCached<PublicPhoto[]>(`allPhotos:${limit}`, `/photos?limit=${limit}`, options);
+  // The API sends the list in pages. All Photos shuffles the whole set and
+  // its lightbox walks all of it, so every page is fetched.
+  return cachedRequest('allPhotos', options, async () => {
+    const data: PublicPhoto[] = [];
     let cursor: string | null = null;
     do {
       const page: ApiBody<PublicPhoto[]> & { data: PublicPhoto[] } = await fetchApiBody<PublicPhoto[]>(
@@ -124,46 +150,47 @@ export async function getAllPhotos(limit?: number, options: FetchOptions = {}): 
       data.push(...page.data);
       cursor = page.nextCursor ?? null;
     } while (cursor);
-  }
-  setCache(cacheKey, data);
-  return data;
+    return data;
+  });
 }
 
-export async function getGalleries(): Promise<Gallery[]> {
-  const cacheKey = 'galleries';
-  const cached = getCached<Gallery[]>(cacheKey);
-  if (cached) return cached;
-
-  const data = await fetchApi<Gallery[]>('/galleries');
-  setCache(cacheKey, data);
-  return data;
+export function getGalleries(): Promise<Gallery[]> {
+  return fetchCached<Gallery[]>('galleries', '/galleries');
 }
+
+// Slugs whose latest metadata response said private. Kept for the page's
+// lifetime, past the cache TTL: privacy rarely changes, and a wrong guess
+// costs only a photos request after the metadata instead of alongside it.
+const privateSlugs = new Set<string>();
 
 export async function getGallery(slug: string): Promise<Gallery | PrivateGalleryResponse> {
-  const cacheKey = `gallery:${slug}`;
-  const cached = getCached<Gallery | PrivateGalleryResponse>(cacheKey);
-  if (cached) return cached;
-
-  const data = await fetchApi<Gallery | PrivateGalleryResponse>(`/galleries/${slug}`);
-  setCache(cacheKey, data);
+  const data = await fetchCached<Gallery | PrivateGalleryResponse>(`gallery:${slug}`, `/galleries/${slug}`);
+  if ('requires_password' in data && data.requires_password === true) {
+    privateSlugs.add(slug);
+  } else {
+    privateSlugs.delete(slug);
+  }
   return data;
 }
 
-export async function getGalleryPhotos(
+/**
+ * Whether an earlier metadata response showed this gallery as private. The
+ * public galleries list cannot answer this: it lists only public galleries.
+ */
+export function isKnownPrivateGallery(slug: string): boolean {
+  return privateSlugs.has(slug);
+}
+
+export function getGalleryPhotos(
   slug: string,
   accessToken?: string,
   options: FetchOptions = {}
 ): Promise<PublicPhoto[]> {
   const cacheKey = accessToken ? `photos:${slug}:${accessToken}` : `photos:${slug}`;
-  const cached = options.fresh ? null : getCached<PublicPhoto[]>(cacheKey);
-  if (cached) return cached;
-
   const url = accessToken
     ? `/galleries/${slug}/photos?access=${encodeURIComponent(accessToken)}`
     : `/galleries/${slug}/photos`;
-  const data = await fetchApi<PublicPhoto[]>(url, options);
-  setCache(cacheKey, data);
-  return data;
+  return fetchCached<PublicPhoto[]>(cacheKey, url, options);
 }
 
 export async function verifyGalleryPassword(
@@ -195,13 +222,18 @@ export interface User {
 }
 
 export interface LoginResponse {
-  token: string;
   user: User;
 }
+
+// The admin session is an httpOnly cookie the API sets on login, so page
+// scripts never see the token. 'include' rather than 'same-origin' because
+// local development serves the API from another port.
+const WITH_SESSION: RequestCredentials = 'include';
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
   const response = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
+    credentials: WITH_SESSION,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
@@ -215,10 +247,8 @@ export async function login(email: string, password: string): Promise<LoginRespo
   return data.data;
 }
 
-export async function getCurrentUser(token: string): Promise<User> {
-  const response = await fetch(`${API_BASE}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function getCurrentUser(): Promise<User> {
+  const response = await fetch(`${API_BASE}/auth/me`, { credentials: WITH_SESSION });
 
   const data: ApiResponse<User> = await response.json();
 
@@ -230,19 +260,16 @@ export async function getCurrentUser(token: string): Promise<User> {
 }
 
 /**
- * Revoke every admin session on the server. Best effort: the caller clears
- * the local token either way.
+ * Revoke every admin session on the server and clear the session cookie.
+ * Best effort: the caller signs out locally either way.
  */
-export async function logout(token: string): Promise<void> {
-  await fetch(`${API_BASE}/auth/logout`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function logout(): Promise<void> {
+  await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: WITH_SESSION });
 }
 
 // ============ Admin API (Authenticated) ============
 
-// Called when the server refuses the admin token (expired, or revoked by a
+// Called when the server refuses the admin session (expired, or revoked by a
 // logout elsewhere), so the app can sign out instead of showing errors.
 let sessionExpiredHandler: (() => void) | null = null;
 
@@ -254,26 +281,12 @@ function checkSession(status: number): void {
   if (status === 401) sessionExpiredHandler?.();
 }
 
-async function fetchApiAuth<T>(
-  endpoint: string,
-  token: string,
-  options: RequestInit = {}
-): Promise<T> {
-  return (await fetchApiAuthBody<T>(endpoint, token, options)).data as T;
+async function fetchApiAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  return (await fetchApiAuthBody<T>(endpoint, options)).data as T;
 }
 
-async function fetchApiAuthBody<T>(
-  endpoint: string,
-  token: string,
-  options: RequestInit = {}
-): Promise<ApiBody<T>> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      ...options.headers,
-      Authorization: `Bearer ${token}`,
-    },
-  });
+async function fetchApiAuthBody<T>(endpoint: string, options: RequestInit = {}): Promise<ApiBody<T>> {
+  const response = await fetch(`${API_BASE}${endpoint}`, { ...options, credentials: WITH_SESSION });
   checkSession(response.status);
 
   const data: ApiBody<T> = await response.json();
@@ -286,81 +299,64 @@ async function fetchApiAuthBody<T>(
 }
 
 // Admin Stats
-export async function getAdminStats(token: string): Promise<AdminStats> {
-  return fetchApiAuth<AdminStats>('/admin/stats', token);
+export async function getAdminStats(): Promise<AdminStats> {
+  return fetchApiAuth<AdminStats>('/admin/stats');
 }
 
 // Admin Analytics
-export async function getAnalytics(token: string): Promise<AnalyticsData> {
-  return fetchApiAuth<AnalyticsData>('/admin/analytics', token);
+export async function getAnalytics(): Promise<AnalyticsData> {
+  return fetchApiAuth<AnalyticsData>('/admin/analytics');
 }
 
 // Gallery Management
-export async function getAllGalleries(token: string): Promise<Gallery[]> {
-  return fetchApiAuth<Gallery[]>('/galleries/admin/all', token);
+export async function getAllGalleries(): Promise<Gallery[]> {
+  return fetchApiAuth<Gallery[]>('/galleries/admin/all');
 }
 
-export async function createGallery(token: string, data: CreateGalleryInput): Promise<Gallery> {
-  const result = await fetchApiAuth<Gallery>('/galleries', token, {
+export async function createGallery(data: CreateGalleryInput): Promise<Gallery> {
+  return fetchApiAuth<Gallery>('/galleries', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  clearCache('galleries');
-  return result;
 }
 
 export async function updateGallery(
-  token: string,
   id: string,
   data: UpdateGalleryInput
 ): Promise<Gallery> {
-  const result = await fetchApiAuth<Gallery>(`/galleries/${id}`, token, {
+  return fetchApiAuth<Gallery>(`/galleries/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  clearCache('galleries');
-  clearCache('gallery:');
-  return result;
 }
 
-export async function deleteGallery(token: string, id: string): Promise<{ deleted: boolean }> {
-  const result = await fetchApiAuth<{ deleted: boolean }>(`/galleries/${id}`, token, {
+export async function deleteGallery(id: string): Promise<{ deleted: boolean }> {
+  return fetchApiAuth<{ deleted: boolean }>(`/galleries/${id}`, {
     method: 'DELETE',
   });
-  clearCache('galleries');
-  clearCache('gallery:');
-  clearCache('photos:');
-  clearCache('allPhotos');
-  return result;
 }
 
 export async function reorderGalleries(
-  token: string,
   galleryIds: string[]
 ): Promise<{ reordered: boolean }> {
-  const result = await fetchApiAuth<{ reordered: boolean }>('/galleries/reorder', token, {
+  return fetchApiAuth<{ reordered: boolean }>('/galleries/reorder', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gallery_ids: galleryIds }),
   });
-  clearCache('galleries');
-  return result;
 }
 
 export async function setCoverImage(
-  token: string,
   galleryId: string,
   photoId: string | null
 ): Promise<Gallery> {
-  const result = await fetchApiAuth<Gallery>(`/galleries/${galleryId}/cover`, token, {
+  return fetchApiAuth<Gallery>(`/galleries/${galleryId}/cover`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photoId }),
   });
-  clearCache('galleries');
-  return result;
 }
 
 // Photo Management
@@ -371,18 +367,18 @@ export interface PhotoPage {
   total: number;
 }
 
-async function fetchPhotoPage(token: string, endpoint: string, offset: number, limit: number): Promise<PhotoPage> {
-  const body = await fetchApiAuthBody<Photo[]>(`${endpoint}?limit=${limit}&offset=${offset}`, token);
+async function fetchPhotoPage(endpoint: string, offset: number, limit: number): Promise<PhotoPage> {
+  const body = await fetchApiAuthBody<Photo[]>(`${endpoint}?limit=${limit}&offset=${offset}`);
   const photos = body.data ?? [];
   return { photos, total: body.total ?? photos.length };
 }
 
-export function getGalleryPhotosPage(token: string, galleryId: string, offset: number, limit: number) {
-  return fetchPhotoPage(token, `/galleries/${galleryId}/photos/admin`, offset, limit);
+export function getGalleryPhotosPage(galleryId: string, offset: number, limit: number) {
+  return fetchPhotoPage(`/galleries/${galleryId}/photos/admin`, offset, limit);
 }
 
-export function getUnassignedPhotosPage(token: string, offset: number, limit: number) {
-  return fetchPhotoPage(token, '/photos/admin/unassigned', offset, limit);
+export function getUnassignedPhotosPage(offset: number, limit: number) {
+  return fetchPhotoPage('/photos/admin/unassigned', offset, limit);
 }
 
 // Duplicate detection
@@ -395,7 +391,6 @@ export interface DuplicateInfo {
 
 // Returns a map of content hash -> existing photo, for hashes already uploaded
 export async function checkDuplicates(
-  token: string,
   hashes: string[]
 ): Promise<Record<string, DuplicateInfo>> {
   const found: Record<string, DuplicateInfo> = {};
@@ -404,7 +399,6 @@ export async function checkDuplicates(
     const chunk = hashes.slice(i, i + 500);
     const data = await fetchApiAuth<Record<string, DuplicateInfo>>(
       '/photos/admin/check-duplicates',
-      token,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -427,7 +421,6 @@ export class UploadError extends Error {
 }
 
 export async function uploadPhoto(
-  token: string,
   galleryId: string | null,
   file: File,
   onProgress?: (percent: number) => void,
@@ -458,10 +451,6 @@ export async function uploadPhoto(
       try {
         const data: ApiResponse<Photo> = JSON.parse(xhr.responseText);
         if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data) {
-          clearCache('photos:');
-          clearCache('allPhotos');
-          clearCache('featured');
-          clearCache('galleries');
           resolve(data.data);
         } else {
           reject(new UploadError(data.error || 'Upload failed', xhr.status));
@@ -479,72 +468,49 @@ export async function uploadPhoto(
     signal?.addEventListener('abort', () => xhr.abort(), { once: true });
 
     xhr.open('POST', `${API_BASE}/photos/upload`);
-    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.withCredentials = true;
     xhr.send(formData);
   });
 }
 
 export async function updatePhoto(
-  token: string,
   id: string,
   data: { is_hidden?: boolean; sort_order?: number }
 ): Promise<Photo> {
-  const result = await fetchApiAuth<Photo>(`/photos/${id}`, token, {
+  return fetchApiAuth<Photo>(`/photos/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  clearCache('photos:');
-  clearCache('allPhotos');
-  clearCache('featured');
-  clearCache('galleries');
-  return result;
 }
 
-export async function deletePhoto(token: string, id: string): Promise<{ deleted: boolean }> {
-  const result = await fetchApiAuth<{ deleted: boolean }>(`/photos/${id}`, token, {
+export async function deletePhoto(id: string): Promise<{ deleted: boolean }> {
+  return fetchApiAuth<{ deleted: boolean }>(`/photos/${id}`, {
     method: 'DELETE',
   });
-  clearCache('photos:');
-  clearCache('allPhotos');
-  clearCache('featured');
-  clearCache('galleries');
-  return result;
 }
 
 export async function reorderPhotos(
-  token: string,
   galleryId: string,
   photoIds: string[]
 ): Promise<{ reordered: boolean }> {
-  const result = await fetchApiAuth<{ reordered: boolean }>('/photos/reorder', token, {
+  return fetchApiAuth<{ reordered: boolean }>('/photos/reorder', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gallery_id: galleryId, photo_ids: photoIds }),
   });
-  clearCache('photos:');
-  clearCache('allPhotos');
-  clearCache('featured');
-  clearCache('galleries');
-  return result;
 }
 
 // A null targetGalleryId moves the photos to Unassigned.
 export async function movePhotos(
-  token: string,
   photoIds: string[],
   targetGalleryId: string | null
 ): Promise<{ moved: number }> {
-  const result = await fetchApiAuth<{ moved: number }>('/photos/move', token, {
+  return fetchApiAuth<{ moved: number }>('/photos/move', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_ids: photoIds, target_gallery_id: targetGalleryId }),
   });
-  clearCache('photos:');
-  clearCache('allPhotos');
-  clearCache('featured');
-  clearCache('galleries');
-  return result;
 }
 
 // ============ Gallery ZIP Download ============
@@ -569,6 +535,18 @@ export function getGalleryDownloadUrl(slug: string, accessToken?: string): strin
 export function trackPhotoView(photoId: string): void {
   fetch(`${API_BASE}/photos/${photoId}/view`, { method: 'POST' }).catch(() => {
     // Silently ignore errors - tracking should not affect UX
+  });
+}
+
+/**
+ * Count a view of a gallery page, once it is shown. Not counted by the
+ * metadata request, which browsers may answer from cache. A private gallery
+ * counts only with its access token.
+ */
+export function trackGalleryView(slug: string, accessToken?: string): void {
+  const query = accessToken ? `?access=${encodeURIComponent(accessToken)}` : '';
+  fetch(`${API_BASE}/galleries/${slug}/view${query}`, { method: 'POST' }).catch(() => {
+    // Tracking never affects the page.
   });
 }
 
@@ -608,48 +586,40 @@ export async function sendContactMessage(
 
 // ============ Homepage Management ============
 
-export async function getHomepagePhotos(token: string): Promise<Photo[]> {
-  return fetchApiAuth<Photo[]>('/admin/homepage', token);
+export async function getHomepagePhotos(): Promise<Photo[]> {
+  return fetchApiAuth<Photo[]>('/admin/homepage');
 }
 
-export async function setHeroPhoto(token: string, photoId: string): Promise<Photo[]> {
-  const result = await fetchApiAuth<Photo[]>('/admin/homepage/hero', token, {
+export async function setHeroPhoto(photoId: string): Promise<Photo[]> {
+  return fetchApiAuth<Photo[]>('/admin/homepage/hero', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_id: photoId }),
   });
-  clearCache('featured');
-  return result;
 }
 
-export async function addToHomepage(token: string, photoId: string): Promise<Photo[]> {
-  const result = await fetchApiAuth<Photo[]>('/admin/homepage/featured', token, {
+export async function addToHomepage(photoId: string): Promise<Photo[]> {
+  return fetchApiAuth<Photo[]>('/admin/homepage/featured', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_id: photoId }),
   });
-  clearCache('featured');
-  return result;
 }
 
-export async function removeFromHomepage(token: string, photoId: string): Promise<Photo[]> {
-  const result = await fetchApiAuth<Photo[]>('/admin/homepage/featured', token, {
+export async function removeFromHomepage(photoId: string): Promise<Photo[]> {
+  return fetchApiAuth<Photo[]>('/admin/homepage/featured', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_id: photoId }),
   });
-  clearCache('featured');
-  return result;
 }
 
-export async function reorderHomepagePhotos(token: string, photoIds: string[]): Promise<Photo[]> {
-  const result = await fetchApiAuth<Photo[]>('/admin/homepage/reorder', token, {
+export async function reorderHomepagePhotos(photoIds: string[]): Promise<Photo[]> {
+  return fetchApiAuth<Photo[]>('/admin/homepage/reorder', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_ids: photoIds }),
   });
-  clearCache('featured');
-  return result;
 }
 
 // ============ Site Settings ============
@@ -670,10 +640,9 @@ export async function getSettings(): Promise<SiteSettings> {
  * Update site settings (admin only)
  */
 export async function updateSettings(
-  token: string,
   settings: Partial<SiteSettings>
 ): Promise<SiteSettings> {
-  return fetchApiAuth<SiteSettings>('/settings/admin', token, {
+  return fetchApiAuth<SiteSettings>('/settings/admin', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),

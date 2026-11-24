@@ -1,7 +1,7 @@
-# Keeps the digest-pinned base images in the Dockerfiles current. Majors are
-# ignored: a Node or nginx major is a deliberate upgrade, not a routine bump.
 version: 2
 updates:
+  # Keeps the digest-pinned base images in the Dockerfiles current. Majors are
+  # ignored: a Node or nginx major is a deliberate upgrade, not a routine bump.
   - package-ecosystem: docker
     directories:
       - /backend
@@ -16,3 +16,19 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+
+  # npm minor and patch releases arrive as one grouped PR per package, so
+  # in-range fixes land before they pile up. Majors open their own PRs: each
+  # needs its breaking changes read and the affected code tested.
+  - package-ecosystem: npm
+    directories:
+      - /backend
+      - /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch

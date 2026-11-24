@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
-const { AuthContext } = await import('../../../contexts/auth');
 const { default: PhotoManager } = await import('./PhotoManager');
 
 import type { Photo } from '../../../types';
@@ -34,13 +33,7 @@ const handle = (items: Photo[], total: number): PhotoListHandle => ({
 });
 
 const render = (photos: PhotoListHandle) =>
-  renderToStaticMarkup(
-    createElement(
-      AuthContext.Provider,
-      { value: { token: 't', user: null, isAuthenticated: true, isLoading: false, login: async () => {}, logout: () => {} } },
-      createElement(PhotoManager, { photos, gallery: null })
-    )
-  );
+  renderToStaticMarkup(createElement(PhotoManager, { photos, gallery: null }));
 
 describe('PhotoManager', () => {
   it('loads thumbnails lazily with their size reserved', () => {

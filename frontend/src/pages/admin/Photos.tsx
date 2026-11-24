@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useAuth } from '../../contexts/auth';
 import { getAllGalleries, getGalleryPhotosPage } from '../../api/client';
 import PhotoUpload from '../../components/Admin/PhotoUpload/PhotoUpload';
 import PhotoManager from '../../components/Admin/PhotoManager/PhotoManager';
@@ -16,14 +15,13 @@ export default function Photos() {
 }
 
 function GalleryPhotos({ id }: { id: string }) {
-  const { token } = useAuth();
   const [gallery, setGallery] = useState<Gallery | null>(null);
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [error, setError] = useState('');
 
   const loadPage = useCallback(
-    (offset: number, limit: number) => getGalleryPhotosPage(token ?? '', id, offset, limit),
-    [token, id]
+    (offset: number, limit: number) => getGalleryPhotosPage(id, offset, limit),
+    [id]
   );
   const photos = usePhotoList(loadPage);
   const { update } = photos;
@@ -31,9 +29,8 @@ function GalleryPhotos({ id }: { id: string }) {
   // The gallery itself (title, cover). Photo changes are applied to the list
   // in place, so this is all a change needs to reload.
   const fetchGallery = useCallback(async () => {
-    if (!token) return;
     try {
-      const galleries = await getAllGalleries(token);
+      const galleries = await getAllGalleries();
       const foundGallery = galleries.find((g) => g.id === id);
       if (foundGallery) setGallery(foundGallery);
       else setError('Gallery not found');
@@ -42,7 +39,7 @@ function GalleryPhotos({ id }: { id: string }) {
     } finally {
       setGalleryLoading(false);
     }
-  }, [token, id]);
+  }, [id]);
 
   useEffect(() => {
     fetchGallery();

@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useAuth } from '../../contexts/auth';
 import {
   getHomepagePhotos,
   setHeroPhoto,
@@ -39,7 +38,6 @@ interface SortablePhotoProps {
 }
 
 interface PickerPhotosProps {
-  token: string;
   galleryId: string;
   onHomepage: Set<string>;
   onAdd: (id: string) => void;
@@ -48,10 +46,10 @@ interface PickerPhotosProps {
 // One instance per chosen gallery (keyed by it), so a slow response for a
 // gallery chosen earlier lands in an unmounted instance instead of replacing
 // the photos of the one chosen since.
-function PickerPhotos({ token, galleryId, onHomepage, onAdd }: PickerPhotosProps) {
+function PickerPhotos({ galleryId, onHomepage, onAdd }: PickerPhotosProps) {
   const loadPage = useCallback(
-    (offset: number, limit: number) => getGalleryPhotosPage(token, galleryId, offset, limit),
-    [token, galleryId]
+    (offset: number, limit: number) => getGalleryPhotosPage(galleryId, offset, limit),
+    [galleryId]
   );
   const photos = usePhotoList(loadPage);
   const { list } = photos;
@@ -145,7 +143,6 @@ function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoPro
 }
 
 export default function Homepage() {
-  const { token } = useAuth();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -161,13 +158,9 @@ export default function Homepage() {
   );
 
   const loadPhotos = useCallback(async () => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
     try {
       setError(null);
-      const data = await getHomepagePhotos(token);
+      const data = await getHomepagePhotos();
       setPhotos(data);
     } catch (err) {
       console.error('Failed to load homepage photos:', err);
@@ -175,7 +168,7 @@ export default function Homepage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     loadPhotos();
@@ -183,7 +176,7 @@ export default function Homepage() {
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over || active.id === over.id || !token) return;
+    if (!over || active.id === over.id) return;
 
     const oldIndex = photos.findIndex((p) => p.id === active.id);
     const newIndex = photos.findIndex((p) => p.id === over.id);
@@ -194,7 +187,7 @@ export default function Homepage() {
     setPhotos(newPhotos);
 
     try {
-      await reorderHomepagePhotos(token, newPhotos.map((p) => p.id));
+      await reorderHomepagePhotos(newPhotos.map((p) => p.id));
     } catch (err) {
       console.error('Failed to reorder:', err);
       loadPhotos(); // Revert on error
@@ -202,9 +195,8 @@ export default function Homepage() {
   };
 
   const handleMakeHero = async (photoId: string) => {
-    if (!token) return;
     try {
-      const updated = await setHeroPhoto(token, photoId);
+      const updated = await setHeroPhoto(photoId);
       setPhotos(updated);
     } catch (err) {
       console.error('Failed to set hero:', err);
@@ -212,9 +204,8 @@ export default function Homepage() {
   };
 
   const handleRemove = async (photoId: string) => {
-    if (!token) return;
     try {
-      const updated = await removeFromHomepage(token, photoId);
+      const updated = await removeFromHomepage(photoId);
       setPhotos(updated);
     } catch (err) {
       console.error('Failed to remove:', err);
@@ -222,10 +213,9 @@ export default function Homepage() {
   };
 
   const openPicker = async () => {
-    if (!token) return;
     setShowPicker(true);
     try {
-      const data = await getAllGalleries(token);
+      const data = await getAllGalleries();
       setGalleries(data);
     } catch (err) {
       console.error('Failed to load galleries:', err);
@@ -234,15 +224,14 @@ export default function Homepage() {
 
   const handleAddPhoto = useCallback(
     async (photoId: string) => {
-      if (!token) return;
       try {
-        const updated = await addToHomepage(token, photoId);
+        const updated = await addToHomepage(photoId);
         setPhotos(updated);
       } catch (err) {
         console.error('Failed to add photo:', err);
       }
     },
-    [token]
+    []
   );
 
   const homepageIds = useMemo(() => new Set(photos.map((p) => p.id)), [photos]);
@@ -381,10 +370,9 @@ export default function Homepage() {
               </select>
             </div>
 
-            {token && selectedGallery && (
+            {selectedGallery && (
               <PickerPhotos
                 key={selectedGallery}
-                token={token}
                 galleryId={selectedGallery}
                 onHomepage={homepageIds}
                 onAdd={handleAddPhoto}

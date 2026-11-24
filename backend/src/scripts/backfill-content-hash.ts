@@ -10,13 +10,11 @@
  * Usage: node dist/scripts/backfill-content-hash.js
  */
 
-import dotenv from 'dotenv';
-import path from 'path';
+import { loadDotenv } from '../config/env';
 import crypto from 'crypto';
 import { Pool } from 'pg';
 
-// Load environment variables from root .env
-dotenv.config({ path: path.join(__dirname, '../../../.env') });
+loadDotenv();
 
 import { getFileStream } from '../services/s3Service';
 

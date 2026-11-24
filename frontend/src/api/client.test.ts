@@ -7,8 +7,12 @@ const {
   getAllPhotos,
   getGallery,
   getGalleryPhotos,
+  getCurrentUser,
   getGalleryPhotosPage,
   getPhotoDownloadUrl,
+  isKnownPrivateGallery,
+  login,
+  logout,
   onSessionExpired,
   uploadPhoto,
   verifyGalleryPassword,
@@ -29,8 +33,12 @@ const fakeXhr = (status: number, responseText: string) =>
     fire(event: string) {
       this.listeners[event]?.();
     }
+    withCredentials = false;
+    headers: Record<string, string> = {};
     open() {}
-    setRequestHeader() {}
+    setRequestHeader(name: string, value: string) {
+      this.headers[name] = value;
+    }
     send() {
       this.listeners.load?.();
     }
@@ -43,11 +51,40 @@ describe('admin requests and session expiry', () => {
     vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
   });
 
+  it('sends the session cookie on admin requests and no Authorization header', async () => {
+    const fetchMock = respond(200, { success: true, data: {} });
+    vi.stubGlobal('fetch', fetchMock);
+    await getAdminStats();
+    await getCurrentUser();
+    await login('a@example.com', 'pw');
+    await logout();
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.credentials).toBe('include');
+      expect(JSON.stringify(init.headers ?? {})).not.toMatch(/authorization/i);
+    }
+  });
+
+  it('sends the session cookie with an upload', async () => {
+    const sent: Array<{ withCredentials: boolean; headers: Record<string, string> }> = [];
+    vi.stubGlobal(
+      'XMLHttpRequest',
+      class extends fakeXhr(200, JSON.stringify({ success: true, data: { id: 'p' } })) {
+        send() {
+          sent.push(this);
+          super.send();
+        }
+      }
+    );
+    await uploadPhoto(null, new File(['x'], 'a.jpg'));
+    expect(sent[0].withCredentials).toBe(true);
+    expect(sent[0].headers).toEqual({});
+  });
+
   it('signals an ended session on a 401', async () => {
     const expired = vi.fn();
     onSessionExpired(expired);
     vi.stubGlobal('fetch', respond(401, { success: false, error: 'Invalid or expired token' }));
-    await expect(getAdminStats('t')).rejects.toThrow('Invalid or expired token');
+    await expect(getAdminStats()).rejects.toThrow('Invalid or expired token');
     expect(expired).toHaveBeenCalledOnce();
   });
 
@@ -55,7 +92,7 @@ describe('admin requests and session expiry', () => {
     const expired = vi.fn();
     onSessionExpired(expired);
     vi.stubGlobal('fetch', respond(500, { success: false, error: 'boom' }));
-    await expect(getAdminStats('t')).rejects.toThrow('boom');
+    await expect(getAdminStats()).rejects.toThrow('boom');
     expect(expired).not.toHaveBeenCalled();
   });
 
@@ -63,14 +100,14 @@ describe('admin requests and session expiry', () => {
     const expired = vi.fn();
     onSessionExpired(expired);
     vi.stubGlobal('XMLHttpRequest', fakeXhr(401, '<html>Unauthorized</html>'));
-    await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toThrow();
+    await expect(uploadPhoto(null, new File(['x'], 'a.jpg'))).rejects.toThrow();
     expect(expired).toHaveBeenCalledOnce();
   });
 
   it('rejects an upload with the HTTP status so a duplicate can be told apart', async () => {
     const body = JSON.stringify({ success: false, error: 'Already uploaded as a.jpg' });
     vi.stubGlobal('XMLHttpRequest', fakeXhr(409, body));
-    await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
+    await expect(uploadPhoto(null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
       status: 409,
       message: 'Already uploaded as a.jpg',
     });
@@ -89,7 +126,7 @@ describe('admin requests and session expiry', () => {
       }
     );
     const controller = new AbortController();
-    const upload = uploadPhoto('t', null, new File(['x'], 'a.jpg'), undefined, controller.signal);
+    const upload = uploadPhoto(null, new File(['x'], 'a.jpg'), undefined, controller.signal);
     controller.abort();
     await expect(upload).rejects.toMatchObject({ status: 0, message: 'Upload aborted' });
     expect(abort).toHaveBeenCalledOnce();
@@ -97,7 +134,7 @@ describe('admin requests and session expiry', () => {
 
   it('names an oversized upload rejected by the proxy instead of a parse error', async () => {
     vi.stubGlobal('XMLHttpRequest', fakeXhr(413, '<html>413 Request Entity Too Large</html>'));
-    await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
+    await expect(uploadPhoto(null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
       status: 413,
       message: 'File is larger than the server accepts',
     });
@@ -127,6 +164,88 @@ describe('fresh photo fetches', () => {
     // The fresh response replaces the cached one.
     expect(await getGalleryPhotos('g')).toEqual([{ id: 'new' }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('concurrent public fetches', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  const deferred = () => {
+    let resolve!: (data: unknown) => void;
+    const response = new Promise((r) => {
+      resolve = (data) => r({ status: 200, ok: true, json: async () => ({ success: true, data }) });
+    });
+    return { response, resolve };
+  };
+
+  it('share one request while it is in flight', async () => {
+    const pending = deferred();
+    const fetchMock = vi.fn().mockReturnValue(pending.response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = getGallery('g');
+    const second = getGallery('g');
+    pending.resolve({ id: 'g' });
+    expect(await first).toEqual({ id: 'g' });
+    expect(await second).toEqual({ id: 'g' });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('retry after a failed request instead of sharing or caching the failure', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 500, ok: false, statusText: 'Server Error' })
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ success: true, data: { id: 'g' } }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getGallery('g')).rejects.toMatchObject({ status: 500 });
+    expect(await getGallery('g')).toEqual({ id: 'g' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('let a fresh request bypass one in flight and keep its newer data cached', async () => {
+    const stale = deferred();
+    const fresh = deferred();
+    const fetchMock = vi.fn().mockReturnValueOnce(stale.response).mockReturnValueOnce(fresh.response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = getGalleryPhotos('g');
+    const refresh = getGalleryPhotos('g', undefined, { fresh: true });
+    fresh.resolve([{ id: 'new' }]);
+    expect(await refresh).toEqual([{ id: 'new' }]);
+    stale.resolve([{ id: 'old' }]);
+    expect(await first).toEqual([{ id: 'old' }]);
+
+    // The older response arrived last but does not replace the fresh one.
+    expect(await getGalleryPhotos('g')).toEqual([{ id: 'new' }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('known private galleries', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it('remembers the latest metadata response, past the cache', async () => {
+    const privateGallery = { title: 'P', slug: 'p', is_public: false, requires_password: true };
+    vi.stubGlobal('fetch', respond(200, { success: true, data: privateGallery }));
+    expect(isKnownPrivateGallery('p')).toBe(false);
+    await getGallery('p');
+    expect(isKnownPrivateGallery('p')).toBe(true);
+
+    clearCache();
+    expect(isKnownPrivateGallery('p')).toBe(true);
+
+    vi.stubGlobal('fetch', respond(200, { success: true, data: { title: 'P', slug: 'p', is_public: true } }));
+    await getGallery('p');
+    expect(isKnownPrivateGallery('p')).toBe(false);
   });
 });
 
@@ -203,11 +322,14 @@ describe('paged photo lists', () => {
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/photos', '/api/photos?cursor=c%2F1']);
   });
 
-  it('asks an admin list for one page and reports the whole length', async () => {
+  it('asks an admin list for one page with the session cookie and reports the whole length', async () => {
     const fetchMock = vi.fn().mockResolvedValue(page([{ id: 'x' }], { total: 240, nextOffset: 101 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    expect(await getGalleryPhotosPage('t', 'g1', 100, 100)).toEqual({ photos: [{ id: 'x' }], total: 240 });
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/galleries/g1/photos/admin?limit=100&offset=100');
+    expect(await getGalleryPhotosPage('g1', 100, 100)).toEqual({ photos: [{ id: 'x' }], total: 240 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/galleries/g1/photos/admin?limit=100&offset=100');
+    expect(init.credentials).toBe('include');
+    expect(JSON.stringify(init.headers ?? {})).not.toContain('Authorization');
   });
 });

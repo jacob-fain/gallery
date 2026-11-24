@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { useAuth } from '../../contexts/auth';
 import { getUnassignedPhotosPage } from '../../api/client';
 import PhotoUpload from '../../components/Admin/PhotoUpload/PhotoUpload';
 import PhotoManager from '../../components/Admin/PhotoManager/PhotoManager';
@@ -9,11 +8,9 @@ import type { Photo } from '../../types';
 import styles from './Unassigned.module.css';
 
 export default function Unassigned() {
-  const { token } = useAuth();
-
   const loadPage = useCallback(
-    (offset: number, limit: number) => getUnassignedPhotosPage(token ?? '', offset, limit),
-    [token]
+    (offset: number, limit: number) => getUnassignedPhotosPage(offset, limit),
+    []
   );
   const photos = usePhotoList(loadPage);
   const { update } = photos;

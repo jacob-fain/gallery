@@ -16,7 +16,6 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useAuth } from '../../../contexts/auth';
 import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries, updatePhoto } from '../../../api/client';
 import type { Photo, Gallery } from '../../../types';
 import { describeFailures, isPhotoGone, settleBulk } from '../../../utils/bulkResults';
@@ -194,7 +193,6 @@ export default function PhotoManager({
   gallery,
   onPhotosChange,
 }: PhotoManagerProps) {
-  const { token } = useAuth();
   const { list, update, latest, reload, loadAll, loadMore } = photos;
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
@@ -281,9 +279,9 @@ export default function PhotoManager({
     const newOrder = arrayMove(before, oldIndex, newIndex);
     update((l) => ({ ...l, items: newOrder }));
 
-    if (token && galleryId) {
+    if (galleryId) {
       try {
-        await reorderPhotos(token, galleryId, newOrder.map((p) => p.id));
+        await reorderPhotos(galleryId, newOrder.map((p) => p.id));
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Failed to save the new order');
         reload();
@@ -293,32 +291,30 @@ export default function PhotoManager({
 
   const handleSetCover = useCallback(
     async (photoId: string) => {
-      if (!token || !galleryId) return;
+      if (!galleryId) return;
 
       // Optimistic UI - show cover immediately
       setOptimisticCover({ id: photoId, replaces: coverId });
       setCoverSelectMode(false);
 
       try {
-        await setCoverImage(token, galleryId, photoId);
+        await setCoverImage(galleryId, photoId);
         onPhotosChange?.();
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Failed to set the cover');
         setOptimisticCover(null);
       }
     },
-    [token, galleryId, coverId, onPhotosChange]
+    [galleryId, coverId, onPhotosChange]
   );
 
   const handleDelete = async (photoId: string) => {
-    if (!token) return;
-
     // Add to deleting set for immediate visual feedback
     setDeletingIds((prev) => new Set(prev).add(photoId));
 
     setActionError(null);
     try {
-      await deletePhoto(token, photoId).catch((err) => {
+      await deletePhoto(photoId).catch((err) => {
         // Already gone counts as deleted.
         if (!isPhotoGone(err)) throw err;
       });
@@ -344,8 +340,6 @@ export default function PhotoManager({
 
   const handleToggleHidden = useCallback(
     async (photoId: string) => {
-      if (!token) return;
-
       const photo = latest().items.find((p) => p.id === photoId);
       if (!photo) return;
       const setHidden = (hidden: boolean) =>
@@ -355,19 +349,19 @@ export default function PhotoManager({
       setHidden(!photo.is_hidden);
 
       try {
-        await updatePhoto(token, photoId, { is_hidden: !photo.is_hidden });
+        await updatePhoto(photoId, { is_hidden: !photo.is_hidden });
         onPhotosChange?.();
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Failed to change visibility');
         setHidden(photo.is_hidden);
       }
     },
-    [token, latest, update, onPhotosChange]
+    [latest, update, onPhotosChange]
   );
 
   // Shuffles the whole gallery, so the pages not loaded yet are fetched first.
   const handleShuffle = async () => {
-    if (!token || !galleryId) return;
+    if (!galleryId) return;
 
     setShuffling(true);
     setShuffleConfirm(false);
@@ -381,7 +375,7 @@ export default function PhotoManager({
       const shuffled = shuffle(all);
       // Optimistic UI - show shuffled order immediately
       update((l) => ({ ...l, items: shuffled }));
-      await reorderPhotos(token, galleryId, shuffled.map((p) => p.id));
+      await reorderPhotos(galleryId, shuffled.map((p) => p.id));
       onPhotosChange?.();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to shuffle');
@@ -393,7 +387,7 @@ export default function PhotoManager({
 
   // Bulk actions
   const handleBulkDelete = async () => {
-    if (!token || selectedIds.size === 0) return;
+    if (selectedIds.size === 0) return;
 
     setBulkActionLoading(true);
     // Mark all selected as deleting
@@ -404,7 +398,7 @@ export default function PhotoManager({
     try {
       // Every request settles, so one failure cannot hide which photos were
       // deleted: those leave the grid and the selection, failures stay.
-      const results = await Promise.allSettled(ids.map((id) => deletePhoto(token, id)));
+      const results = await Promise.allSettled(ids.map((id) => deletePhoto(id)));
       const outcome = settleBulk(ids, results, isPhotoGone);
       update((l) => removePhotos(l, outcome.done));
       setSelectedIds(new Set(outcome.failed.map((f) => f.id)));
@@ -419,9 +413,8 @@ export default function PhotoManager({
 
   // Open move modal and fetch galleries
   const handleOpenMoveModal = async () => {
-    if (!token) return;
     try {
-      const galleries = await getAllGalleries(token);
+      const galleries = await getAllGalleries();
       // Filter out current gallery
       setAvailableGalleries(galleries.filter((g) => g.id !== gallery?.id));
       setSelectedTargetGallery('');
@@ -433,13 +426,12 @@ export default function PhotoManager({
 
   // Move selected photos
   const handleMove = async () => {
-    if (!token || selectedIds.size === 0 || !selectedTargetGallery) return;
+    if (selectedIds.size === 0 || !selectedTargetGallery) return;
 
     setMoving(true);
     const ids = Array.from(selectedIds);
     try {
       await movePhotos(
-        token,
         ids,
         selectedTargetGallery === UNASSIGNED_TARGET ? null : selectedTargetGallery
       );
@@ -462,7 +454,7 @@ export default function PhotoManager({
   // are sent, so a mixed selection can be published without deselecting the
   // public ones first.
   const handleBulkSetHidden = async (hide: boolean) => {
-    if (!token || selectedIds.size === 0) return;
+    if (selectedIds.size === 0) return;
     const ids = latest()
       .items.filter((p) => selectedIds.has(p.id) && p.is_hidden !== hide)
       .map((p) => p.id);
@@ -475,7 +467,7 @@ export default function PhotoManager({
     setActionError(null);
     try {
       const results = await Promise.allSettled(
-        ids.map((id) => updatePhoto(token, id, { is_hidden: hide }))
+        ids.map((id) => updatePhoto(id, { is_hidden: hide }))
       );
       const outcome = settleBulk(ids, results);
       // Put back the ones that did not change, keep the rest.
