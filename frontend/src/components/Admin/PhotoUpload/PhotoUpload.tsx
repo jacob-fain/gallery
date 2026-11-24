@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, memo, type DragEvent, type Ch
 import { useAuth } from '../../../contexts/auth';
 import { uploadPhoto, checkDuplicates, type DuplicateInfo } from '../../../api/client';
 import type { Photo } from '../../../types';
+import { uploadOutcome } from '../../../utils/uploadOutcome';
 import styles from './PhotoUpload.module.css';
 
 // Matches the server-side multer limit
@@ -11,6 +12,11 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const CHECK_BATCH_SIZE = 20;
 // Parallel uploads
 const UPLOAD_CONCURRENCY = 3;
+// Some browsers give HEIC files an empty type; the server checks the bytes.
+const IMAGE_EXTENSION = /\.(jpe?g|png|webp|tiff?|heic|heif)$/i;
+
+const isImageFile = (file: File) =>
+  file.type ? file.type.startsWith('image/') : IMAGE_EXTENSION.test(file.name);
 
 interface UploadingFile {
   id: string;
@@ -186,11 +192,17 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         setUploading((prev) => prev.filter((u) => u.id !== item.id));
       }, 1500);
     } catch (err) {
+      const outcome = uploadOutcome(err);
+      if (outcome.kind === 'duplicate') {
+        setStats((s) => ({ ...s, skipped: s.skipped + 1 }));
+        updateItem(item.id, { status: 'duplicate', note: outcome.note });
+        return;
+      }
       setStats((s) => ({ ...s, failed: s.failed + 1 }));
       updateItem(item.id, {
         status: 'error',
-        error: err instanceof Error ? err.message : 'Upload failed',
-        retryable: true,
+        error: outcome.error,
+        retryable: outcome.retryable,
       });
     }
   }, [token, galleryId, onUploadComplete, updateItem]);
@@ -223,7 +235,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
 
     // Client-side validation - matches server limits so bad files fail fast
     const newItems: UploadingFile[] = fileArray.map((file) => {
-      const invalidReason = !file.type.startsWith('image/')
+      const invalidReason = !isImageFile(file)
         ? 'Not an image file'
         : file.size > MAX_FILE_SIZE
         ? 'Larger than the 50MB upload limit'
@@ -384,7 +396,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.heic,.heif"
           multiple
           onChange={handleChange}
           className={styles.input}
