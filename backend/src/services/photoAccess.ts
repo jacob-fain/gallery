@@ -1,5 +1,5 @@
 import type { Gallery, Photo } from '../types';
-import { verifyGalleryAccessToken } from './authService';
+import { galleryAccessTokenUnlocks } from './authService';
 
 /**
  * Whether a visitor may see a photo, and so be handed its signed URLs.
@@ -11,13 +11,12 @@ import { verifyGalleryAccessToken } from './authService';
  */
 export const canViewPhoto = (
   photo: Pick<Photo, 'is_hidden' | 'gallery_id' | 'featured_order'>,
-  gallery: Pick<Gallery, 'id' | 'is_public'> | null,
+  gallery: Pick<Gallery, 'id' | 'is_public' | 'access_version'> | null,
   accessToken?: unknown
 ): boolean => {
   if (photo.is_hidden) return false;
   if (!photo.gallery_id || !gallery) return true;
   if (gallery.is_public) return true;
   if (photo.featured_order !== null && photo.featured_order !== undefined) return true;
-  if (typeof accessToken !== 'string') return false;
-  return verifyGalleryAccessToken(accessToken)?.galleryId === gallery.id;
+  return galleryAccessTokenUnlocks(accessToken, gallery);
 };

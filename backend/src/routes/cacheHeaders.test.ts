@@ -53,6 +53,7 @@ const gallery = (is_public: boolean) => ({
   cover_image_id: null,
   is_public,
   password_hash: is_public ? null : '$2b$10$hash',
+  access_version: 0,
   view_count: 0,
   created_at: new Date(0),
   updated_at: new Date(0),
@@ -219,9 +220,13 @@ describe('gallery view tracking', () => {
 
   it('passes the gallery a valid token unlocks', async () => {
     vi.mocked(eventTracking.recordGalleryView).mockClear();
-    const token = generateGalleryAccessToken(GALLERY_ID, 'iceland');
+    const token = generateGalleryAccessToken(GALLERY_ID, 'iceland', 0);
     await post(`/galleries/iceland/view?access=${encodeURIComponent(token)}`);
-    expect(eventTracking.recordGalleryView).toHaveBeenCalledWith('iceland', GALLERY_ID);
+    expect(eventTracking.recordGalleryView).toHaveBeenCalledWith('iceland', {
+      galleryId: GALLERY_ID,
+      slug: 'iceland',
+      accessVersion: 0,
+    });
   });
 });
 
@@ -255,7 +260,7 @@ describe('responses that must never be stored', () => {
 
   it('a private gallery photo list unlocked with a token', async () => {
     vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue(gallery(false));
-    const token = generateGalleryAccessToken(GALLERY_ID, 'iceland');
+    const token = generateGalleryAccessToken(GALLERY_ID, 'iceland', 0);
     const res = await get(`/galleries/iceland/photos?access=${encodeURIComponent(token)}`);
     expect(res.status).toBe(200);
     expect(res.cache).toBe('no-store');

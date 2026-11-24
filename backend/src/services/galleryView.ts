@@ -39,6 +39,6 @@ export const publicGalleryCard = (gallery: GalleryWithCoverUrl): PublicGalleryCa
  * "keep the current one".
  */
 export const adminGallery = <T extends Gallery>(gallery: T) => {
-  const { password_hash: passwordHash, ...row } = gallery;
+  const { password_hash: passwordHash, access_version: _accessVersion, ...row } = gallery;
   return { ...row, has_password: Boolean(passwordHash) };
 };

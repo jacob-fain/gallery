@@ -27,6 +27,8 @@ export interface Gallery {
   cover_image_id: string | null;
   is_public: boolean;
   password_hash: string | null;
+  /** Moved on whenever the password or visibility changes; access tokens must match it. */
+  access_version: number;
   view_count: number;
   created_at: Date;
   updated_at: Date;
@@ -99,6 +101,8 @@ export interface JwtPayload {
 export interface GalleryAccessPayload {
   galleryId: string;
   slug: string;
+  /** The gallery's access_version when this token was issued. */
+  accessVersion: number;
 }
 
 // Input type for creating a photo record

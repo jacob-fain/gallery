@@ -55,7 +55,7 @@ describe('authMiddleware', () => {
   });
 
   it('refuses a gallery access token', async () => {
-    const { next, res } = await call(generateGalleryAccessToken('gallery-1', 'wedding'));
+    const { next, res } = await call(generateGalleryAccessToken('gallery-1', 'wedding', 0));
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
     expect(getUserById).not.toHaveBeenCalled();

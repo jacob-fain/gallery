@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { canViewPhoto } from './photoAccess';
 import { generateGalleryAccessToken, generateToken } from './authService';
 
-const privateGallery = { id: 'g-private', is_public: false };
-const publicGallery = { id: 'g-public', is_public: true };
+const privateGallery = { id: 'g-private', is_public: false, access_version: 0 };
+const publicGallery = { id: 'g-public', is_public: true, access_version: 0 };
 const photo = (over: Partial<{ is_hidden: boolean; gallery_id: string | null; featured_order: number | null }> = {}) => ({
   is_hidden: false,
   gallery_id: 'g-private',
@@ -18,7 +18,7 @@ describe('canViewPhoto', () => {
   });
 
   it('never shows a hidden photo, even with a valid unlock token', () => {
-    const token = generateGalleryAccessToken('g-private', 'private');
+    const token = generateGalleryAccessToken('g-private', 'private', 0);
     expect(canViewPhoto(photo({ is_hidden: true }), privateGallery, token)).toBe(false);
     expect(canViewPhoto(photo({ is_hidden: true, gallery_id: null }), null)).toBe(false);
     expect(canViewPhoto(photo({ is_hidden: true, gallery_id: 'g-public' }), publicGallery)).toBe(false);
@@ -31,12 +31,12 @@ describe('canViewPhoto', () => {
   });
 
   it('shows a private-gallery photo with that gallery\'s unlock token', () => {
-    const token = generateGalleryAccessToken('g-private', 'private');
+    const token = generateGalleryAccessToken('g-private', 'private', 0);
     expect(canViewPhoto(photo(), privateGallery, token)).toBe(true);
   });
 
   it('refuses an unlock token for a different gallery', () => {
-    const other = generateGalleryAccessToken('g-other', 'other');
+    const other = generateGalleryAccessToken('g-other', 'other', 0);
     expect(canViewPhoto(photo(), privateGallery, other)).toBe(false);
   });
 
