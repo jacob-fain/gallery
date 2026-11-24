@@ -64,6 +64,22 @@ export interface Photo {
   gallery_slug?: string;
 }
 
+// A photo as the public endpoints return it (PublicPhoto in
+// backend/src/services/photoView.ts). It has no original URL: the download
+// button asks GET /photos/:id/download for one.
+export interface PublicPhoto {
+  id: string;
+  gallery_id: string | null;
+  width: number;
+  height: number;
+  exif_data: ExifData | null;
+  webUrl: string;
+  thumbnailUrl: string;
+  // Set on featured photos only.
+  gallery_title?: string | null;
+  gallery_slug?: string | null;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
