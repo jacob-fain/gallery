@@ -1,4 +1,4 @@
-import { useEffect, Suspense } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { isAdminSubdomain } from './utils/subdomain';
 import { lazyWithReload } from './utils/lazyWithReload';
@@ -8,6 +8,8 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import Navbar from './components/Navbar/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
+import PageTitle from './components/PageTitle';
+import { DEFAULT_SITE_TITLE, SiteTitleContext } from './contexts/siteTitle';
 import './styles/globals.css';
 
 // Public pages - keep eager (small, always needed)
@@ -33,9 +35,9 @@ function PublicApp() {
       <Navbar />
       <main className="main-content">
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/galleries" element={<Galleries />} />
-          <Route path="/photos" element={<AllPhotos />} />
+          <Route path="/" element={<><PageTitle /><Home /></>} />
+          <Route path="/galleries" element={<><PageTitle page="Galleries" /><Galleries /></>} />
+          <Route path="/photos" element={<><PageTitle page="Photos" /><AllPhotos /></>} />
           <Route path="/g/:slug" element={<Gallery />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
@@ -47,21 +49,23 @@ function PublicApp() {
 function AdminApp() {
   return (
     <AuthProvider>
+      {/* robots.txt also refuses crawlers on this host; this covers a page reached by link. */}
+      <meta name="robots" content="noindex" />
       <Suspense fallback={<div className="loading">Loading...</div>}>
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<><PageTitle page="Sign in" /><Login /></>} />
           <Route
             path="/*"
             element={
               <ProtectedRoute>
                 <AdminLayout>
                   <Routes>
-                    <Route path="" element={<Dashboard />} />
-                    <Route path="galleries" element={<AdminGalleries />} />
-                    <Route path="galleries/:id/photos" element={<Photos />} />
-                    <Route path="homepage" element={<Homepage />} />
-                    <Route path="unassigned" element={<Unassigned />} />
-                    <Route path="settings" element={<Settings />} />
+                    <Route path="" element={<><PageTitle page="Dashboard" /><Dashboard /></>} />
+                    <Route path="galleries" element={<><PageTitle page="Galleries" /><AdminGalleries /></>} />
+                    <Route path="galleries/:id/photos" element={<><PageTitle page="Photos" /><Photos /></>} />
+                    <Route path="homepage" element={<><PageTitle page="Homepage" /><Homepage /></>} />
+                    <Route path="unassigned" element={<><PageTitle page="Unassigned" /><Unassigned /></>} />
+                    <Route path="settings" element={<><PageTitle page="Settings" /><Settings /></>} />
                     <Route path="*" element={<NotFound linkLabel="Back to dashboard" />} />
                   </Routes>
                 </AdminLayout>
@@ -76,6 +80,8 @@ function AdminApp() {
 
 export default function App() {
   const isAdmin = isAdminSubdomain();
+  const [siteTitle, setSiteTitle] = useState(DEFAULT_SITE_TITLE);
+  const siteTitleValue = useMemo(() => ({ siteTitle, setSiteTitle }), [siteTitle]);
 
   // Fetch and apply site settings on load
   useEffect(() => {
@@ -83,9 +89,8 @@ export default function App() {
       try {
         const settings = await getSettings();
 
-        // Update document title
         if (settings.site_title) {
-          document.title = settings.site_title;
+          setSiteTitle(settings.site_title);
         }
 
         // Update meta description
@@ -108,11 +113,13 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <ErrorBoundary>
-        <BrowserRouter>
-          {isAdmin ? <AdminApp /> : <PublicApp />}
-        </BrowserRouter>
-      </ErrorBoundary>
+      <SiteTitleContext.Provider value={siteTitleValue}>
+        <ErrorBoundary>
+          <BrowserRouter>
+            {isAdmin ? <AdminApp /> : <PublicApp />}
+          </BrowserRouter>
+        </ErrorBoundary>
+      </SiteTitleContext.Provider>
     </ThemeProvider>
   );
 }
