@@ -16,7 +16,9 @@ const API_BASE = import.meta.env.VITE_API_URL ||
   (window.location.protocol === 'https:' ? '/api' : `http://${window.location.hostname}:3001/api`);
 
 // ============ Simple In-Memory Cache ============
-// Cache TTL: 5 minutes - makes back navigation instant
+// Makes back navigation instant. Photo URLs in a response stay valid for at
+// least 50 minutes when the API sends them (MIN_REMAINING_LIFETIME_MS in
+// backend/src/services/s3Service.ts), so this must stay well under that.
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CacheEntry<T> {
@@ -56,8 +58,17 @@ export function clearCache(prefix?: string): void {
 
 // ============ Public API ============
 
-async function fetchApi<T>(endpoint: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`);
+// `fresh` skips this module's cache and revalidates the browser's HTTP cache,
+// for reloading photos whose signed URLs have expired.
+export interface FetchOptions {
+  fresh?: boolean;
+}
+
+async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
+  const response = await fetch(
+    `${API_BASE}${endpoint}`,
+    options.fresh ? { cache: 'no-cache' } : undefined
+  );
 
   if (!response.ok) {
     throw new Error(`API request failed: ${response.status} ${response.statusText}`);
@@ -82,12 +93,12 @@ export async function getFeaturedPhotos(): Promise<Photo[]> {
   return data;
 }
 
-export async function getAllPhotos(limit?: number): Promise<Photo[]> {
+export async function getAllPhotos(limit?: number, options: FetchOptions = {}): Promise<Photo[]> {
   const cacheKey = limit ? `allPhotos:${limit}` : 'allPhotos';
-  const cached = getCached<Photo[]>(cacheKey);
+  const cached = options.fresh ? null : getCached<Photo[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await fetchApi<Photo[]>(limit ? `/photos?limit=${limit}` : '/photos');
+  const data = await fetchApi<Photo[]>(limit ? `/photos?limit=${limit}` : '/photos', options);
   setCache(cacheKey, data);
   return data;
 }
@@ -112,15 +123,19 @@ export async function getGallery(slug: string): Promise<Gallery | PrivateGallery
   return data;
 }
 
-export async function getGalleryPhotos(slug: string, accessToken?: string): Promise<Photo[]> {
+export async function getGalleryPhotos(
+  slug: string,
+  accessToken?: string,
+  options: FetchOptions = {}
+): Promise<Photo[]> {
   const cacheKey = accessToken ? `photos:${slug}:${accessToken}` : `photos:${slug}`;
-  const cached = getCached<Photo[]>(cacheKey);
+  const cached = options.fresh ? null : getCached<Photo[]>(cacheKey);
   if (cached) return cached;
 
   const url = accessToken
     ? `/galleries/${slug}/photos?access=${encodeURIComponent(accessToken)}`
     : `/galleries/${slug}/photos`;
-  const data = await fetchApi<Photo[]>(url);
+  const data = await fetchApi<Photo[]>(url, options);
   setCache(cacheKey, data);
   return data;
 }

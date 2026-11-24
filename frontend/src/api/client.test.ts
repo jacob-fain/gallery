@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
-const { getAdminStats, onSessionExpired, uploadPhoto } = await import('./client');
+const { clearCache, getAdminStats, getGalleryPhotos, onSessionExpired, uploadPhoto } = await import('./client');
 
 const respond = (status: number, body: unknown) =>
   vi.fn().mockResolvedValue({ status, ok: status < 400, json: async () => body });
@@ -49,5 +49,31 @@ describe('admin requests and session expiry', () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr);
     await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toThrow();
     expect(expired).toHaveBeenCalledOnce();
+  });
+});
+
+describe('fresh photo fetches', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it('skips the in-memory cache and revalidates the HTTP cache', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ success: true, data: [{ id: 'old' }] }) })
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ success: true, data: [{ id: 'new' }] }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await getGalleryPhotos('g')).toEqual([{ id: 'old' }]);
+    expect(await getGalleryPhotos('g')).toEqual([{ id: 'old' }]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    expect(await getGalleryPhotos('g', undefined, { fresh: true })).toEqual([{ id: 'new' }]);
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/galleries/g/photos', { cache: 'no-cache' });
+    // The fresh response replaces the cached one.
+    expect(await getGalleryPhotos('g')).toEqual([{ id: 'new' }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
 import { getGallery, getGalleryPhotos, verifyGalleryPassword, getGalleryDownloadUrl } from '../api/client';
 import { shuffle } from '../utils/shuffle';
+import { withFreshUrls } from '../utils/expiredImages';
 import type { Gallery as GalleryType, Photo, PrivateGalleryResponse } from '../types';
 import styles from './Gallery.module.css';
 
@@ -28,6 +29,14 @@ export default function Gallery() {
   const [passwordError, setPasswordError] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  const refreshPhotos = useCallback(() => {
+    if (!slug) return;
+    getGalleryPhotos(slug, accessToken ?? undefined, { fresh: true })
+      .then((fresh) => setPhotos((current) => withFreshUrls(current, fresh)))
+      // The photos already shown stay; a failed refresh changes nothing.
+      .catch(() => {});
+  }, [slug, accessToken]);
 
   // Load gallery info
   useEffect(() => {
@@ -222,7 +231,7 @@ export default function Gallery() {
       {photos.length === 0 ? (
         <div className="loading">No photos in this gallery yet.</div>
       ) : (
-        <PhotoGrid photos={photos} />
+        <PhotoGrid photos={photos} onImagesExpired={refreshPhotos} />
       )}
     </div>
   );
