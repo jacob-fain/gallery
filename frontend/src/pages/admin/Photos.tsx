@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/auth';
 import { getAllGalleries, getPhotosByGallery } from '../../api/client';
 import PhotoUpload from '../../components/Admin/PhotoUpload/PhotoUpload';
 import PhotoManager from '../../components/Admin/PhotoManager/PhotoManager';
@@ -15,7 +15,7 @@ export default function Photos() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!token || !id) return;
 
     try {
@@ -37,11 +37,11 @@ export default function Photos() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token, id]);
 
   useEffect(() => {
     fetchData();
-  }, [token, id]);
+  }, [fetchData]);
 
   const handleUploadComplete = (photo: Photo) => {
     setPhotos((prev) => [...prev, photo]);

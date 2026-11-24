@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo, type DragEvent, type ChangeEvent } from 'react';
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '../../../contexts/auth';
 import { uploadPhoto, checkDuplicates, type DuplicateInfo } from '../../../api/client';
 import type { Photo } from '../../../types';
 import styles from './PhotoUpload.module.css';

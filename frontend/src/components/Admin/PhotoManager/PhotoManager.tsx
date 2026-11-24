@@ -16,7 +16,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '../../../contexts/auth';
 import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries, updatePhoto } from '../../../api/client';
 import type { Photo, Gallery } from '../../../types';
 import styles from './PhotoManager.module.css';

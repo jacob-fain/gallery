@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/auth';
 import { getAdminStats, getAnalytics } from '../../api/client';
 import StatsCard from '../../components/Admin/StatsCard/StatsCard';
 import {
