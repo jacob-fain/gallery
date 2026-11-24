@@ -10,24 +10,8 @@ import { logger } from '../utils/logger';
  */
 export const buildId = (): string => process.env.BUILD_ID || 'dev';
 
-/** Resolves to the newest applied migration, or null when none is recorded. */
-type Probe = () => Promise<string | null>;
-type ReadyResult = { ok: true; migration: string | null } | { ok: false; reason: string };
-
-/**
- * The newest migration recorded in _migrations. Answering it also proves the
- * database is up, so it is the readiness probe. A database the runner has
- * never touched has no _migrations table, which is not an outage.
- */
-export const latestMigration = async (): Promise<string | null> => {
-  try {
-    const { rows } = await query('SELECT filename FROM _migrations ORDER BY filename DESC LIMIT 1');
-    return (rows[0]?.filename as string | undefined) ?? null;
-  } catch (err) {
-    if ((err as { code?: string }).code === '42P01') return null;
-    throw err;
-  }
-};
+type Probe = () => Promise<unknown>;
+type ReadyResult = { ok: true } | { ok: false; reason: string };
 
 /**
  * Database readiness with a timeout, cached briefly. At most one probe runs
@@ -53,7 +37,7 @@ export const createReadiness = ({
     if (!probing) {
       probing = probe()
         .then(
-          (migration): ReadyResult => ({ ok: true, migration }),
+          (): ReadyResult => ({ ok: true }),
           (err): ReadyResult => {
             logger.error('readiness probe failed', { err });
             return { ok: false, reason: 'database unreachable' };
@@ -86,7 +70,7 @@ export const createReadiness = ({
   };
 };
 
-const checkReady = createReadiness({ probe: latestMigration });
+const checkReady = createReadiness({ probe: () => query('SELECT 1') });
 
 const router = Router();
 
@@ -105,7 +89,7 @@ router.get('/health/ready', async (_req: Request, res: Response) => {
   res.set('Cache-Control', 'no-store');
   const s3 = isS3Configured() ? 'configured' : 'not configured';
   if (result.ok) {
-    res.json({ status: 'ok', build: buildId(), s3, migration: result.migration });
+    res.json({ status: 'ok', build: buildId(), s3 });
   } else {
     res.status(503).json({ status: 'unavailable', reason: result.reason, build: buildId(), s3 });
   }

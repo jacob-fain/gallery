@@ -2,13 +2,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import app from '../app';
-import { createReadiness, latestMigration } from './health';
-import { listMigrations } from '../migrate';
+import { createReadiness } from './health';
 
 describe('createReadiness', () => {
-  it('is ready when the probe succeeds, with the latest migration', async () => {
-    const ready = createReadiness({ probe: async () => '016_x.sql' });
-    expect(await ready()).toEqual({ ok: true, migration: '016_x.sql' });
+  it('is ready when the probe succeeds', async () => {
+    const ready = createReadiness({ probe: async () => 1 });
+    expect(await ready()).toEqual({ ok: true });
   });
 
   it('reports a generic reason when the probe fails, never the error', async () => {
@@ -27,7 +26,7 @@ describe('createReadiness', () => {
   });
 
   it('shares one probe between concurrent callers and caches the answer', async () => {
-    const probe = vi.fn(async () => null);
+    const probe = vi.fn(async () => 1);
     const ready = createReadiness({ probe, cacheMs: 60_000 });
     await Promise.all([ready(), ready(), ready()]);
     await ready();
@@ -39,7 +38,7 @@ describe('createReadiness', () => {
     let release: (v: unknown) => void = () => {};
     let hung = true;
     const probe = vi.fn(() =>
-      hung ? new Promise((resolve) => (release = resolve)) : Promise.resolve(null)
+      hung ? new Promise((resolve) => (release = resolve)) : Promise.resolve(1)
     );
     const ready = createReadiness({ probe, timeoutMs: 10, cacheMs: 0 });
     for (let i = 0; i < 5; i++) {
@@ -47,14 +46,14 @@ describe('createReadiness', () => {
     }
     expect(probe).toHaveBeenCalledTimes(1);
     hung = false;
-    release(null);
+    release(1);
     await new Promise((r) => setTimeout(r, 0));
-    expect(await ready()).toEqual({ ok: true, migration: null });
+    expect(await ready()).toEqual({ ok: true });
     expect(probe).toHaveBeenCalledTimes(2);
   });
 
   it('probes again once the cache expires', async () => {
-    const probe = vi.fn(async () => null);
+    const probe = vi.fn(async () => 1);
     const ready = createReadiness({ probe, cacheMs: 0 });
     await ready();
     await ready();
@@ -87,15 +86,8 @@ describe('health routes through the app', () => {
     const res = await fetch(`${base}/health/ready`);
     expect(res.headers.get('cache-control')).toBe('no-store');
     if (process.env.TEST_DATABASE_URL) {
-      // The test database is built by the migration runner, so it records
-      // every migration that ships.
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({
-        status: 'ok',
-        build: 'dev',
-        s3: 'not configured',
-        migration: listMigrations().at(-1),
-      });
+      expect(await res.json()).toEqual({ status: 'ok', build: 'dev', s3: 'not configured' });
     } else {
       // Unit runs point DATABASE_URL at a closed port.
       expect(res.status).toBe(503);
@@ -116,8 +108,3 @@ describe('health routes through the app', () => {
   });
 });
 
-describe('latestMigration', () => {
-  it.runIf(Boolean(process.env.TEST_DATABASE_URL))('reads the newest applied migration', async () => {
-    expect(await latestMigration()).toBe(listMigrations().at(-1));
-  });
-});

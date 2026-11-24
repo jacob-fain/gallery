@@ -134,15 +134,15 @@ configured on the server, outside this repository; these are suggestions.
   Touches nothing but the process. Uptime monitoring watches this path; it
   stays stable.
 - `GET /api/health/ready`: readiness, never cached. 200 with
-  `{"status":"ok","build":"<id>","s3":"configured","migration":"016_....sql"}`
-  when the database answers, otherwise 503 with
+  `{"status":"ok","build":"<id>","s3":"configured"}` when the database
+  answers, otherwise 503 with
   `{"status":"unavailable","reason":"database unreachable","build":"<id>","s3":...}`.
   `build` is the opaque 16-hex id both release paths bake into the image
   (`dev` for a local build). `s3` comes from configuration only; no S3 call
-  is made. `migration` is the newest row in `_migrations`. The database
-  answer is cached for 5 seconds.
+  is made. The database answer is cached for 5 seconds.
 - `GET /api/admin/metrics` (admin session only): uptime, build commit and
-  version, memory, database pool counts, upload queue, and per-route request
+  version, the newest applied migration, memory, database pool counts,
+  upload queue, and per-route request
   counts with p50/p95/max latency over the last hour. It is in-memory and per
   process, so it resets on restart.
 
