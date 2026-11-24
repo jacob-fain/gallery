@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'net';
 import http, { type Server } from 'http';
+import type { ApiResponse } from '../types';
+import { readJson } from '../../test/json';
 
 // Services are stubbed so these run without a database or S3; the headers
 // come from app.ts and the handlers, which run for real.
@@ -94,9 +96,15 @@ beforeEach(() => {
   vi.mocked(settingsService.getAllSettings).mockResolvedValue({} as never);
 });
 
-const get = async (path: string) => {
+// T is the data shape the caller asserts on; /photos adds a cursor beside it.
+const get = async <T = unknown>(path: string) => {
   const res = await fetch(`${base}${path}`);
-  return { status: res.status, cache: res.headers.get('cache-control'), etag: res.headers.get('etag'), body: await res.json() };
+  return {
+    status: res.status,
+    cache: res.headers.get('cache-control'),
+    etag: res.headers.get('etag'),
+    body: await readJson<ApiResponse<T> & { nextCursor?: string | null }>(res),
+  };
 };
 
 describe('public responses are cached briefly on success', () => {
@@ -128,12 +136,12 @@ describe('public responses are cached briefly on success', () => {
 
 describe('public photo lists carry no internal fields', () => {
   it.each(['/galleries/iceland/photos', '/featured', '/photos'])('GET %s', async (path) => {
-    const { body } = await get(path);
+    const { body } = await get<unknown[]>(path);
     const text = JSON.stringify(body);
     expect(text).not.toContain('original');
     expect(text).not.toContain('s3_');
     expect(text).not.toContain('content_hash');
-    expect(body.data[0]).toEqual({
+    expect(body.data?.[0]).toEqual({
       id: PHOTO_ID,
       gallery_id: GALLERY_ID,
       width: 100,
@@ -154,8 +162,8 @@ describe('public photo lists carry no internal fields', () => {
   });
 
   it('GET /photos/:id returns the same public shape', async () => {
-    const { body } = await get(`/photos/${PHOTO_ID}`);
-    expect(Object.keys(body.data).sort()).toEqual(
+    const { body } = await get<object>(`/photos/${PHOTO_ID}`);
+    expect(Object.keys(body.data!).sort()).toEqual(
       ['exif_data', 'gallery_id', 'height', 'id', 'thumbnailUrl', 'webUrl', 'width'].sort()
     );
   });

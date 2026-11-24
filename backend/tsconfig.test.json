@@ -1,0 +1,19 @@
+// Typechecks the tests, which the build config excludes. vitest runs them as
+// ES modules on Node 24, so top-level await and ES2022 library calls are valid
+// here even though the CommonJS build targets ES2020.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["src/**/*.test.ts", "test/**/*.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

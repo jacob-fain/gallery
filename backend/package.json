@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "migrate": "npm run build && node dist/migrate.js",
     "test:coverage": "vitest run --coverage"
   },
