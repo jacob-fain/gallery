@@ -132,7 +132,6 @@ export interface UpdateGalleryInput {
 
 // Input type for updating a photo
 export interface UpdatePhotoInput {
-  is_featured?: boolean;
   is_hidden?: boolean;
   sort_order?: number;
 }
