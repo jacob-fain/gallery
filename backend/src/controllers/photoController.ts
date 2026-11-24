@@ -6,6 +6,7 @@ import * as imageService from '../services/imageService';
 import * as s3Service from '../services/s3Service';
 import { canViewPhoto } from '../services/photoAccess';
 import { storedFilename } from '../config/upload';
+import type { Photo } from '../types';
 
 const NOT_FOUND = { success: false, error: 'Photo not found' } as const;
 
@@ -140,6 +141,11 @@ export const trackDownload = async (req: Request, res: Response) => {
   }
 };
 
+const alreadyUploaded = (existing: Photo | null) => ({
+  success: false,
+  error: existing ? `Already uploaded as ${existing.original_filename}` : 'Already uploaded',
+});
+
 export const uploadPhoto = async (req: Request, res: Response) => {
   try {
     // Validate file exists
@@ -174,10 +180,7 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       .digest('hex');
     const duplicate = await photoService.getPhotoByContentHash(contentHash);
     if (duplicate) {
-      return res.status(409).json({
-        success: false,
-        error: `Already uploaded as ${duplicate.original_filename}`,
-      });
+      return res.status(409).json(alreadyUploaded(duplicate));
     }
 
     // Process image into 3 sizes and extract EXIF in parallel
@@ -190,28 +193,47 @@ export const uploadPhoto = async (req: Request, res: Response) => {
     const photoId = crypto.randomUUID();
     const keys = s3Service.generatePhotoKeys(galleryId, photoId);
 
-    // Upload all 3 versions to S3 in parallel
-    // Original stays as JPEG, web/thumbnail are WebP for smaller size
-    await Promise.all([
-      s3Service.uploadFile(processed.original.buffer, keys.original, 'image/jpeg'),
-      s3Service.uploadFile(processed.web.buffer, keys.web, 'image/webp'),
-      s3Service.uploadFile(processed.thumbnail.buffer, keys.thumbnail, 'image/webp'),
-    ]);
+    const uploads = [
+      { buffer: processed.original.buffer, key: keys.original, type: 'image/jpeg' },
+      { buffer: processed.web.buffer, key: keys.web, type: 'image/webp' },
+      { buffer: processed.thumbnail.buffer, key: keys.thumbnail, type: 'image/webp' },
+    ];
 
-    // Create photo record in database
-    const photo = await photoService.createPhoto({
-      gallery_id: galleryId,
-      filename: `${photoId}.jpg`,
-      original_filename: storedFilename(req.file.originalname),
-      s3_key: keys.original,
-      s3_thumbnail_key: keys.thumbnail,
-      s3_web_key: keys.web,
-      width: processed.original.width,
-      height: processed.original.height,
-      file_size: processed.original.size,
-      exif_data: exifData || undefined,
-      content_hash: contentHash,
-    });
+    let photo: Photo;
+    try {
+      // allSettled rather than all: cleanup must not start while another
+      // upload is still in flight, or that object lands after its delete.
+      const results = await Promise.allSettled(
+        uploads.map((u) => s3Service.uploadFile(u.buffer, u.key, u.type))
+      );
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed) throw failed.reason;
+
+      photo = await photoService.createPhoto({
+        gallery_id: galleryId,
+        filename: `${photoId}.jpg`,
+        original_filename: storedFilename(req.file.originalname),
+        s3_key: keys.original,
+        s3_thumbnail_key: keys.thumbnail,
+        s3_web_key: keys.web,
+        width: processed.original.width,
+        height: processed.original.height,
+        file_size: processed.original.size,
+        exif_data: exifData || undefined,
+        content_hash: contentHash,
+      });
+    } catch (err) {
+      // No row points at these keys, so they would be orphaned (#58).
+      // deleteFiles is best effort: it logs what it could not delete and
+      // never throws, so the original error is the one reported.
+      await s3Service.deleteFiles(uploads.map((u) => u.key));
+
+      if (photoService.isDuplicateContentError(err)) {
+        const existing = await photoService.getPhotoByContentHash(contentHash);
+        return res.status(409).json(alreadyUploaded(existing));
+      }
+      throw err;
+    }
 
     // Return photo with signed URLs
     const photoWithUrls = await photoService.enrichPhotoWithUrls(photo);

@@ -246,6 +246,19 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> =>
     return result.rows[0];
   });
 
+// Name of the unique index from migration 012_unique_content_hash.sql.
+const CONTENT_HASH_INDEX = 'photos_content_hash_key';
+
+/**
+ * True when an insert failed because another photo already has this content
+ * hash: the database's answer to two identical uploads racing past the
+ * duplicate check (#57).
+ */
+export const isDuplicateContentError = (err: unknown): boolean => {
+  const pgErr = err as { code?: string; constraint?: string } | null;
+  return pgErr?.code === '23505' && pgErr.constraint === CONTENT_HASH_INDEX;
+};
+
 /**
  * Find a photo by the SHA-256 hash of its original file
  */
