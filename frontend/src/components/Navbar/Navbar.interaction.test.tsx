@@ -6,16 +6,17 @@ import { describe, expect, it } from 'vitest';
 import { ThemeContext } from '../../contexts/theme';
 import Navbar from './Navbar';
 
-function renderNavbar() {
+function renderNavbar(path = '/') {
   const user = userEvent.setup();
   render(
     <ThemeContext.Provider value={{ theme: 'light', toggleTheme: () => {} }}>
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter initialEntries={[path]}>
         <Navbar />
         <Routes>
           <Route path="/" element={<p>Home page</p>} />
           <Route path="/galleries" element={<p>Galleries page</p>} />
           <Route path="/photos" element={<p>Photos page</p>} />
+          <Route path="/g/:slug" element={<p>Gallery page</p>} />
         </Routes>
       </MemoryRouter>
     </ThemeContext.Provider>
@@ -87,5 +88,59 @@ describe('Navbar phone menu', () => {
     expect(screen.getByText('Photos page')).toBeTruthy();
     expect(menu.hidden).toBe(true);
     expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('Navbar links', () => {
+  it('lists Galleries, then Photos, in the bar and in the phone menu', () => {
+    const { menu } = renderNavbar();
+    const links = screen.getAllByRole('link', { hidden: true }).filter((a) => a.textContent !== 'Jacob Fain');
+
+    expect(links.filter((a) => !menu.contains(a)).map((a) => a.textContent)).toEqual(['Galleries', 'Photos']);
+    expect(links.filter((a) => menu.contains(a)).map((a) => a.textContent)).toEqual(['Galleries', 'Photos']);
+  });
+
+  it('marks the current page in the bar and in the menu, and only that page', () => {
+    renderNavbar('/photos');
+
+    const current = screen
+      .getAllByRole('link', { hidden: true })
+      .filter((a) => a.getAttribute('aria-current') === 'page')
+      .map((a) => a.textContent);
+    expect(current).toEqual(['Photos', 'Photos']);
+  });
+
+  it('marks Galleries current on a gallery page, in the bar and in the menu', () => {
+    const { menu } = renderNavbar('/g/iceland');
+
+    const links = screen.getAllByRole('link', { hidden: true });
+    const current = links.filter((a) => a.getAttribute('aria-current') === 'page');
+    expect(current.map((a) => a.textContent)).toEqual(['Galleries', 'Galleries']);
+    expect(current.filter((a) => menu.contains(a))).toHaveLength(1);
+    for (const a of current) expect(a.className).toMatch(/active/);
+    const photos = links.filter((a) => a.textContent === 'Photos');
+    for (const a of photos) expect(a.className).not.toMatch(/active/);
+  });
+
+  it('marks Galleries current on the galleries list', () => {
+    renderNavbar('/galleries');
+    const current = screen
+      .getAllByRole('link', { hidden: true })
+      .filter((a) => a.getAttribute('aria-current') === 'page')
+      .map((a) => a.textContent);
+    expect(current).toEqual(['Galleries', 'Galleries']);
+  });
+
+  it('marks no page on the home page', () => {
+    renderNavbar('/');
+    const links = screen.getAllByRole('link', { hidden: true });
+    expect(links.some((a) => a.hasAttribute('aria-current'))).toBe(false);
+  });
+
+  it('has no Buy me a coffee link, which lives in the footer', () => {
+    renderNavbar();
+    const nav = screen.getByRole('navigation');
+    expect(nav.querySelector('a[href*="buymeacoffee"]')).toBeNull();
+    expect(nav.textContent?.toLowerCase()).not.toContain('coffee');
   });
 });

@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { isAdminSubdomain } from './utils/subdomain';
 import { lazyWithReload } from './utils/lazyWithReload';
-import { getSettings } from './api/client';
+import { getSettings, type SiteSettings } from './api/client';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import Navbar from './components/Navbar/Navbar';
+import Footer from './components/Footer/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import PageTitle from './components/PageTitle';
@@ -32,7 +33,7 @@ const Unassigned = lazyWithReload(() => import('./pages/admin/Unassigned'));
 const Settings = lazyWithReload(() => import('./pages/admin/Settings'));
 const AdminLayout = lazyWithReload(() => import('./components/Admin/AdminLayout/AdminLayout'));
 
-export function PublicApp() {
+export function PublicApp({ settings }: { settings?: Partial<SiteSettings> }) {
   return (
     <>
       <Navbar />
@@ -47,6 +48,7 @@ export function PublicApp() {
           </Routes>
         </Suspense>
       </main>
+      <Footer instagramUrl={settings?.instagram_url} contactEmail={settings?.contact_email} />
     </>
   );
 }
@@ -86,6 +88,7 @@ function AdminApp() {
 export default function App() {
   const isAdmin = isAdminSubdomain();
   const [siteTitle, setSiteTitle] = useState(DEFAULT_SITE_TITLE);
+  const [settings, setSettings] = useState<SiteSettings | undefined>();
   const siteTitleValue = useMemo(() => ({ siteTitle, setSiteTitle }), [siteTitle]);
 
   // Fetch and apply site settings on load
@@ -93,6 +96,7 @@ export default function App() {
     async function applySettings() {
       try {
         const settings = await getSettings();
+        setSettings(settings);
 
         if (settings.site_title) {
           setSiteTitle(settings.site_title);
@@ -121,7 +125,7 @@ export default function App() {
       <SiteTitleContext.Provider value={siteTitleValue}>
         <ErrorBoundary>
           <BrowserRouter>
-            {isAdmin ? <AdminApp /> : <PublicApp />}
+            {isAdmin ? <AdminApp /> : <PublicApp settings={settings} />}
           </BrowserRouter>
         </ErrorBoundary>
       </SiteTitleContext.Provider>

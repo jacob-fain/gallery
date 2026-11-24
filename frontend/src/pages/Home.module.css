@@ -184,7 +184,7 @@
 .featuredGrid {
   display: flex;
   flex-direction: column;
-  gap: 100px;
+  gap: 72px;
 }
 
 .featuredItem {
@@ -229,19 +229,39 @@
   transform: scale(1.02);
 }
 
-.featuredCaption {
-  display: inline-block;
-  margin-top: 20px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-  transition: color 0.2s ease;
+.featuredLink {
+  display: block;
+  cursor: zoom-in;
 }
 
-.featuredCaption:hover {
-  color: var(--color-text);
+/* The ring goes on the image, not around the image and caption together. */
+.featuredLink:focus-visible {
+  outline: none;
+}
+
+.featuredLink:focus-visible .featuredImageWrapper {
+  outline: 2px solid var(--color-text);
+  outline-offset: 4px;
+}
+
+.featuredCaption {
+  display: block;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+}
+
+.captionArrow {
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+.featuredLink:hover .captionArrow,
+.featuredLink:focus-visible .captionArrow {
+  transform: translateX(4px);
 }
 
 /* Footer with CTA */
@@ -325,7 +345,7 @@
   }
 
   .featuredGrid {
-    gap: 60px;
+    gap: 48px;
   }
 
   .featuredFooter {
@@ -350,6 +370,15 @@
   .featuredItem {
     animation: none;
     opacity: 1;
+    transform: none;
+  }
+
+  .captionArrow {
+    transition: none;
+  }
+
+  .featuredLink:hover .captionArrow,
+  .featuredLink:focus-visible .captionArrow {
     transform: none;
   }
 }

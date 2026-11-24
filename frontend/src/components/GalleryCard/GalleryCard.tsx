@@ -8,9 +8,10 @@ interface GalleryCardProps {
   gallery: Gallery;
 }
 
-// Matches the galleries grid (Galleries.module.css): one column on phones,
-// otherwise at most about half the screen per card.
-const COVER_SIZES = '(max-width: 640px) 100vw, 50vw';
+// Matches the galleries grid (Galleries.module.css): one column below 600px,
+// two from there, inside a 16px side margin up to 640px and 48px above.
+const COVER_SIZES =
+  '(max-width: 599px) calc(100vw - 32px), (max-width: 640px) calc(50vw - 24px), calc(50vw - 56px)';
 
 export default function GalleryCard({ gallery }: GalleryCardProps) {
   const candidates = derivedImages({
@@ -41,6 +42,11 @@ export default function GalleryCard({ gallery }: GalleryCardProps) {
         )}
         <div className={styles.overlay}>
           <span className={styles.title}>{gallery.title}</span>
+          {gallery.photoCount !== undefined && (
+            <span className={styles.count}>
+              {gallery.photoCount} {gallery.photoCount === 1 ? 'photo' : 'photos'}
+            </span>
+          )}
         </div>
       </div>
     </Link>

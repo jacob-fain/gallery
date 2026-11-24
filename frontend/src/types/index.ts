@@ -19,8 +19,8 @@ export interface Gallery {
   id: string;
   title: string;
   slug: string;
-  // Set on a single gallery (GET /galleries/:slug, or the unlock response):
-  // how many photos a visitor sees.
+  // Set on a single gallery (GET /galleries/:slug, or the unlock response)
+  // and on the public gallery list: how many photos a visitor sees.
   photoCount?: number;
   // Set on the public gallery list: the cover photo's thumbnail and web
   // URLs and its displayed size.
