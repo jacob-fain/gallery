@@ -16,6 +16,7 @@ function renderNavbar(path = '/') {
           <Route path="/" element={<p>Home page</p>} />
           <Route path="/galleries" element={<p>Galleries page</p>} />
           <Route path="/photos" element={<p>Photos page</p>} />
+          <Route path="/g/:slug" element={<p>Gallery page</p>} />
         </Routes>
       </MemoryRouter>
     </ThemeContext.Provider>
@@ -107,6 +108,27 @@ describe('Navbar links', () => {
       .filter((a) => a.getAttribute('aria-current') === 'page')
       .map((a) => a.textContent);
     expect(current).toEqual(['Photos', 'Photos']);
+  });
+
+  it('marks Galleries current on a gallery page, in the bar and in the menu', () => {
+    const { menu } = renderNavbar('/g/iceland');
+
+    const links = screen.getAllByRole('link', { hidden: true });
+    const current = links.filter((a) => a.getAttribute('aria-current') === 'page');
+    expect(current.map((a) => a.textContent)).toEqual(['Galleries', 'Galleries']);
+    expect(current.filter((a) => menu.contains(a))).toHaveLength(1);
+    for (const a of current) expect(a.className).toMatch(/active/);
+    const photos = links.filter((a) => a.textContent === 'Photos');
+    for (const a of photos) expect(a.className).not.toMatch(/active/);
+  });
+
+  it('marks Galleries current on the galleries list', () => {
+    renderNavbar('/galleries');
+    const current = screen
+      .getAllByRole('link', { hidden: true })
+      .filter((a) => a.getAttribute('aria-current') === 'page')
+      .map((a) => a.textContent);
+    expect(current).toEqual(['Galleries', 'Galleries']);
   });
 
   it('marks no page on the home page', () => {

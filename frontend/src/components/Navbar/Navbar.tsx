@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import ContactModal from '../ContactModal/ContactModal';
 import ThemeToggle from '../ThemeToggle/ThemeToggle';
-import { MOBILE_NAV_QUERY, isMenuOpen, menuAction, type MenuAction } from './menu';
+import { MOBILE_NAV_QUERY, isGalleriesPath, isMenuOpen, menuAction, type MenuAction } from './menu';
 import styles from './Navbar.module.css';
 
 // The contact form is off until the site sends mail through a send-only
@@ -65,6 +65,14 @@ export default function Navbar() {
   const menuLinkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? `${styles.menuItem} ${styles.active}` : styles.menuItem;
 
+  // A gallery page (/g/:slug) belongs under Galleries. NavLink sets
+  // aria-current only for its own path, so this link sets it by hand.
+  const inGalleries = isGalleriesPath(location.pathname);
+  const galleriesProps = {
+    to: '/galleries',
+    'aria-current': inGalleries ? ('page' as const) : undefined,
+  };
+
   return (
     <>
       <nav className={styles.navbar}>
@@ -73,9 +81,9 @@ export default function Navbar() {
             Jacob Fain
           </Link>
           <div className={styles.links}>
-            <NavLink to="/galleries" className={linkClass}>
+            <Link {...galleriesProps} className={linkClass({ isActive: inGalleries })}>
               Galleries
-            </NavLink>
+            </Link>
             <NavLink to="/photos" className={linkClass}>
               Photos
             </NavLink>
@@ -108,9 +116,13 @@ export default function Navbar() {
           </button>
         </div>
         <div id={MENU_ID} ref={menuRef} className={styles.menu} hidden={!menuOpen}>
-          <NavLink to="/galleries" className={menuLinkClass} onClick={closeMenu}>
+          <Link
+            {...galleriesProps}
+            className={menuLinkClass({ isActive: inGalleries })}
+            onClick={closeMenu}
+          >
             Galleries
-          </NavLink>
+          </Link>
           <NavLink to="/photos" className={menuLinkClass} onClick={closeMenu}>
             Photos
           </NavLink>
