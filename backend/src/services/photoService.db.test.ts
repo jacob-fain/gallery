@@ -49,6 +49,25 @@ describe.skipIf(!db)('photo ordering and moves (database)', () => {
     expect(photo.is_hidden).toBe(true);
   });
 
+  it('stores the original content type, and leaves it null when none is given', async () => {
+    const tag = crypto.randomBytes(4).toString('hex');
+    const png = await createPhoto({
+      gallery_id: null,
+      filename: `${tag}.png`,
+      original_filename: 'logo.png',
+      s3_key: `o/${tag}.png`,
+      s3_thumbnail_key: `t/${tag}`,
+      s3_web_key: `w/${tag}`,
+      width: 100,
+      height: 100,
+      file_size: 1,
+      original_content_type: 'image/png',
+    });
+    photos.push(png.id);
+    expect(png.original_content_type).toBe('image/png');
+    expect((await upload(null, 'legacy')).original_content_type).toBeNull();
+  });
+
   it('puts a new upload last in a reordered gallery', async () => {
     const g = await gallery();
     const a = await upload(g, 'a');

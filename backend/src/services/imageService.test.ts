@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { extractExifData, formatDateTaken, isValidImage, normalizeIso, processImage } from './imageService';
+import {
+  ImageTooLargeError,
+  MAX_INPUT_PIXELS,
+  UPLOAD_SLOTS,
+  UnsupportedImageError,
+  extractExifData,
+  formatDateTaken,
+  isValidImage,
+  normalizeIso,
+  processImage,
+  readImageInfo,
+  uploadSlots,
+} from './imageService';
 
 const image = (width: number, height: number, format: 'jpeg' | 'png' | 'webp' = 'jpeg') =>
   sharp({ create: { width, height, channels: 3, background: { r: 120, g: 90, b: 60 } } })
@@ -69,6 +81,96 @@ describe('processImage orientation', () => {
     const result = await processImage(input);
     expect(result.original.buffer.equals(input)).toBe(true);
     expect((await sharp(result.original.buffer).metadata()).orientation).toBe(6);
+  });
+});
+
+describe('processImage format', () => {
+  const solid = (channels: 3 | 4 = 3) =>
+    sharp({
+      create: { width: 640, height: 480, channels, background: { r: 200, g: 100, b: 50, alpha: 0.5 } },
+    });
+
+  it.each([
+    ['jpeg', () => solid().jpeg().toBuffer(), 'image/jpeg', 'jpg'],
+    ['png', () => solid().png().toBuffer(), 'image/png', 'png'],
+    ['webp', () => solid().webp().toBuffer(), 'image/webp', 'webp'],
+    ['tiff', () => solid().tiff().toBuffer(), 'image/tiff', 'tif'],
+  ] as const)('records a %s original as its own type, bytes unchanged', async (_name, make, type, ext) => {
+    const input = await make();
+    const result = await processImage(input);
+    expect(result.original.format).toMatchObject({ contentType: type, extension: ext });
+    expect(result.original.buffer.equals(input)).toBe(true);
+    expect(result.original).toMatchObject({ width: 640, height: 480 });
+    expect((await sharp(result.web.buffer).metadata()).format).toBe('webp');
+  });
+
+  it('takes the format from the bytes, whatever they would be called', async () => {
+    const info = await readImageInfo(await solid().png().toBuffer());
+    expect(info.format.contentType).toBe('image/png');
+  });
+
+  it('keeps transparency in the derived files', async () => {
+    const result = await processImage(await solid(4).png().toBuffer());
+    expect((await sharp(result.web.buffer).metadata()).hasAlpha).toBe(true);
+    expect((await sharp(result.thumbnail.buffer).metadata()).hasAlpha).toBe(true);
+  });
+
+  it('derives correct colours from a 16-bit original', async () => {
+    const png16 = await solid().toColourspace('rgb16').png().toBuffer();
+    expect((await sharp(png16).metadata()).depth).toBe('ushort');
+    const result = await processImage(png16);
+    const { dominant } = await sharp(result.thumbnail.buffer).stats();
+    expect(dominant.r).toBeGreaterThan(180);
+    expect(dominant.b).toBeLessThan(80);
+  });
+});
+
+describe('readImageInfo', () => {
+  it('rejects bytes that are not an image, and formats uploads do not take', async () => {
+    await expect(readImageInfo(Buffer.from('nope'))).rejects.toBeInstanceOf(UnsupportedImageError);
+    const gif = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#000' } })
+      .gif()
+      .toBuffer();
+    await expect(readImageInfo(gif)).rejects.toBeInstanceOf(UnsupportedImageError);
+  });
+
+  it('rejects an image over the pixel limit from its header', async () => {
+    // Compresses to a few MB: small enough to upload, too large to decode.
+    const side = Math.ceil(Math.sqrt(MAX_INPUT_PIXELS)) + 1;
+    const huge = await sharp({ create: { width: side, height: side, channels: 3, background: '#000' } })
+      .png({ compressionLevel: 1 })
+      .toBuffer();
+    await expect(readImageInfo(huge)).rejects.toBeInstanceOf(ImageTooLargeError);
+  });
+});
+
+describe('processImage concurrency', () => {
+  it('runs at most UPLOAD_SLOTS uploads at once and queues the rest', async () => {
+    const input = await image(3000, 2000);
+    const info = await readImageInfo(input);
+
+    let busiest = 0;
+    const sample = setInterval(() => {
+      busiest = Math.max(busiest, uploadSlots.running);
+    }, 1);
+    const jobs = Array.from({ length: UPLOAD_SLOTS + 3 }, () => processImage(input, info));
+    expect(uploadSlots.running).toBe(UPLOAD_SLOTS);
+    expect(uploadSlots.queued).toBe(3);
+
+    const results = await Promise.all(jobs);
+    clearInterval(sample);
+
+    expect(busiest).toBeLessThanOrEqual(UPLOAD_SLOTS);
+    expect(results.every((r) => r.web.width === 1920)).toBe(true);
+    expect(uploadSlots.running).toBe(0);
+    expect(uploadSlots.queued).toBe(0);
+  });
+
+  it('frees the slot when processing fails', async () => {
+    const info = await readImageInfo(await image(100, 100));
+    // The header promised a JPEG; the bytes cannot be decoded.
+    await expect(processImage(Buffer.from('not a jpeg'), info)).rejects.toThrow();
+    expect(uploadSlots.running).toBe(0);
   });
 });
 

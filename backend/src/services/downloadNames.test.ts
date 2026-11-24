@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attachmentDisposition,
   createNameDeduper,
+  photoDownloadName,
   sanitizeFilename,
   zipEntryNames,
 } from './downloadNames';
@@ -106,3 +107,45 @@ describe('attachmentDisposition', () => {
     );
   });
 });
+
+describe('photoDownloadName', () => {
+  const photo = (original_filename: string, original_content_type?: string | null) => ({
+    id: 'p1',
+    original_filename,
+    original_content_type,
+  });
+
+  it('keeps a name whose extension matches the stored format', () => {
+    expect(photoDownloadName(photo('IMG_1.JPG', 'image/jpeg'))).toBe('IMG_1.JPG');
+    expect(photoDownloadName(photo('IMG_1.jpeg', 'image/jpeg'))).toBe('IMG_1.jpeg');
+    expect(photoDownloadName(photo('scan.tiff', 'image/tiff'))).toBe('scan.tiff');
+    expect(photoDownloadName(photo('logo.png', 'image/png'))).toBe('logo.png');
+  });
+
+  it('replaces an image extension that names another format', () => {
+    expect(photoDownloadName(photo('IMG_1.jpg', 'image/png'))).toBe('IMG_1.png');
+    expect(photoDownloadName(photo('frame.png', 'image/webp'))).toBe('frame.webp');
+  });
+
+  it('adds the extension to a name without an image one', () => {
+    expect(photoDownloadName(photo('Sunset', 'image/jpeg'))).toBe('Sunset.jpg');
+    expect(photoDownloadName(photo('v1.2 final', 'image/tiff'))).toBe('v1.2 final.tif');
+    expect(photoDownloadName(photo('', 'image/png'))).toBe('p1.png');
+  });
+
+  it('keeps the uploaded name for photos stored before the format was recorded', () => {
+    expect(photoDownloadName(photo('logo.png', null))).toBe('logo.png');
+    expect(photoDownloadName(photo('Sunset', undefined))).toBe('Sunset');
+    expect(photoDownloadName(photo('', null))).toBe('p1.jpg');
+  });
+
+  it('names ZIP entries the same way', () => {
+    expect(
+      zipEntryNames([
+        { id: 'a', original_filename: 'IMG_1.jpg', original_content_type: 'image/png' },
+        { id: 'b', original_filename: 'IMG_1.png', original_content_type: 'image/png' },
+      ])
+    ).toEqual(['IMG_1.png', 'IMG_1 (2).png']);
+  });
+});
+
