@@ -14,7 +14,7 @@ function queueWith(adds: Array<{ galleryId: string | null; files: File[] }>) {
     checkDuplicates: async () => ({}),
     hash: (file) => file.text(),
   });
-  queue.setToken('token');
+  queue.setSession('user-1');
   for (const { galleryId, files } of adds) queue.add(files, { galleryId, checkOnly: false });
   return queue;
 }

@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/auth';
 import { useSiteTitle } from '../../contexts/siteTitle';
 import { getSettings, updateSettings } from '../../api/client';
 import styles from './Settings.module.css';
 
 export default function Settings() {
-  const { token } = useAuth();
   const { setSiteTitle: applySiteTitle } = useSiteTitle();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -34,14 +32,12 @@ export default function Settings() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token) return;
-
     setSaving(true);
     setError('');
     setSuccess('');
 
     try {
-      await updateSettings(token, {
+      await updateSettings({
         site_title: siteTitle,
         meta_description: metaDescription,
       });

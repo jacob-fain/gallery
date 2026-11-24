@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '../../contexts/auth';
 import { getUnassignedPhotos } from '../../api/client';
 import PhotoUpload from '../../components/Admin/PhotoUpload/PhotoUpload';
 import PhotoManager from '../../components/Admin/PhotoManager/PhotoManager';
@@ -7,23 +6,20 @@ import type { Photo } from '../../types';
 import styles from './Unassigned.module.css';
 
 export default function Unassigned() {
-  const { token } = useAuth();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const fetchData = useCallback(async () => {
-    if (!token) return;
-
     try {
-      const photosData = await getUnassignedPhotos(token);
+      const photosData = await getUnassignedPhotos();
       setPhotos(photosData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load photos');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchData();

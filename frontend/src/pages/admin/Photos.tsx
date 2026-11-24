@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useAuth } from '../../contexts/auth';
 import { getAllGalleries, getPhotosByGallery } from '../../api/client';
 import PhotoUpload from '../../components/Admin/PhotoUpload/PhotoUpload';
 import PhotoManager from '../../components/Admin/PhotoManager/PhotoManager';
@@ -9,18 +8,17 @@ import styles from './Photos.module.css';
 
 export default function Photos() {
   const { id } = useParams<{ id: string }>();
-  const { token } = useAuth();
   const [gallery, setGallery] = useState<Gallery | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const fetchData = useCallback(async () => {
-    if (!token || !id) return;
+    if (!id) return;
 
     try {
       // Get gallery info
-      const galleries = await getAllGalleries(token);
+      const galleries = await getAllGalleries();
       const foundGallery = galleries.find((g) => g.id === id);
       if (!foundGallery) {
         setError('Gallery not found');
@@ -30,14 +28,14 @@ export default function Photos() {
       setGallery(foundGallery);
 
       // Get photos
-      const photosData = await getPhotosByGallery(token, id);
+      const photosData = await getPhotosByGallery(id);
       setPhotos(photosData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [token, id]);
+  }, [id]);
 
   useEffect(() => {
     fetchData();
