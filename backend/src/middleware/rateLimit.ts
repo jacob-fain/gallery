@@ -1,49 +1,84 @@
 import { Request, Response, NextFunction } from 'express';
 
-// Simple in-memory rate limiter
-// Tracks requests per IP within a time window
-
 interface RateLimitEntry {
   count: number;
   resetTime: number;
 }
 
+// Bounds memory when many distinct clients arrive inside one window. Past
+// this size, expired entries are swept first, then the oldest are dropped.
+const MAX_ENTRIES = 10_000;
+
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
-// Clean up expired entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
+const sweepExpired = (now: number): void => {
   for (const [key, entry] of rateLimitStore) {
     if (now > entry.resetTime) {
       rateLimitStore.delete(key);
     }
   }
-}, 5 * 60 * 1000);
+};
+
+setInterval(() => sweepExpired(Date.now()), 5 * 60 * 1000).unref();
+
+const makeRoom = (now: number): void => {
+  if (rateLimitStore.size < MAX_ENTRIES) return;
+  sweepExpired(now);
+  // Map iterates in insertion order, so the first keys are the oldest.
+  for (const key of rateLimitStore.keys()) {
+    if (rateLimitStore.size < MAX_ENTRIES) break;
+    rateLimitStore.delete(key);
+  }
+};
+
+export interface RateLimitOptions {
+  /** Identifies the limiter, so each one counts separately per client. */
+  name: string;
+  max: number;
+  windowMs: number;
+  /**
+   * 'reject' answers 429 with a readable error. 'drop' answers 204 and skips
+   * the handler: for fire-and-forget tracking, where the client ignores the
+   * response anyway.
+   */
+  onLimit?: 'reject' | 'drop';
+  message?: string;
+}
 
 /**
- * Create a rate limiter middleware
- * @param maxRequests - Max requests allowed in the window
- * @param windowMs - Time window in milliseconds
+ * Per-client fixed-window limiter. The client is req.ip, which is the real
+ * visitor only because trust proxy is set for the nginx hop (app.ts).
  */
-export function rateLimit(maxRequests: number, windowMs: number) {
+export function rateLimit({
+  name,
+  max,
+  windowMs,
+  onLimit = 'reject',
+  message = 'Too many requests. Please try again later.',
+}: RateLimitOptions) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    const key = `${ip}:${req.path}`;
+    // Keyed by limiter, not by path: a path with an id in it would give
+    // every id its own budget.
+    const key = `${name}:${ip}`;
     const now = Date.now();
 
     const entry = rateLimitStore.get(key);
 
     if (!entry || now > entry.resetTime) {
-      // First request or window expired
+      makeRoom(now);
       rateLimitStore.set(key, { count: 1, resetTime: now + windowMs });
       next();
       return;
     }
 
-    if (entry.count >= maxRequests) {
-      // Rate limit exceeded - silently accept but don't process
-      // (For tracking endpoints, we don't want to alert attackers)
-      res.status(204).end();
+    if (entry.count >= max) {
+      if (onLimit === 'drop') {
+        res.status(204).end();
+        return;
+      }
+      res.set('Retry-After', String(Math.ceil((entry.resetTime - now) / 1000)));
+      res.status(429).json({ success: false, error: message });
       return;
     }
 
@@ -52,6 +87,33 @@ export function rateLimit(maxRequests: number, windowMs: number) {
   };
 }
 
-// Pre-configured limiter for tracking endpoints
-// 30 requests per minute per IP per endpoint
-export const trackingRateLimit = rateLimit(30, 60 * 1000);
+/** Test hook: empties the shared store between cases. */
+export const resetRateLimits = (): void => rateLimitStore.clear();
+
+export const trackingRateLimit = rateLimit({
+  name: 'tracking',
+  max: 120,
+  windowMs: 60 * 1000,
+  onLimit: 'drop',
+});
+
+export const loginRateLimit = rateLimit({
+  name: 'login',
+  max: 10,
+  windowMs: 15 * 60 * 1000,
+  message: 'Too many sign-in attempts. Please wait a few minutes and try again.',
+});
+
+export const galleryPasswordRateLimit = rateLimit({
+  name: 'gallery-password',
+  max: 20,
+  windowMs: 15 * 60 * 1000,
+  message: 'Too many password attempts. Please wait a few minutes and try again.',
+});
+
+export const contactRateLimit = rateLimit({
+  name: 'contact',
+  max: 5,
+  windowMs: 60 * 60 * 1000,
+  message: 'Too many messages from this connection. Please try again later.',
+});
