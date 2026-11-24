@@ -6,7 +6,14 @@ subdomain (`manage.` by default, see `src/utils/subdomain.ts`).
 
 ## Run it
 
-Start the backend first (see the root README). Then:
+Start Postgres and the backend first, from the repository root:
+
+```sh
+docker compose up -d db
+(cd backend && npm ci && npm run migrate && npm run dev)
+```
+
+Then, in `frontend/`:
 
 ```sh
 npm ci
