@@ -6,6 +6,22 @@ const { clearCache, getAdminStats, getGalleryPhotos, onSessionExpired, uploadPho
 const respond = (status: number, body: unknown) =>
   vi.fn().mockResolvedValue({ status, ok: status < 400, json: async () => body });
 
+const fakeXhr = (status: number, responseText: string) =>
+  class FakeXhr {
+    status = status;
+    responseText = responseText;
+    upload = { addEventListener: () => {} };
+    private listeners: Record<string, () => void> = {};
+    addEventListener(event: string, fn: () => void) {
+      this.listeners[event] = fn;
+    }
+    open() {}
+    setRequestHeader() {}
+    send() {
+      this.listeners.load?.();
+    }
+  };
+
 describe('admin requests and session expiry', () => {
   afterEach(() => {
     onSessionExpired(null);
@@ -32,23 +48,18 @@ describe('admin requests and session expiry', () => {
   it('signals an ended session when an upload gets a 401 that is not JSON', async () => {
     const expired = vi.fn();
     onSessionExpired(expired);
-    class FakeXhr {
-      status = 401;
-      responseText = '<html>Unauthorized</html>';
-      upload = { addEventListener: () => {} };
-      private listeners: Record<string, () => void> = {};
-      addEventListener(event: string, fn: () => void) {
-        this.listeners[event] = fn;
-      }
-      open() {}
-      setRequestHeader() {}
-      send() {
-        this.listeners.load?.();
-      }
-    }
-    vi.stubGlobal('XMLHttpRequest', FakeXhr);
+    vi.stubGlobal('XMLHttpRequest', fakeXhr(401, '<html>Unauthorized</html>'));
     await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toThrow();
     expect(expired).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an upload with the HTTP status so a duplicate can be told apart', async () => {
+    const body = JSON.stringify({ success: false, error: 'Already uploaded as a.jpg' });
+    vi.stubGlobal('XMLHttpRequest', fakeXhr(409, body));
+    await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
+      status: 409,
+      message: 'Already uploaded as a.jpg',
+    });
   });
 });
 

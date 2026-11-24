@@ -367,6 +367,16 @@ export async function checkDuplicates(
   return found;
 }
 
+/** A rejected upload. status is the HTTP status, or 0 when no response arrived. */
+export class UploadError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'UploadError';
+    this.status = status;
+  }
+}
+
 export async function uploadPhoto(
   token: string,
   galleryId: string | null,
@@ -400,15 +410,15 @@ export async function uploadPhoto(
           clearCache('galleries');
           resolve(data.data);
         } else {
-          reject(new Error(data.error || 'Upload failed'));
+          reject(new UploadError(data.error || 'Upload failed', xhr.status));
         }
       } catch {
-        reject(new Error('Failed to parse response'));
+        reject(new UploadError('Failed to parse response', xhr.status));
       }
     });
 
-    xhr.addEventListener('error', () => reject(new Error('Upload failed')));
-    xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+    xhr.addEventListener('error', () => reject(new UploadError('Upload failed', 0)));
+    xhr.addEventListener('abort', () => reject(new UploadError('Upload aborted', 0)));
 
     xhr.open('POST', `${API_BASE}/photos/upload`);
     xhr.setRequestHeader('Authorization', `Bearer ${token}`);
