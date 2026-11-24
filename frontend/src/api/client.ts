@@ -373,13 +373,14 @@ export async function uploadPhoto(
     });
 
     xhr.addEventListener('load', () => {
+      // Before parsing: a 401 from a proxy may not be JSON, and the session
+      // must still end.
+      checkSession(xhr.status);
       try {
         const data: ApiResponse<Photo> = JSON.parse(xhr.responseText);
-        checkSession(xhr.status);
         if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data) {
           clearCache('photos:');
           clearCache('allPhotos');
-  clearCache('allPhotos');
           clearCache('featured');
           clearCache('galleries');
           resolve(data.data);
