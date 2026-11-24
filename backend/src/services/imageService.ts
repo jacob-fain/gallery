@@ -56,17 +56,24 @@ export interface ExifData {
  * @returns Object containing all three processed versions with metadata
  */
 export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> => {
-  // Get original image metadata
   const metadata = await sharp(buffer).metadata();
-  const originalWidth = metadata.width || 0;
-  const originalHeight = metadata.height || 0;
+  // EXIF orientations 5 to 8 rotate the picture a quarter turn, so the
+  // displayed width is the stored height. Dimensions are recorded as
+  // displayed, because the grid lays photos out from them.
+  const quarterTurn = (metadata.orientation ?? 1) >= 5;
+  const originalWidth = (quarterTurn ? metadata.height : metadata.width) || 0;
+  const originalHeight = (quarterTurn ? metadata.width : metadata.height) || 0;
 
   // IMPORTANT: Keep original EXACTLY as uploaded - no re-encoding!
   // This preserves full quality for downloads and future use.
   // We just need the metadata, the buffer stays unchanged.
 
   // Process web version - resize if larger than max width
+  // rotate() with no angle turns the pixels upright from the EXIF
+  // orientation. WebP output drops EXIF, so without it phone and camera
+  // portraits came out sideways.
   const webProcessed = await sharp(buffer)
+    .rotate()
     .resize({
       width: IMAGE_SIZES.web.maxWidth,
       withoutEnlargement: true, // Don't upscale small images
@@ -80,6 +87,7 @@ export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> =
 
   // Process thumbnail
   const thumbnailProcessed = await sharp(buffer)
+    .rotate()
     .resize({
       width: IMAGE_SIZES.thumbnail.maxWidth,
       withoutEnlargement: true,
