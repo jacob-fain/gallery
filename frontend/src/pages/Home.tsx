@@ -4,12 +4,12 @@ import { getFeaturedPhotos } from '../api/client';
 import type { PublicPhoto } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import { photoAlt } from '../utils/photoAlt';
+import { FeaturedImage, HeroImage } from './HomeImages';
 import styles from './Home.module.css';
 
 export default function Home() {
   const [featuredPhotos, setFeaturedPhotos] = useState<PublicPhoto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [heroLoaded, setHeroLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -54,12 +54,7 @@ export default function Home() {
       <section className={styles.hero}>
         {heroPhoto && (
           <div className={styles.heroImageWrapper}>
-            <img
-              src={heroPhoto.webUrl}
-              alt=""
-              className={`${styles.heroImage} ${heroLoaded ? styles.heroImageLoaded : ''}`}
-              onLoad={() => setHeroLoaded(true)}
-            />
+            <HeroImage photo={heroPhoto} />
             <div className={styles.heroOverlay} />
           </div>
         )}
@@ -89,11 +84,9 @@ export default function Home() {
                 style={{ '--delay': `${index * 0.1}s` } as React.CSSProperties}
               >
                 <div className={styles.featuredImageWrapper}>
-                  <img
-                    src={photo.webUrl}
+                  <FeaturedImage
+                    photo={photo}
                     alt={photoAlt(index, gridPhotos.length, photo.gallery_title)}
-                    className={styles.featuredImage}
-                    loading="lazy"
                   />
                 </div>
                 {photo.gallery_slug && (
