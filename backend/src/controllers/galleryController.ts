@@ -10,12 +10,16 @@ import {
 import { Gallery } from '../types';
 
 /**
- * Strip sensitive fields (password_hash) from gallery objects before returning to client
+ * Strip the password hash before returning a gallery, keeping only whether
+ * one is set so the admin form knows if a blank password field means
+ * "keep the current one".
  */
 const sanitizeGallery = (gallery: Gallery) => {
   const { password_hash, ...safe } = gallery;
-  return safe;
+  return { ...safe, has_password: Boolean(password_hash) };
 };
+
+const PRIVATE_NEEDS_PASSWORD = 'A private gallery needs a password';
 
 export const listGalleries = async (_req: Request, res: Response) => {
   try {
@@ -150,6 +154,16 @@ export const createGallery = async (req: Request, res: Response) => {
       });
     }
 
+    if (
+      !galleryService.privateGalleryHasPassword({
+        isPublic: is_public ?? true,
+        hasStoredPassword: false,
+        password,
+      })
+    ) {
+      return res.status(400).json({ success: false, error: PRIVATE_NEEDS_PASSWORD });
+    }
+
     // Check if slug is already taken
     if (await galleryService.isSlugTaken(slug)) {
       return res.status(409).json({
@@ -201,6 +215,16 @@ export const updateGallery = async (req: Request, res: Response) => {
           error: 'A gallery with this slug already exists',
         });
       }
+    }
+
+    if (
+      !galleryService.privateGalleryHasPassword({
+        isPublic: is_public ?? existing.is_public,
+        hasStoredPassword: Boolean(existing.password_hash),
+        password,
+      })
+    ) {
+      return res.status(400).json({ success: false, error: PRIVATE_NEEDS_PASSWORD });
     }
 
     const gallery = await galleryService.updateGallery(id, {
