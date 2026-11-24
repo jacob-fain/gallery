@@ -11,6 +11,17 @@ From the repository root:
 (cd frontend && npm ci && npx eslint . --max-warnings 0 && npm test && npm run build)
 ```
 
+Database-backed tests (`*.db.test.ts`) run only when `TEST_DATABASE_URL` is
+set, against a throwaway database whose name ends in `_test`; the setup
+drops and rebuilds its schema from `db/init`. To run them locally:
+
+```sh
+docker run -d --rm --name gallery-test-pg -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=gallery_test -p 127.0.0.1:55432:5432 postgres:15-alpine
+(cd backend && TEST_DATABASE_URL=postgresql://test:test@127.0.0.1:55432/gallery_test npm test)
+docker rm -f gallery-test-pg
+```
+
 These are the same steps CI runs (`.github/workflows/ci.yml`), so a green
 local gate predicts a green CI run. Lint warnings fail the gate, as they do in
 CI.
@@ -40,7 +51,8 @@ back, then `npm ci`.
   makes the merge API refuse. If `main` moves under a queued PR, report
   whether it still merges cleanly and let the tester ask for an update.
 - When `main` moves and a PR conflicts, merge `main` into the branch, build,
-  read the exit code, then push. Never force-push.
+  and read the exit code. If the tester has the PR, push only after it asks.
+  Never force-push.
 - A test-file conflict keeps both sides' tests.
 
 ## CI failures
