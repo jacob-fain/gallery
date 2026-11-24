@@ -25,8 +25,8 @@ jobs:
       run:
         working-directory: backend
     # Database-backed tests run against this throwaway Postgres; the test
-    # setup rebuilds its schema from db/init, which also proves every
-    # migration applies to an empty database.
+    # setup rebuilds its schema with the migration runner, which also proves
+    # every migration applies to an empty database.
     services:
       postgres:
         image: postgres:15-alpine
