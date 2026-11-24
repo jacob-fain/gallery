@@ -26,7 +26,7 @@ describe('installClientErrorReporting', () => {
 
   it('reports uncaught errors and unhandled rejections without cookies', () => {
     const { fetchMock, sendBeacon } = install();
-    window.history.replaceState(null, '', '/gallery/private?access=tok#x');
+    window.history.replaceState(null, '', '/gallery/private?access=SECRET-ACCESS-TOKEN#x');
     window.dispatchEvent(new ErrorEvent('error', { error: new Error('uncaught'), message: 'uncaught' }));
     const rejection = new Event('unhandledrejection') as PromiseRejectionEvent;
     Object.defineProperty(rejection, 'reason', { value: new Error('rejected') });
@@ -38,7 +38,7 @@ describe('installClientErrorReporting', () => {
       ['unhandledrejection', 'Error: rejected'],
     ]);
     expect(reports[0]).toMatchObject({ url: '/gallery/private', release: 'build-1', userAgent: navigator.userAgent });
-    expect(JSON.stringify(reports)).not.toMatch(/tok|access=/);
+    expect(JSON.stringify(reports)).not.toMatch(/SECRET-ACCESS-TOKEN|access=/);
     for (const [url, init] of fetchMock.mock.calls) {
       expect(url).toBe('/api/client-errors');
       expect(init).toMatchObject({ method: 'POST', keepalive: true, credentials: 'omit' });
