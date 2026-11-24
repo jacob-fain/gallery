@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { MasonryPhotoAlbum } from 'react-photo-album';
 import 'react-photo-album/masonry.css';
-import Lightbox from 'yet-another-react-lightbox';
+import Lightbox, { type ControllerRef } from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import Counter from 'yet-another-react-lightbox/plugins/counter';
 import Download from 'yet-another-react-lightbox/plugins/download';
@@ -20,6 +20,7 @@ import {
   type SlideWithExif,
 } from './gridItems';
 import styles from './PhotoGrid.module.css';
+import { TILE_KEYBOARD_PROPS, useLightboxFocusTrap, useLightboxHistory } from './keyboard';
 
 interface PhotoGridProps {
   photos: PublicPhoto[];
@@ -64,6 +65,7 @@ const PhotoTiles = memo(function PhotoTiles({ photos, onOpen }: PhotoTilesProps)
       columns={gridColumns}
       spacing={12}
       sizes={GRID_SIZES}
+      componentsProps={TILE_KEYBOARD_PROPS}
       onClick={({ index }) => onOpen(index)}
     />
   );
@@ -74,6 +76,9 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
   const trackedPhotoIds = useRef(new Set<string>());
   const gridRef = useRef<HTMLDivElement>(null);
   const [mayRefresh] = useState(() => createRefreshGuard(REFRESH_INTERVAL_MS));
+  const lightboxController = useRef<ControllerRef>(null);
+  useLightboxFocusTrap(lightboxIndex >= 0, LIGHTBOX_CLASS, lightboxController);
+  useLightboxHistory(lightboxIndex >= 0, lightboxController);
 
   // Image error events do not bubble, so they are caught in the capture
   // phase. The lightbox renders in a portal outside the grid and does not
@@ -121,6 +126,7 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
         }}
         plugins={LIGHTBOX_PLUGINS}
         controller={{
+          ref: lightboxController,
           closeOnPullUp: true,
           closeOnPullDown: true,
         }}
