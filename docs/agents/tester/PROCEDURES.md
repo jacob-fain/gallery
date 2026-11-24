@@ -5,8 +5,11 @@
 ## Check a PR
 
 1. `gh pr view <n>` and `gh pr diff <n>`. Read the whole diff.
-2. Check out the head in its own worktree:
-   `git fetch origin pull/<n>/head && git worktree add .claude/worktrees/test-<n> FETCH_HEAD`.
+2. Check out the exact head in its own worktree. Use the full sha from
+   `gh pr view <n> --json headRefOid --jq .headRefOid`, not `FETCH_HEAD`,
+   which another fetch can move between the two commands:
+   `git fetch origin pull/<n>/head && git worktree add --detach .claude/worktrees/test-<n> <sha>`.
+   Confirm `git -C .claude/worktrees/test-<n> rev-parse HEAD` matches before testing.
 3. Run the gate there (`docs/agents/developer/PROCEDURES.md`) and read each
    exit code. Run any test the PR adds and confirm it fails without the fix
    when that is cheap to show (revert the fix line locally, run, restore).
