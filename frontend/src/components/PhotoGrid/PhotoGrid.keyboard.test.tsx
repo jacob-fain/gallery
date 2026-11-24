@@ -70,7 +70,8 @@ const CONTROLS = ['Download', 'Close', 'Previous', 'Next'];
 
 describe('PhotoGrid keyboard and history', () => {
   beforeEach(() => {
-    window.history.replaceState({ page: 'gallery' }, '');
+    // A test that ends with the lightbox open leaves its photo in the URL.
+    window.history.replaceState({ page: 'gallery' }, '', '/g/smith');
   });
 
   it('keeps Tab and Shift+Tab cycling through the open lightbox controls', async () => {
@@ -121,16 +122,16 @@ describe('PhotoGrid keyboard and history', () => {
   it('closes on Back and leaves the gallery entry current', async () => {
     const user = userEvent.setup();
     render(<PhotoGrid photos={photos} />);
-    const path = window.location.pathname + window.location.search + window.location.hash;
 
     await user.click(tile(1));
     expect(window.history.state).toEqual({ page: 'gallery', photoLightbox: true });
-    expect(window.location.pathname + window.location.search + window.location.hash).toBe(path);
+    expect(window.location.pathname + window.location.search).toBe('/g/smith?photo=a');
 
     window.history.back();
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(window.history.state).toEqual({ page: 'gallery' });
+    expect(window.location.pathname + window.location.search).toBe('/g/smith');
   });
 
   it('pops its history entry when closed with the Close button or Escape', async () => {

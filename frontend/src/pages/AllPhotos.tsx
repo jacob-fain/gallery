@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
 import { getAllPhotos } from '../api/client';
 import { shuffle } from '../utils/shuffle';
@@ -8,7 +9,12 @@ import LoadError from '../components/StatusMessage/LoadError';
 import PageHeading from '../components/PageHeading/PageHeading';
 import styles from './AllPhotos.module.css';
 
+// Every photo is fetched, since shuffle and the lightbox need the whole set,
+// but laying out hundreds of tiles at once stalls a phone.
+const TILES_PER_PAGE = 60;
+
 export default function AllPhotos() {
+  const { key: locationKey } = useLocation();
   const [photos, setPhotos] = useState<PublicPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -82,7 +88,12 @@ export default function AllPhotos() {
       {photos.length === 0 ? (
         <div className="loading">No photos yet. Check back soon!</div>
       ) : (
-        <PhotoGrid photos={photos} onImagesExpired={refreshPhotos} />
+        <PhotoGrid
+          photos={photos}
+          onImagesExpired={refreshPhotos}
+          tilesPerPage={TILES_PER_PAGE}
+          tileMemoryKey={locationKey}
+        />
       )}
     </div>
   );
