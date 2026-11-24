@@ -5,6 +5,7 @@ import galleriesRouter from './galleries';
 import photosRouter from './photos';
 import settingsRouter from './settings';
 import healthRouter from './health';
+import sitemapRouter from './sitemap';
 import * as photoController from '../controllers/photoController';
 import * as galleryController from '../controllers/galleryController';
 import * as analyticsController from '../controllers/analyticsController';
@@ -14,6 +15,7 @@ import { validateBodyIds } from '../middleware/validateIds';
 const router = Router();
 
 router.use(healthRouter);
+router.use(sitemapRouter);
 
 // Featured photos for homepage
 router.get('/featured', photoController.getFeatured);
