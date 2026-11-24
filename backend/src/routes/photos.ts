@@ -34,11 +34,11 @@ router.put(
   photoController.reorderPhotos
 );
 
-// PUT /api/photos/move - Move photos to another gallery
+// PUT /api/photos/move - Move photos to another gallery or to Unassigned (null)
 router.put(
   '/move',
   authMiddleware,
-  validateBodyIds({ photo_ids: 'uuid[]', target_gallery_id: 'uuid' }),
+  validateBodyIds({ photo_ids: 'uuid[]', target_gallery_id: 'uuid?' }),
   photoController.movePhotos
 );
 

@@ -2,7 +2,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
-  CopyObjectCommand,
+  DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -110,23 +110,41 @@ export const deleteFile = async (key: string): Promise<void> => {
   await s3Client.send(command);
 };
 
+// DeleteObjects accepts at most 1000 keys per request.
+const DELETE_BATCH_SIZE = 1000;
+
 /**
- * Copy a file within S3
- * @param sourceKey - Source S3 object key
- * @param destKey - Destination S3 object key
+ * Delete many S3 objects with batched DeleteObjects requests. Best effort:
+ * every batch is attempted, failures are logged, and the call never throws.
+ * @returns Number of keys that could not be deleted
  */
-export const copyFile = async (sourceKey: string, destKey: string): Promise<void> => {
-  if (!isS3Configured()) {
-    throw new Error('S3 is not configured. Check AWS environment variables.');
+export const deleteFiles = async (keys: string[]): Promise<number> => {
+  if (!isS3Configured() || keys.length === 0) {
+    return 0;
   }
 
-  const command = new CopyObjectCommand({
-    Bucket: S3_BUCKET,
-    CopySource: `${S3_BUCKET}/${sourceKey}`,
-    Key: destKey,
-  });
+  let failed = 0;
+  for (let i = 0; i < keys.length; i += DELETE_BATCH_SIZE) {
+    const batch = keys.slice(i, i + DELETE_BATCH_SIZE);
+    try {
+      const response = await s3Client.send(
+        new DeleteObjectsCommand({
+          Bucket: S3_BUCKET,
+          Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+        })
+      );
+      // DeleteObjects answers 200 even when some keys fail; they come back here.
+      failed += response.Errors?.length ?? 0;
+    } catch (err) {
+      console.error(`Failed to delete a batch of ${batch.length} S3 objects:`, err);
+      failed += batch.length;
+    }
+  }
 
-  await s3Client.send(command);
+  if (failed > 0) {
+    console.error(`Failed to delete ${failed}/${keys.length} S3 objects`);
+  }
+  return failed;
 };
 
 /**

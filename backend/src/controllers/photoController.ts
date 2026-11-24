@@ -363,10 +363,13 @@ export const reorderPhotos = async (req: Request, res: Response) => {
 
 /**
  * Move photos to a different gallery
+ * Body: { photo_ids: string[], target_gallery_id: string | null }
+ * A null target moves the photos to Unassigned. The field must still be
+ * sent, so a request that omits it cannot unassign photos by accident.
  */
 export const movePhotos = async (req: Request, res: Response) => {
   try {
-    const { photo_ids, target_gallery_id } = req.body;
+    const { photo_ids } = req.body;
 
     if (!Array.isArray(photo_ids) || photo_ids.length === 0) {
       return res.status(400).json({
@@ -375,21 +378,22 @@ export const movePhotos = async (req: Request, res: Response) => {
       });
     }
 
-    if (!target_gallery_id) {
+    if (req.body.target_gallery_id === undefined) {
       return res.status(400).json({
         success: false,
-        error: 'target_gallery_id is required',
+        error: 'target_gallery_id is required (null for Unassigned)',
       });
     }
+    const targetGalleryId: string | null = req.body.target_gallery_id || null;
 
-    // Verify target gallery exists
-    const targetGallery = await galleryService.getGalleryById(target_gallery_id);
-    if (!targetGallery) {
-      return res.status(404).json({ success: false, error: 'Target gallery not found' });
+    if (targetGalleryId) {
+      const targetGallery = await galleryService.getGalleryById(targetGalleryId);
+      if (!targetGallery) {
+        return res.status(404).json({ success: false, error: 'Target gallery not found' });
+      }
     }
 
-    // Move photos
-    const movedCount = await photoService.movePhotos(photo_ids, target_gallery_id);
+    const movedCount = await photoService.movePhotos(photo_ids, targetGalleryId);
 
     res.json({ success: true, data: { moved: movedCount } });
   } catch (err) {

@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required');
@@ -19,6 +19,24 @@ export const query = (text: string, params?: unknown[]) => {
 
 export const getClient = () => {
   return pool.connect();
+};
+
+/**
+ * Runs fn on one pooled client inside BEGIN/COMMIT, rolling back if it throws.
+ */
+export const withTransaction = async <T>(fn: (client: PoolClient) => Promise<T>): Promise<T> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 export const testConnection = async (): Promise<boolean> => {
