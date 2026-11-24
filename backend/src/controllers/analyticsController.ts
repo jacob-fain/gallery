@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as analyticsService from '../services/analyticsService';
 import { getSignedUrl } from '../services/s3Service';
+import { logger } from '../utils/logger';
 
 /**
  * Get all analytics data for the admin dashboard
@@ -25,7 +26,7 @@ export const getAnalytics = async (_req: Request, res: Response) => {
       },
     });
   } catch (err) {
-    console.error('Error fetching analytics:', err);
+    logger.error('Error fetching analytics', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch analytics' });
   }
 };

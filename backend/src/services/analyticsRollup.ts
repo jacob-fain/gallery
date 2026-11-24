@@ -1,5 +1,6 @@
 import { withTransaction } from '../config/db';
 import { DASHBOARD_TIMEZONE } from './analyticsService';
+import { logger } from '../utils/logger';
 
 /**
  * Raw analytics_events rows are kept this many days, then deleted. Every
@@ -136,7 +137,7 @@ export const scheduleAnalyticsRollup = (log: (message: string) => void = console
         }
       })
       .catch((err: unknown) => {
-        console.error('Analytics rollup failed:', err instanceof Error ? err.message : err);
+        logger.error('Analytics rollup failed', { err });
       })
       .finally(() => {
         current = null;

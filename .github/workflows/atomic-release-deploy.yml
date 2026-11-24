@@ -83,6 +83,9 @@ jobs:
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
           echo "Next version will be: $new_version"
           echo "VERSION=$new_version" >> $GITHUB_ENV
+          # The commit being released, read from this checkout of main
+          # (GITHUB_SHA is the ref the workflow was dispatched from).
+          echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
       - name: Pre-deployment validation
         run: |
@@ -241,8 +244,17 @@ jobs:
           
           cd "$GALLERY_DIR"
           
-          # Build and start all services
-          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache
+          # Build and start all services. The backend reports BUILD_ID on
+          # /api/health/ready: an opaque hash of version and commit, the same
+          # 16 hex characters images.yml produces, so the public route
+          # reveals no version. Commit and version are shown only to the
+          # admin. Other images ignore these arguments.
+          build_id=$(printf '%s:%s' "$VERSION" "$COMMIT_SHA" | sha256sum | cut -c1-16)
+          echo "Backend build id: $build_id"
+          docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache \
+            --build-arg BUILD_ID="$build_id" \
+            --build-arg GIT_SHA="$COMMIT_SHA" \
+            --build-arg APP_VERSION="$VERSION"
           docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d
           
           # Wait for backend health

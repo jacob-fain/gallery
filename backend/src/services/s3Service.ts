@@ -8,6 +8,7 @@ import { Readable } from 'stream';
 import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, S3_BUCKET, isS3Configured } from '../config/s3';
 import { attachmentDisposition } from './downloadNames';
+import { logger } from '../utils/logger';
 
 // Default signed URL expiration: 1 hour
 const DEFAULT_EXPIRES_IN = 3600;
@@ -164,13 +165,13 @@ export const deleteFiles = async (keys: string[]): Promise<number> => {
       // DeleteObjects answers 200 even when some keys fail; they come back here.
       failed += response.Errors?.length ?? 0;
     } catch (err) {
-      console.error(`Failed to delete a batch of ${batch.length} S3 objects:`, err);
+      logger.error(`Failed to delete a batch of ${batch.length} S3 objects`, { err });
       failed += batch.length;
     }
   }
 
   if (failed > 0) {
-    console.error(`Failed to delete ${failed}/${keys.length} S3 objects`);
+    logger.error(`Failed to delete ${failed}/${keys.length} S3 objects`);
   }
   return failed;
 };
@@ -246,6 +247,6 @@ export const deletePhotoFiles = async (
 
   const failures = results.filter((r) => r.status === 'rejected');
   if (failures.length > 0) {
-    console.error(`Failed to delete ${failures.length}/${keys.length} files for photo ${photoId}`);
+    logger.error(`Failed to delete ${failures.length}/${keys.length} files for photo ${photoId}`);
   }
 };

@@ -87,11 +87,24 @@ describe('health routes through the app', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
     if (process.env.TEST_DATABASE_URL) {
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ status: 'ok', build: 'dev' });
+      expect(await res.json()).toEqual({ status: 'ok', build: 'dev', s3: 'not configured' });
     } else {
       // Unit runs point DATABASE_URL at a closed port.
       expect(res.status).toBe(503);
-      expect(await res.json()).toEqual({ status: 'unavailable', reason: 'database unreachable', build: 'dev' });
+      expect(await res.json()).toEqual({
+        status: 'unavailable',
+        reason: 'database unreachable',
+        build: 'dev',
+        s3: 'not configured',
+      });
     }
   });
+
+  it('GET /health/ready keeps "build" a single flat key the deploy can match', async () => {
+    // homelab-gallery-apply reads the id with sed: .*"build":"\([0-9a-z]*\)"
+    const text = await (await fetch(`${base}/health/ready`)).text();
+    expect(text.match(/"build":/g)).toHaveLength(1);
+    expect(text).toMatch(/"build":"dev"/);
+  });
 });
+

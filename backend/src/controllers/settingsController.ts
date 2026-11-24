@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as settingsService from '../services/settingsService';
 import { cachePublicly } from '../middleware/cacheControl';
+import { logger } from '../utils/logger';
 
 /**
  * Get all site settings (public)
@@ -11,7 +12,7 @@ export const getSettings = async (_req: Request, res: Response) => {
     cachePublicly(res);
     res.json({ success: true, data: settings });
   } catch (err) {
-    console.error('Error fetching settings:', err);
+    logger.error('Error fetching settings', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch settings' });
   }
 };
@@ -30,7 +31,7 @@ export const updateSettings = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: settings });
   } catch (err) {
-    console.error('Error updating settings:', err);
+    logger.error('Error updating settings', { err });
     res.status(500).json({ success: false, error: 'Failed to update settings' });
   }
 };
