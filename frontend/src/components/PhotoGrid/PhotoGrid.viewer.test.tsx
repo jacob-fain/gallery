@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Lightbox from 'yet-another-react-lightbox';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PublicPhoto } from '../../types';
 
 vi.mock('../../api/client', () => ({
@@ -40,9 +40,17 @@ function photo(id: string, galleryTitle?: string | null): PublicPhoto {
 
 const photos = [photo('a'), photo('b'), photo('c')];
 
+// By attribute rather than role: an open lightbox hides the page from the
+// accessibility tree.
 function tiles() {
-  return within(screen.getByRole('group', { name: 'Photo album' })).getAllByRole('button');
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-photo-index]'));
 }
+
+// The open photo is named in the URL, so each test starts on a clean entry
+// rather than reopening the last test's photo.
+beforeEach(() => {
+  window.history.pushState({ page: 'gallery' }, '', '/g/smith');
+});
 
 function lightbox() {
   return screen.getByRole('dialog', { name: 'Lightbox' });
