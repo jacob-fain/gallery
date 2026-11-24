@@ -61,38 +61,50 @@ export default function Gallery() {
       try {
         setLoading(true);
 
-        // Photos load alongside the metadata, except for a gallery already
-        // seen as private, whose photos the API refuses without a token.
+        // Photos load alongside the metadata. A token stored by an earlier
+        // unlock goes with that request, so a revisit to a private gallery
+        // needs no second fetch. Without a token, a gallery already seen as
+        // private is skipped, since the API refuses its photos.
+        const storedToken = sessionStorage.getItem(getStorageKey(slug));
         const galleryPromise = getGallery(slug);
-        const photosPromise = isKnownPrivateGallery(slug) ? null : getGalleryPhotos(slug).catch(() => null);
+        const photosPromise = storedToken
+          ? getGalleryPhotos(slug, storedToken).then(
+              (data) => ({ ok: true as const, data }),
+              () => ({ ok: false as const })
+            )
+          : isKnownPrivateGallery(slug)
+            ? null
+            : getGalleryPhotos(slug).then(
+                (data) => ({ ok: true as const, data }),
+                () => ({ ok: false as const })
+              );
 
         const galleryData = await galleryPromise;
         setGallery(galleryData);
 
         if (!isPrivateGallery(galleryData)) {
-          const photosData = await (photosPromise ?? getGalleryPhotos(slug).catch(() => null));
-          if (photosData) {
-            setPhotos(photosData);
+          const result = await (photosPromise ??
+            getGalleryPhotos(slug).then(
+              (data) => ({ ok: true as const, data }),
+              () => ({ ok: false as const })
+            ));
+          if (result.ok) {
+            setPhotos(result.data);
           }
-        } else {
-          // Private gallery - check for stored access token
-          const storedToken = sessionStorage.getItem(getStorageKey(slug));
-          if (storedToken) {
-            try {
-              // Try to fetch photos with stored token
-              const photosData = await getGalleryPhotos(slug, storedToken);
-              setPhotos(photosData);
-              setAccessToken(storedToken);
-              // Update gallery state to show as unlocked
-              setGallery({
-                ...galleryData,
-                title: galleryData.title,
-                slug: galleryData.slug,
-              } as unknown as GalleryType);
-            } catch {
-              // Token expired or invalid, clear it
-              sessionStorage.removeItem(getStorageKey(slug));
-            }
+        } else if (storedToken && photosPromise) {
+          const result = await photosPromise;
+          if (result.ok) {
+            setPhotos(result.data);
+            setAccessToken(storedToken);
+            // Update gallery state to show as unlocked
+            setGallery({
+              ...galleryData,
+              title: galleryData.title,
+              slug: galleryData.slug,
+            } as unknown as GalleryType);
+          } else {
+            // Token expired or invalid, clear it
+            sessionStorage.removeItem(getStorageKey(slug));
           }
         }
       } catch (err) {
