@@ -6,8 +6,11 @@ const {
   getAdminStats,
   getGallery,
   getGalleryPhotos,
+  getCurrentUser,
   getPhotoDownloadUrl,
   isKnownPrivateGallery,
+  login,
+  logout,
   onSessionExpired,
   uploadPhoto,
   verifyGalleryPassword,
@@ -28,8 +31,12 @@ const fakeXhr = (status: number, responseText: string) =>
     fire(event: string) {
       this.listeners[event]?.();
     }
+    withCredentials = false;
+    headers: Record<string, string> = {};
     open() {}
-    setRequestHeader() {}
+    setRequestHeader(name: string, value: string) {
+      this.headers[name] = value;
+    }
     send() {
       this.listeners.load?.();
     }
@@ -42,11 +49,40 @@ describe('admin requests and session expiry', () => {
     vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
   });
 
+  it('sends the session cookie on admin requests and no Authorization header', async () => {
+    const fetchMock = respond(200, { success: true, data: {} });
+    vi.stubGlobal('fetch', fetchMock);
+    await getAdminStats();
+    await getCurrentUser();
+    await login('a@example.com', 'pw');
+    await logout();
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.credentials).toBe('include');
+      expect(JSON.stringify(init.headers ?? {})).not.toMatch(/authorization/i);
+    }
+  });
+
+  it('sends the session cookie with an upload', async () => {
+    const sent: Array<{ withCredentials: boolean; headers: Record<string, string> }> = [];
+    vi.stubGlobal(
+      'XMLHttpRequest',
+      class extends fakeXhr(200, JSON.stringify({ success: true, data: { id: 'p' } })) {
+        send() {
+          sent.push(this);
+          super.send();
+        }
+      }
+    );
+    await uploadPhoto(null, new File(['x'], 'a.jpg'));
+    expect(sent[0].withCredentials).toBe(true);
+    expect(sent[0].headers).toEqual({});
+  });
+
   it('signals an ended session on a 401', async () => {
     const expired = vi.fn();
     onSessionExpired(expired);
     vi.stubGlobal('fetch', respond(401, { success: false, error: 'Invalid or expired token' }));
-    await expect(getAdminStats('t')).rejects.toThrow('Invalid or expired token');
+    await expect(getAdminStats()).rejects.toThrow('Invalid or expired token');
     expect(expired).toHaveBeenCalledOnce();
   });
 
@@ -54,7 +90,7 @@ describe('admin requests and session expiry', () => {
     const expired = vi.fn();
     onSessionExpired(expired);
     vi.stubGlobal('fetch', respond(500, { success: false, error: 'boom' }));
-    await expect(getAdminStats('t')).rejects.toThrow('boom');
+    await expect(getAdminStats()).rejects.toThrow('boom');
     expect(expired).not.toHaveBeenCalled();
   });
 
@@ -62,14 +98,14 @@ describe('admin requests and session expiry', () => {
     const expired = vi.fn();
     onSessionExpired(expired);
     vi.stubGlobal('XMLHttpRequest', fakeXhr(401, '<html>Unauthorized</html>'));
-    await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toThrow();
+    await expect(uploadPhoto(null, new File(['x'], 'a.jpg'))).rejects.toThrow();
     expect(expired).toHaveBeenCalledOnce();
   });
 
   it('rejects an upload with the HTTP status so a duplicate can be told apart', async () => {
     const body = JSON.stringify({ success: false, error: 'Already uploaded as a.jpg' });
     vi.stubGlobal('XMLHttpRequest', fakeXhr(409, body));
-    await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
+    await expect(uploadPhoto(null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
       status: 409,
       message: 'Already uploaded as a.jpg',
     });
@@ -88,7 +124,7 @@ describe('admin requests and session expiry', () => {
       }
     );
     const controller = new AbortController();
-    const upload = uploadPhoto('t', null, new File(['x'], 'a.jpg'), undefined, controller.signal);
+    const upload = uploadPhoto(null, new File(['x'], 'a.jpg'), undefined, controller.signal);
     controller.abort();
     await expect(upload).rejects.toMatchObject({ status: 0, message: 'Upload aborted' });
     expect(abort).toHaveBeenCalledOnce();
@@ -96,7 +132,7 @@ describe('admin requests and session expiry', () => {
 
   it('names an oversized upload rejected by the proxy instead of a parse error', async () => {
     vi.stubGlobal('XMLHttpRequest', fakeXhr(413, '<html>413 Request Entity Too Large</html>'));
-    await expect(uploadPhoto('t', null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
+    await expect(uploadPhoto(null, new File(['x'], 'a.jpg'))).rejects.toMatchObject({
       status: 413,
       message: 'File is larger than the server accepts',
     });

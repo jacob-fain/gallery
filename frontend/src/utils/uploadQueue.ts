@@ -69,13 +69,12 @@ export interface QueueSummary {
 
 export interface UploadQueueDeps {
   upload: (
-    token: string,
     galleryId: string | null,
     file: File,
     onProgress: (percent: number) => void,
     signal: AbortSignal
   ) => Promise<Photo>;
-  checkDuplicates: (token: string, hashes: string[]) => Promise<Record<string, DuplicateInfo>>;
+  checkDuplicates: (hashes: string[]) => Promise<Record<string, DuplicateInfo>>;
   hash: (file: File) => Promise<string>;
 }
 
@@ -154,7 +153,8 @@ export class UploadQueue {
   private timers = new Set<ReturnType<typeof setTimeout>>();
   // Bumped by abortAll so work started before it drops its results.
   private generation = 0;
-  private token: string | null = null;
+  // The signed-in admin's id, or null when signed out.
+  private session: string | null = null;
   private nextId = 0;
 
   constructor(deps: UploadQueueDeps) {
@@ -182,15 +182,14 @@ export class UploadQueue {
   getSummary = (): QueueSummary => this.summary;
 
   /** A different session (or none) cannot finish the old one's uploads. */
-  setToken(token: string | null) {
-    if (token === this.token) return;
-    if (this.token !== null) this.abortAll();
-    this.token = token;
+  setSession(session: string | null) {
+    if (session === this.session) return;
+    if (this.session !== null) this.abortAll();
+    this.session = session;
   }
 
   add(files: readonly File[], options: { galleryId: string | null; checkOnly: boolean }) {
-    const token = this.token;
-    if (!token || files.length === 0) return;
+    if (!this.session || files.length === 0) return;
     const { galleryId, checkOnly } = options;
 
     const newItems: UploadItem[] = files.map((file) => {
@@ -226,7 +225,7 @@ export class UploadQueue {
       };
     });
 
-    void this.check(token, this.generation, newItems.filter((i) => i.status === 'checking'));
+    void this.check(this.generation, newItems.filter((i) => i.status === 'checking'));
   }
 
   retry(id: string) {
@@ -270,7 +269,7 @@ export class UploadQueue {
   // Hashes and duplicate-checks files in batches, feeding the upload queue
   // while later batches are still being hashed. If hashing or the check
   // fails, files fall through to upload: the server rejects duplicates too.
-  private async check(token: string, generation: number, items: UploadItem[]) {
+  private async check(generation: number, items: UploadItem[]) {
     const seenHashes = new Set<string>();
     for (let i = 0; i < items.length; i += CHECK_BATCH_SIZE) {
       const batch = items.slice(i, i + CHECK_BATCH_SIZE);
@@ -288,7 +287,7 @@ export class UploadQueue {
       let existing: Record<string, DuplicateInfo> = {};
       try {
         const unchecked = [...new Set(batchHashes.values())].filter((h) => !seenHashes.has(h));
-        if (unchecked.length > 0) existing = await this.deps.checkDuplicates(token, unchecked);
+        if (unchecked.length > 0) existing = await this.deps.checkDuplicates(unchecked);
       } catch {
         // Check failed: proceed with uploads
       }
@@ -328,8 +327,7 @@ export class UploadQueue {
   }
 
   private start(item: UploadItem) {
-    const token = this.token;
-    if (!token) return;
+    if (!this.session) return;
     const generation = this.generation;
     const controller = new AbortController();
     this.running.set(item.id, controller);
@@ -338,7 +336,6 @@ export class UploadQueue {
     const stale = () => generation !== this.generation;
     this.deps
       .upload(
-        token,
         item.galleryId,
         item.file,
         (progress) => {

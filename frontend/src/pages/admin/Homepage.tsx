@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useAuth } from '../../contexts/auth';
 import {
   getHomepagePhotos,
   setHeroPhoto,
@@ -88,7 +87,6 @@ function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoPro
 }
 
 export default function Homepage() {
-  const { token } = useAuth();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -106,13 +104,9 @@ export default function Homepage() {
   );
 
   const loadPhotos = useCallback(async () => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
     try {
       setError(null);
-      const data = await getHomepagePhotos(token);
+      const data = await getHomepagePhotos();
       setPhotos(data);
     } catch (err) {
       console.error('Failed to load homepage photos:', err);
@@ -120,7 +114,7 @@ export default function Homepage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     loadPhotos();
@@ -128,7 +122,7 @@ export default function Homepage() {
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over || active.id === over.id || !token) return;
+    if (!over || active.id === over.id) return;
 
     const oldIndex = photos.findIndex((p) => p.id === active.id);
     const newIndex = photos.findIndex((p) => p.id === over.id);
@@ -139,7 +133,7 @@ export default function Homepage() {
     setPhotos(newPhotos);
 
     try {
-      await reorderHomepagePhotos(token, newPhotos.map((p) => p.id));
+      await reorderHomepagePhotos(newPhotos.map((p) => p.id));
     } catch (err) {
       console.error('Failed to reorder:', err);
       loadPhotos(); // Revert on error
@@ -147,9 +141,8 @@ export default function Homepage() {
   };
 
   const handleMakeHero = async (photoId: string) => {
-    if (!token) return;
     try {
-      const updated = await setHeroPhoto(token, photoId);
+      const updated = await setHeroPhoto(photoId);
       setPhotos(updated);
     } catch (err) {
       console.error('Failed to set hero:', err);
@@ -157,9 +150,8 @@ export default function Homepage() {
   };
 
   const handleRemove = async (photoId: string) => {
-    if (!token) return;
     try {
-      const updated = await removeFromHomepage(token, photoId);
+      const updated = await removeFromHomepage(photoId);
       setPhotos(updated);
     } catch (err) {
       console.error('Failed to remove:', err);
@@ -167,10 +159,9 @@ export default function Homepage() {
   };
 
   const openPicker = async () => {
-    if (!token) return;
     setShowPicker(true);
     try {
-      const data = await getAllGalleries(token);
+      const data = await getAllGalleries();
       setGalleries(data);
     } catch (err) {
       console.error('Failed to load galleries:', err);
@@ -178,11 +169,11 @@ export default function Homepage() {
   };
 
   const handleGallerySelect = async (galleryId: string) => {
-    if (!token || !galleryId) return;
+    if (!galleryId) return;
     setSelectedGallery(galleryId);
     setLoadingGalleryPhotos(true);
     try {
-      const data = await getPhotosByGallery(token, galleryId);
+      const data = await getPhotosByGallery(galleryId);
       setGalleryPhotos(data);
     } catch (err) {
       console.error('Failed to load gallery photos:', err);
@@ -192,9 +183,8 @@ export default function Homepage() {
   };
 
   const handleAddPhoto = async (photoId: string) => {
-    if (!token) return;
     try {
-      const updated = await addToHomepage(token, photoId);
+      const updated = await addToHomepage(photoId);
       setPhotos(updated);
       // Update gallery photos to reflect the change
       setGalleryPhotos((prev) =>

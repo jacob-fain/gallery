@@ -24,15 +24,16 @@ function LeaveWarning() {
 /** Holds the admin's uploads above the routes, so they keep running (and
  *  keep their rows) while the admin moves between pages. */
 export function UploadQueueProvider({ children }: { children: ReactNode }) {
-  const { token } = useAuth();
+  const { user } = useAuth();
+  const session = user?.id ?? null;
   const [queue] = useState(
     () => new UploadQueue({ upload: uploadPhoto, checkDuplicates, hash: hashFile })
   );
 
-  // Signing out, or the session expiring, clears the token: the uploads stop.
+  // Signing out, or the session expiring, clears the user: the uploads stop.
   useEffect(() => {
-    queue.setToken(token);
-  }, [queue, token]);
+    queue.setSession(session);
+  }, [queue, session]);
 
   useEffect(() => () => queue.abortAll(), [queue]);
 

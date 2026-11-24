@@ -45,14 +45,15 @@ describe('malformed ids through the app', () => {
 
   it('admits a full list of ids past the body parser', async () => {
     // Body parsing runs before auth: an oversized body would answer 413,
-    // an accepted one reaches auth and answers 401 without a token.
+    // an accepted one reaches auth, whose origin check answers 403 to a
+    // write that carries no admin Origin.
     const ids = Array(MAX_IDS).fill('3f2b8c1e-9a4d-4e6f-8b2a-1c3d5e7f9a0b');
     const res = await fetch(base + '/photos/reorder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ gallery_id: ids[0], photo_ids: ids }),
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
   });
 });
 

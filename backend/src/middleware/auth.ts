@@ -1,36 +1,43 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken, getUserById } from '../services/authService';
+import { clearSessionCookie, hasAdminOrigin, readSessionCookie, refuseOrigin } from './session';
 
 const deny = (res: Response, error: string): void => {
   res.status(401).json({ success: false, error });
 };
 
 /**
- * Require an admin session: a valid admin token in "Authorization: Bearer
- * <token>" whose user still exists and has not revoked it (its token_version
- * still matches). Attaches the user to req.user.
+ * Require an admin session: a valid admin token in the httpOnly session
+ * cookie whose user still exists and has not revoked it (its token_version
+ * still matches), and for state-changing requests an Origin from the admin
+ * site. Attaches the user to req.user.
  */
 export const authMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
-  const authHeader = req.headers.authorization;
+  if (!hasAdminOrigin(req)) {
+    refuseOrigin(res);
+    return;
+  }
 
-  if (!authHeader) {
+  const token = readSessionCookie(req);
+  if (!token) {
     deny(res, 'Authentication required');
     return;
   }
 
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    deny(res, 'Invalid authorization format. Use: Bearer <token>');
-    return;
-  }
-
-  const payload = verifyToken(parts[1]);
-  if (!payload) {
+  // A cookie that no longer authenticates is removed, so the browser stops
+  // sending it.
+  const refuse = () => {
+    clearSessionCookie(res);
     deny(res, 'Invalid or expired token');
+  };
+
+  const payload = verifyToken(token);
+  if (!payload) {
+    refuse();
     return;
   }
 
@@ -39,7 +46,7 @@ export const authMiddleware = async (
   try {
     const user = await getUserById(payload.userId);
     if (!user || user.token_version !== payload.tokenVersion) {
-      deny(res, 'Invalid or expired token');
+      refuse();
       return;
     }
   } catch (err) {
