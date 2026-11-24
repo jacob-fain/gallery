@@ -6,7 +6,7 @@
  *   - ADMIN_EMAIL
  *   - ADMIN_PASSWORD
  *
- * Usage: npx ts-node scripts/seed-admin.ts
+ * Usage: node dist/scripts/seed-admin.js
  */
 
 import dotenv from 'dotenv';
@@ -14,9 +14,9 @@ import path from 'path';
 import { Pool } from 'pg';
 
 // Load environment variables from root .env
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
-import { hashPassword } from '../src/services/authService';
+import { hashPassword } from '../services/authService';
 
 async function seedAdmin() {
   const email = process.env.ADMIN_EMAIL;

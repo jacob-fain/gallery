@@ -7,7 +7,7 @@
  *
  * Safe to re-run: only processes rows where content_hash IS NULL.
  *
- * Usage: npx ts-node scripts/backfill-content-hash.ts
+ * Usage: node dist/scripts/backfill-content-hash.js
  */
 
 import dotenv from 'dotenv';
@@ -16,9 +16,9 @@ import crypto from 'crypto';
 import { Pool } from 'pg';
 
 // Load environment variables from root .env
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
-import { getFileStream } from '../src/services/s3Service';
+import { getFileStream } from '../services/s3Service';
 
 async function hashStream(stream: NodeJS.ReadableStream): Promise<string> {
   return new Promise((resolve, reject) => {

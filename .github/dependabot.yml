@@ -1,0 +1,18 @@
+# Keeps the digest-pinned base images in the Dockerfiles current. Majors are
+# ignored: a Node or nginx major is a deliberate upgrade, not a routine bump.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /frontend
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
