@@ -12,6 +12,7 @@ vi.mock('../services/galleryService', async (importOriginal) => ({
   getGalleryBySlug: vi.fn(),
   getGalleryPhotos: vi.fn(),
   getGalleryById: vi.fn(),
+  countVisiblePhotos: vi.fn(),
 }));
 vi.mock('../services/photoService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/photoService')>()),
@@ -91,6 +92,7 @@ beforeEach(() => {
   vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue(gallery(true));
   vi.mocked(galleryService.getGalleryById).mockResolvedValue(gallery(true));
   vi.mocked(galleryService.getGalleryPhotos).mockResolvedValue([photo as never]);
+  vi.mocked(galleryService.countVisiblePhotos).mockResolvedValue(1);
   vi.mocked(photoService.getPublicPhotosPage).mockResolvedValue({ photos: [photo as never], next: null });
   vi.mocked(photoService.getFeaturedPhotos).mockResolvedValue([photo as never]);
   vi.mocked(photoService.getPhotoById).mockResolvedValue(photo as never);
@@ -202,16 +204,32 @@ describe('public gallery objects carry no internal fields', () => {
     ]);
   });
 
-  it('GET /galleries/:slug returns id, title and slug, and counts no view', async () => {
-    const { body } = await get('/galleries/iceland');
-    expect(body.data).toEqual({ id: GALLERY_ID, title: 'Iceland', slug: 'iceland' });
+  it('GET /galleries/:slug returns id, title, slug, description and photo count, and counts no view', async () => {
+    vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue({ ...gallery(true), description: 'Ring Road' });
+    vi.mocked(galleryService.countVisiblePhotos).mockResolvedValue(101);
+    const { body, cache } = await get('/galleries/iceland');
+    expect(body.data).toEqual({
+      id: GALLERY_ID,
+      title: 'Iceland',
+      slug: 'iceland',
+      description: 'Ring Road',
+      photoCount: 101,
+    });
+    expect(cache).toBe(PUBLIC);
     expect(eventTracking.recordGalleryView).not.toHaveBeenCalled();
   });
 
+  it('GET /galleries/:slug sends a missing description as null', async () => {
+    const { body } = await get<{ description: unknown }>('/galleries/iceland');
+    expect(body.data).toHaveProperty('description', null);
+  });
+
   it('GET /galleries/:slug for a private gallery returns what the password screen needs', async () => {
-    vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue(gallery(false));
+    vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue({ ...gallery(false), description: 'Secret' });
+    vi.mocked(galleryService.countVisiblePhotos).mockClear();
     const { body } = await get('/galleries/iceland');
     expect(body.data).toEqual({ title: 'Iceland', slug: 'iceland', is_public: false, requires_password: true });
+    expect(galleryService.countVisiblePhotos).not.toHaveBeenCalled();
   });
 });
 

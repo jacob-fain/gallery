@@ -3,6 +3,7 @@ import { getGalleries } from '../api/client';
 import GalleryCard from '../components/GalleryCard/GalleryCard';
 import type { Gallery } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
+import PageHeading from '../components/PageHeading/PageHeading';
 import styles from './Galleries.module.css';
 
 export default function Galleries() {
@@ -41,21 +42,20 @@ export default function Galleries() {
     );
   }
 
-  if (galleries.length === 0) {
-    return (
-      <div className="loading">
-        No galleries yet. Check back soon!
-      </div>
-    );
-  }
-
   return (
-    <div className={styles.container}>
-      <div className={styles.grid}>
-        {galleries.map((gallery) => (
-          <GalleryCard key={gallery.id} gallery={gallery} />
-        ))}
-      </div>
-    </div>
+    <>
+      <PageHeading title="Galleries" />
+      {galleries.length === 0 ? (
+        <div className="loading">No galleries yet. Check back soon!</div>
+      ) : (
+        <div className={styles.container}>
+          <div className={styles.grid}>
+            {galleries.map((gallery) => (
+              <GalleryCard key={gallery.id} gallery={gallery} />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
