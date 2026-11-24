@@ -134,6 +134,8 @@ export default function Homepage() {
     const newIndex = photos.findIndex((p) => p.id === over.id);
 
     const newPhotos = arrayMove(photos, oldIndex, newIndex);
+    // Position 0 is the hero, and visitors never see a hidden one.
+    if (newPhotos[0].is_hidden && newPhotos[0].id !== photos[0].id) return;
     setPhotos(newPhotos);
 
     try {

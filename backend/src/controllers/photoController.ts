@@ -517,6 +517,15 @@ export const reorderFeatured = async (req: Request, res: Response) => {
       });
     }
 
+    // The first position is the hero. A hidden photo may stay there (it was
+    // hidden after becoming hero), but none may be moved there.
+    const first = await photoService.getPhotoById(photo_ids[0]);
+    if (first?.is_hidden && first.featured_order !== 0) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Show this photo before making it the hero' });
+    }
+
     await photoService.reorderFeaturedPhotos(photo_ids);
 
     // Return updated featured list
