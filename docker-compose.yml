@@ -2,8 +2,10 @@ services:
   db:
     image: postgres:15
     container_name: gallery-db
+    # Loopback only: Docker's published ports bypass the host firewall, and
+    # this password is public in the repository.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     # Schema comes from the migration runner (npm run migrate in backend/),
     # not initdb, so every database records what it has applied.
     volumes:
