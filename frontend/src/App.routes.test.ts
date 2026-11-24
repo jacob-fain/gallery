@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { ThemeContext } from './contexts/theme';
 
 // The API client reads window.location at import time.
@@ -16,6 +16,13 @@ const render = (path: string) =>
       createElement(MemoryRouter, { initialEntries: [path] }, createElement(PublicApp)),
     ),
   );
+
+// Rendering a lazy route starts its import without waiting for it, so
+// whether the page module finished loading before the run ended changed from
+// run to run, and the coverage totals with it.
+afterAll(async () => {
+  await Promise.all([import('./pages/Gallery'), import('./pages/AllPhotos')]);
+});
 
 const title = (html: string) => html.match(/<title>(.*?)<\/title>/)?.[1];
 

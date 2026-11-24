@@ -15,5 +15,13 @@ export default defineConfig({
       // their own level.
       LOG_LEVEL: 'silent',
     },
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      // One-off operator scripts and the process entry point run outside the
+      // request path, so counting them would only dilute the number.
+      exclude: ['src/**/*.test.ts', 'src/index.ts', 'src/scripts/**', 'src/types/**'],
+      reporter: ['text-summary', 'text', 'json-summary'],
+    },
   },
 });
