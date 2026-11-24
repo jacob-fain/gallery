@@ -7,6 +7,7 @@ import {
 import { Readable } from 'stream';
 import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, S3_BUCKET, isS3Configured } from '../config/s3';
+import { attachmentDisposition } from './downloadNames';
 
 // Default signed URL expiration: 1 hour
 const DEFAULT_EXPIRES_IN = 3600;
@@ -69,11 +70,14 @@ export const uploadFile = async (
  *
  * @param key - S3 object key
  * @param expiresIn - URL validity in seconds (default: 1 hour)
+ * @param downloadName - When set, S3 serves the object as an attachment with
+ *   this filename, so a browser saves it under that name instead of the key's.
  * @returns Temporary signed URL
  */
 export const getSignedUrl = async (
   key: string,
-  expiresIn: number = DEFAULT_EXPIRES_IN
+  expiresIn: number = DEFAULT_EXPIRES_IN,
+  downloadName?: string
 ): Promise<string> => {
   if (!isS3Configured()) {
     // Fail fast in production - S3 must be configured
@@ -84,8 +88,8 @@ export const getSignedUrl = async (
     return `https://placehold.co/800x600/1a1a1a/ffffff?text=S3+Not+Configured`;
   }
 
-  // Check cache first
-  const cached = urlCache.get(key);
+  const cacheKey = downloadName ? `${key}\n${downloadName}` : key;
+  const cached = urlCache.get(cacheKey);
   if (cached && Date.now() < cached.expires) {
     return cached.url;
   }
@@ -93,12 +97,12 @@ export const getSignedUrl = async (
   const command = new GetObjectCommand({
     Bucket: S3_BUCKET,
     Key: key,
+    ResponseContentDisposition: downloadName ? attachmentDisposition(downloadName) : undefined,
   });
 
   const url = await awsGetSignedUrl(s3Client, command, { expiresIn });
 
-  // Cache the URL
-  urlCache.set(key, {
+  urlCache.set(cacheKey, {
     url,
     expires: cacheReuseDeadline(Date.now(), expiresIn),
   });
