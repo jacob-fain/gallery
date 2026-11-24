@@ -5,6 +5,7 @@ import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
 import type { PublicPhoto } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
+import PageHeading from '../components/PageHeading/PageHeading';
 import styles from './AllPhotos.module.css';
 
 export default function AllPhotos() {
@@ -52,6 +53,7 @@ export default function AllPhotos() {
 
   return (
     <div className={styles.container}>
+      <PageHeading title="All Photos" />
       {photos.length > 0 && (
         <button
           className={styles.shuffleBtn}
