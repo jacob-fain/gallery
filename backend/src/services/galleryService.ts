@@ -230,6 +230,11 @@ export const updateGallery = async (
       updates.push(`password_hash = $${paramIndex++}`);
       values.push(passwordHash);
     }
+    // Revokes every access token issued before: a new password, no password,
+    // or a gallery that went public and back must not keep old unlocks.
+    if (passwordHash !== undefined || (data.is_public !== undefined && data.is_public !== existing.is_public)) {
+      updates.push('access_version = access_version + 1');
+    }
 
     if (updates.length === 0) {
       return existing;

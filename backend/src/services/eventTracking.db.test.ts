@@ -102,15 +102,17 @@ describe.skipIf(!db)('event tracking (database)', () => {
     const locked = await gallery(false);
     const other = await gallery(false);
 
+    const access = (id: string, accessVersion = 0) => ({ galleryId: id, slug: slugs.get(id)!, accessVersion });
     recordGalleryView(slugs.get(locked)!, null);
-    recordGalleryView(slugs.get(locked)!, other);
+    recordGalleryView(slugs.get(locked)!, access(other));
+    recordGalleryView(slugs.get(locked)!, access(locked, 1));
     recordGalleryView('no-such-gallery', null);
     await drainTracking();
     expect(await viewCount(locked)).toBe(0);
     expect(await viewCount(other)).toBe(0);
     expect(await eventsFor(locked)).toEqual([]);
 
-    recordGalleryView(slugs.get(locked)!, locked);
+    recordGalleryView(slugs.get(locked)!, access(locked));
     await drainTracking();
     expect(await viewCount(locked)).toBe(1);
     expect(await eventsFor(locked)).toEqual([{ event_type: 'gallery_view', photo_id: null }]);

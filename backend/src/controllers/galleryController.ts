@@ -4,6 +4,7 @@ import * as photoService from '../services/photoService';
 import * as s3Service from '../services/s3Service';
 import { recordGalleryDownload, recordGalleryView } from '../services/eventTracking';
 import {
+  galleryAccessTokenUnlocks,
   generateGalleryAccessToken,
   verifyGalleryAccessToken,
 } from '../services/authService';
@@ -71,7 +72,7 @@ export const getGallery = async (req: Request, res: Response) => {
 export const trackGalleryView = (req: Request, res: Response) => {
   const { access } = req.query;
   const token = typeof access === 'string' ? verifyGalleryAccessToken(access) : null;
-  recordGalleryView(req.params.slug, token?.galleryId ?? null);
+  recordGalleryView(req.params.slug, token);
   res.json({ success: true });
 };
 
@@ -96,8 +97,7 @@ export const getGalleryPhotos = async (req: Request, res: Response) => {
       }
 
       // Verify the signed access token
-      const tokenPayload = verifyGalleryAccessToken(access);
-      if (!tokenPayload || tokenPayload.galleryId !== gallery.id) {
+      if (!galleryAccessTokenUnlocks(access, gallery)) {
         return res.status(403).json({
           success: false,
           error: 'Invalid or expired access token. Please verify the password again.',
@@ -405,7 +405,7 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
 
     // Generate a signed access token for this gallery
     // This token is cryptographically signed and time-limited (24 hours)
-    const accessToken = generateGalleryAccessToken(gallery.id, gallery.slug);
+    const accessToken = generateGalleryAccessToken(gallery.id, gallery.slug, gallery.access_version);
 
     // Return gallery data with signed access token
     // The frontend should include this token in ?access= query param when fetching photos
@@ -449,8 +449,7 @@ export const downloadGalleryZip = async (req: Request, res: Response) => {
         });
       }
 
-      const tokenPayload = verifyGalleryAccessToken(access);
-      if (!tokenPayload || tokenPayload.galleryId !== gallery.id) {
+      if (!galleryAccessTokenUnlocks(access, gallery)) {
         return res.status(403).json({
           success: false,
           error: 'Invalid or expired access token. Please verify the password again.',

@@ -10,6 +10,7 @@ const gallery = (password_hash: string | null): Gallery => ({
   cover_image_id: 'p1',
   is_public: false,
   password_hash,
+  access_version: 3,
   view_count: 7,
   created_at: new Date(0),
   updated_at: new Date(0),
@@ -40,6 +41,7 @@ describe('gallery views', () => {
     const view = adminGallery(gallery('$2b$10$hash'));
     expect(view).toMatchObject({ has_password: true, view_count: 7, cover_image_id: 'p1', is_public: false });
     expect(view).not.toHaveProperty('password_hash');
+    expect(view).not.toHaveProperty('access_version');
     expect(adminGallery(gallery(null))).toMatchObject({ has_password: false });
   });
 });
