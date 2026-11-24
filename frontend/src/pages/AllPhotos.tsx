@@ -3,12 +3,12 @@ import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
 import { getAllPhotos } from '../api/client';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
-import type { Photo } from '../types';
+import type { PublicPhoto } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import styles from './AllPhotos.module.css';
 
 export default function AllPhotos() {
-  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photos, setPhotos] = useState<PublicPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
