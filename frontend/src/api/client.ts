@@ -519,6 +519,18 @@ export function trackPhotoView(photoId: string): void {
 }
 
 /**
+ * Count a view of a gallery page, once it is shown. Not counted by the
+ * metadata request, which browsers may answer from cache. A private gallery
+ * counts only with its access token.
+ */
+export function trackGalleryView(slug: string, accessToken?: string): void {
+  const query = accessToken ? `?access=${encodeURIComponent(accessToken)}` : '';
+  fetch(`${API_BASE}/galleries/${slug}/view${query}`, { method: 'POST' }).catch(() => {
+    // Tracking never affects the page.
+  });
+}
+
+/**
  * A signed URL that downloads the photo's original under its uploaded
  * filename. Fetched when the download button is pressed, not with the photo
  * lists, so lists never sign originals; the request also counts the download.

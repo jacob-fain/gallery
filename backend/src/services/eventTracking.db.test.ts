@@ -15,15 +15,19 @@ describe.skipIf(!db)('event tracking (database)', () => {
   const galleries: string[] = [];
   const tag = () => crypto.randomBytes(4).toString('hex');
 
-  const gallery = async () => {
+  const slugs = new Map<string, string>();
+  const gallery = async (isPublic = true) => {
     const t = tag();
     const { rows } = await query(
-      `INSERT INTO galleries (title, slug) VALUES ($1, $2) RETURNING id`,
-      [`Tracking ${t}`, `tracking-${t}`]
+      `INSERT INTO galleries (title, slug, is_public) VALUES ($1, $2, $3) RETURNING id`,
+      [`Tracking ${t}`, `tracking-${t}`, isPublic]
     );
     galleries.push(rows[0].id);
+    slugs.set(rows[0].id, `tracking-${t}`);
     return rows[0].id as string;
   };
+  const viewCount = async (galleryId: string) =>
+    (await query(`SELECT view_count FROM galleries WHERE id = $1`, [galleryId])).rows[0].view_count;
 
   const photo = async (galleryId: string, hidden = false) => {
     const name = `p-${tag()}`;
@@ -83,15 +87,32 @@ describe.skipIf(!db)('event tracking (database)', () => {
   it('counts gallery views and downloads', async () => {
     const g = await gallery();
 
-    recordGalleryView(g);
+    recordGalleryView(slugs.get(g)!, null);
     recordGalleryDownload(g);
     await drainTracking();
 
-    const { rows } = await query(`SELECT view_count FROM galleries WHERE id = $1`, [g]);
-    expect(rows[0].view_count).toBe(1);
+    expect(await viewCount(g)).toBe(1);
     expect(await eventsFor(g)).toEqual([
       { event_type: 'gallery_download', photo_id: null },
       { event_type: 'gallery_view', photo_id: null },
     ]);
+  });
+
+  it('counts a private gallery view only with access to that gallery', async () => {
+    const locked = await gallery(false);
+    const other = await gallery(false);
+
+    recordGalleryView(slugs.get(locked)!, null);
+    recordGalleryView(slugs.get(locked)!, other);
+    recordGalleryView('no-such-gallery', null);
+    await drainTracking();
+    expect(await viewCount(locked)).toBe(0);
+    expect(await viewCount(other)).toBe(0);
+    expect(await eventsFor(locked)).toEqual([]);
+
+    recordGalleryView(slugs.get(locked)!, locked);
+    await drainTracking();
+    expect(await viewCount(locked)).toBe(1);
+    expect(await eventsFor(locked)).toEqual([{ event_type: 'gallery_view', photo_id: null }]);
   });
 });

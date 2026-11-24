@@ -14,6 +14,7 @@ import NotFound from './NotFound';
 import PageTitle from '../components/PageTitle';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
+import { useGalleryViewTracking } from '../utils/galleryViewTracking';
 import type { Gallery as GalleryType, PublicPhoto, PrivateGalleryResponse } from '../types';
 import styles from './Gallery.module.css';
 
@@ -40,6 +41,9 @@ export default function Gallery() {
   const [passwordError, setPasswordError] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  const shown = !loading && gallery !== null && (!isPrivateGallery(gallery) || accessToken !== null);
+  useGalleryViewTracking(shown ? gallery.slug : null, accessToken);
 
   const refreshPhotos = useCallback(() => {
     if (!slug) return;

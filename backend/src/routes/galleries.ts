@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as galleryController from '../controllers/galleryController';
 import { authMiddleware } from '../middleware/auth';
-import { galleryPasswordRateLimit } from '../middleware/rateLimit';
+import { galleryPasswordRateLimit, trackingRateLimit } from '../middleware/rateLimit';
 import { uuidParam, validateBodyIds } from '../middleware/validateIds';
 
 const router = Router();
@@ -51,6 +51,9 @@ router.get('/:slug', galleryController.getGallery);
 
 // POST /api/galleries/:slug/verify - Verify password for private gallery
 router.post('/:slug/verify', galleryPasswordRateLimit, galleryController.verifyGalleryPassword);
+
+// POST /api/galleries/:slug/view - Track a gallery page view (analytics)
+router.post('/:slug/view', trackingRateLimit, galleryController.trackGalleryView);
 
 // GET /api/galleries/:slug/photos - Get photos in gallery
 router.get('/:slug/photos', galleryController.getGalleryPhotos);
