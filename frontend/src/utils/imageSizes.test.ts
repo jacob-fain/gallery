@@ -43,3 +43,9 @@ describe('derivedImages', () => {
     expect(derivedImages(p)).toEqual([{ src: 'web.webp', width: 1920, height: 1280 }]);
   });
 });
+
+describe('derivedImages with missing dimensions', () => {
+  it('returns no candidates rather than dividing by zero', () => {
+    expect(derivedImages({ width: 0, height: 0, thumbnailUrl: 't', webUrl: 'w' })).toEqual([]);
+  });
+});

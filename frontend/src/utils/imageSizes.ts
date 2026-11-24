@@ -17,9 +17,12 @@ export interface ImageCandidate {
  * without duplicates. Originals are never included: they can be tens of
  * megabytes and are only for downloads.
  */
-export function derivedImages(photo: Photo): ImageCandidate[] {
-  const ratio = photo.height / photo.width;
+export function derivedImages(
+  photo: Pick<Photo, 'width' | 'height' | 'thumbnailUrl' | 'webUrl'>
+): ImageCandidate[] {
   const candidates: ImageCandidate[] = [];
+  if (!photo.width || !photo.height) return candidates;
+  const ratio = photo.height / photo.width;
 
   const add = (src: string | undefined, maxWidth: number) => {
     if (!src) return;
