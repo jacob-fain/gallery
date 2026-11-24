@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { login as apiLogin, getCurrentUser, type User } from '../api/client';
+import { login as apiLogin, logout as apiLogout, getCurrentUser, type User } from '../api/client';
 import { AuthContext } from './auth';
 import { clearAdminMode } from '../utils/subdomain';
 
@@ -41,6 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // Revokes this and every other session on the server; signing out locally
+    // does not wait for it.
+    if (token) apiLogout(token).catch(() => {});
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextFunction, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { authMiddleware } from './auth';
 import { generateToken, generateGalleryAccessToken } from '../services/authService';
 
@@ -34,11 +35,11 @@ describe('authMiddleware', () => {
   });
 
   it('admits an admin token whose user exists', async () => {
-    getUserById.mockResolvedValue({ id: 'user-1', email: 'admin@example.com' });
-    const { req, next, res } = await call(`Bearer ${generateToken('user-1', 'admin@example.com')}`);
+    getUserById.mockResolvedValue({ id: 'user-1', email: 'admin@example.com', token_version: 0 });
+    const { req, next, res } = await call(`Bearer ${generateToken('user-1', 'admin@example.com', 0)}`);
     expect(next).toHaveBeenCalledWith();
     expect(res.statusCode).toBe(200);
-    expect(req.user).toEqual({ userId: 'user-1', email: 'admin@example.com' });
+    expect(req.user).toEqual({ userId: 'user-1', email: 'admin@example.com', tokenVersion: 0 });
   });
 
   it('refuses a gallery access token', async () => {
@@ -48,9 +49,28 @@ describe('authMiddleware', () => {
     expect(getUserById).not.toHaveBeenCalled();
   });
 
+  it('refuses a token issued before the user revoked their sessions', async () => {
+    getUserById.mockResolvedValue({ id: 'user-1', email: 'admin@example.com', token_version: 1 });
+    const { next, res } = await call(`Bearer ${generateToken('user-1', 'admin@example.com', 0)}`);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('refuses a token from before token versions existed', async () => {
+    getUserById.mockResolvedValue({ id: 'user-1', email: 'admin@example.com', token_version: 0 });
+    const legacy = jwt.sign({ userId: 'user-1', email: 'admin@example.com' }, process.env.JWT_SECRET!, {
+      algorithm: 'HS256',
+      issuer: 'gallery-api',
+      audience: 'admin',
+    });
+    const { next, res } = await call(`Bearer ${legacy}`);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
+  });
+
   it('refuses a valid token for a deleted user', async () => {
     getUserById.mockResolvedValue(null);
-    const { next, res } = await call(`Bearer ${generateToken('gone', 'gone@example.com')}`);
+    const { next, res } = await call(`Bearer ${generateToken('gone', 'gone@example.com', 0)}`);
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
   });
@@ -63,7 +83,7 @@ describe('authMiddleware', () => {
   it('passes a database failure to the error handler instead of admitting', async () => {
     const failure = new Error('db down');
     getUserById.mockRejectedValue(failure);
-    const { next, req } = await call(`Bearer ${generateToken('user-1', 'admin@example.com')}`);
+    const { next, req } = await call(`Bearer ${generateToken('user-1', 'admin@example.com', 0)}`);
     expect(next).toHaveBeenCalledWith(failure);
     expect(req.user).toBeUndefined();
   });
