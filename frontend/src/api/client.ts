@@ -413,7 +413,10 @@ export async function uploadPhoto(
           reject(new UploadError(data.error || 'Upload failed', xhr.status));
         }
       } catch {
-        reject(new UploadError('Failed to parse response', xhr.status));
+        // Not JSON: the response came from the proxy (nginx), not the API.
+        const message =
+          xhr.status === 413 ? 'File is larger than the server accepts' : `Upload failed (HTTP ${xhr.status})`;
+        reject(new UploadError(message, xhr.status));
       }
     });
 
