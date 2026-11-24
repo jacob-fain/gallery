@@ -51,15 +51,13 @@ export default function GalleryForm({
       return;
     }
 
-    // For private galleries, validate password
     if (!isPublic) {
-      // New gallery must have a password
-      if (!gallery && !password.trim()) {
-        setError('Password is required for private galleries');
+      // A private gallery with no stored password can never be opened.
+      if (!password.trim() && !gallery?.has_password) {
+        setError('Set a password to make this gallery private');
         return;
       }
 
-      // If password is being set, confirm must match
       if (password && password !== confirmPassword) {
         setError('Passwords do not match');
         return;
@@ -68,12 +66,14 @@ export default function GalleryForm({
 
     try {
       if (gallery) {
+        // A blank field keeps the stored password: password is sent only
+        // when typed, because null tells the API to remove it.
         await onSubmit({
           title,
           slug,
           description: description || null,
           is_public: isPublic,
-          password: password || null,
+          ...(password ? { password } : {}),
         });
       } else {
         await onSubmit({
@@ -174,7 +174,7 @@ export default function GalleryForm({
         <>
           <div className={styles.field}>
             <label htmlFor="password">
-              Password {gallery && '(leave blank to keep current)'}
+              Password {gallery?.has_password && '(leave blank to keep current)'}
             </label>
             <input
               id="password"
@@ -182,7 +182,7 @@ export default function GalleryForm({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={isLoading}
-              placeholder={gallery ? '••••••••' : 'Enter password'}
+              placeholder={gallery?.has_password ? '••••••••' : 'Enter password'}
             />
           </div>
           <div className={styles.field}>
@@ -193,7 +193,7 @@ export default function GalleryForm({
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               disabled={isLoading}
-              placeholder={gallery ? '••••••••' : 'Confirm password'}
+              placeholder={gallery?.has_password ? '••••••••' : 'Confirm password'}
             />
           </div>
         </>
