@@ -18,6 +18,8 @@ export interface Gallery {
   cover_image_id: string | null;
   coverUrl: string | null;
   is_public: boolean;
+  // Set on admin responses: whether a password is stored, never the password.
+  has_password?: boolean;
   view_count: number;
   created_at: string;
   updated_at: string;
