@@ -22,7 +22,9 @@ import {
   type SlideWithExif,
 } from './gridItems';
 import styles from './PhotoGrid.module.css';
-import { TILE_KEYBOARD_PROPS, useLightboxFocusTrap, useLightboxHistory } from './keyboard';
+import { TILE_KEYBOARD_PROPS, useLightboxFocusTrap } from './keyboard';
+import { useLightboxHistory } from './lightboxHistory';
+import { createHistoryMemory, entryKey } from '../../utils/historyMemory';
 
 interface PhotoGridProps {
   photos: PublicPhoto[];
@@ -35,12 +37,28 @@ interface PhotoGridProps {
   // has been open a while means its signed URL expired. The parent refetches
   // the photos; calls are rate limited here.
   onImagesExpired?: () => void;
+  // Renders this many tiles at first and as many more each time the visitor
+  // nears the end of the grid. The lightbox still moves through every photo.
+  tilesPerPage?: number;
+  // The history entry (router location key) under which the number of tiles
+  // shown is remembered, so Back renders enough of them to reach the
+  // position the visitor left.
+  tileMemoryKey?: string;
 }
 
 const REFRESH_INTERVAL_MS = 60 * 1000;
 const LIGHTBOX_CLASS = 'photo-grid-lightbox';
 const LIGHTBOX_PLUGINS = [Download, Zoom];
 const TILE_PROPS = { ...TILE_KEYBOARD_PROPS, image: IMAGE_FADE_PROPS };
+// More tiles are added while the end of the grid is this far below the
+// viewport, so they are laid out before the visitor reaches them.
+const MORE_TILES_MARGIN = '0px 0px 1500px 0px';
+const tileCounts = createHistoryMemory('tiles');
+
+function initialTileCount(perPage: number, memoryKey: string | undefined): number {
+  const remembered = memoryKey ? (tileCounts.get(entryKey(memoryKey)) ?? 0) : 0;
+  return Math.max(perPage, remembered);
+}
 
 // The signed URL answers with Content-Disposition: attachment, so navigating
 // to it saves the file and leaves the page in place. Navigation, unlike
@@ -60,7 +78,8 @@ interface PhotoTilesProps {
 
 // Memoized so that moving through the lightbox, which changes only the
 // parent's index state, re-renders the lightbox and not every tile. Its props
-// must stay referentially stable for that: memoized photos and a state setter.
+// must stay referentially stable for that: memoized photos and an open
+// callback that changes only with the photos.
 const PhotoTiles = memo(function PhotoTiles({ photos, onOpen }: PhotoTilesProps) {
   return (
     <MasonryPhotoAlbum
@@ -74,14 +93,27 @@ const PhotoTiles = memo(function PhotoTiles({ photos, onOpen }: PhotoTilesProps)
   );
 });
 
-export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesExpired }: PhotoGridProps) {
-  const [lightboxIndex, setLightboxIndex] = useState(-1);
+export default function PhotoGrid({
+  photos,
+  accessToken,
+  galleryTitle,
+  onImagesExpired,
+  tilesPerPage,
+  tileMemoryKey,
+}: PhotoGridProps) {
+  const lightboxController = useRef<ControllerRef>(null);
+  const lightbox = useLightboxHistory(photos, lightboxController);
+  const lightboxIndex = lightbox.index;
+  // Without IntersectionObserver nothing would add tiles, so all are shown.
+  const pageSize = typeof IntersectionObserver === 'undefined' ? undefined : tilesPerPage;
+  const [tileCount, setTileCount] = useState(() =>
+    pageSize ? initialTileCount(pageSize, tileMemoryKey) : Infinity
+  );
+  const moreTiles = useRef<HTMLDivElement>(null);
   const trackedPhotoIds = useRef(new Set<string>());
   const gridRef = useRef<HTMLDivElement>(null);
   const [mayRefresh] = useState(() => createRefreshGuard(REFRESH_INTERVAL_MS));
-  const lightboxController = useRef<ControllerRef>(null);
   useLightboxFocusTrap(lightboxIndex >= 0, LIGHTBOX_CLASS, lightboxController);
-  useLightboxHistory(lightboxIndex >= 0, lightboxController);
   const viewerIdle = useViewerIdle(lightboxIndex >= 0, LIGHTBOX_CLASS);
 
   // Image error events do not bubble, so they are caught in the capture
@@ -109,21 +141,47 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
     }
   }, [lightboxIndex, photos]);
 
+  const hasMoreTiles = tileCount < photos.length;
+  useEffect(() => {
+    const sentinel = moreTiles.current;
+    if (!pageSize || !hasMoreTiles || !sentinel) return;
+    // A new observer per count reports at once whether the end is still in
+    // reach, so a tall screen keeps filling without waiting for a scroll.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setTileCount((n) => n + pageSize);
+      },
+      { rootMargin: MORE_TILES_MARGIN }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [pageSize, hasMoreTiles, tileCount]);
+
+  useEffect(() => {
+    if (tileMemoryKey && pageSize) tileCounts.set(entryKey(tileMemoryKey), tileCount);
+  }, [tileMemoryKey, pageSize, tileCount]);
+
+  // Built for every photo, so alt text counts the whole set.
   const albumPhotos = useMemo(() => toAlbumPhotos(photos, galleryTitle), [photos, galleryTitle]);
+  const albumTiles = useMemo(
+    () => (tileCount >= albumPhotos.length ? albumPhotos : albumPhotos.slice(0, tileCount)),
+    [albumPhotos, tileCount]
+  );
   const lightboxSlides = useMemo(() => toLightboxSlides(photos, galleryTitle), [photos, galleryTitle]);
 
   return (
     <div className={styles.grid} ref={gridRef}>
-      <PhotoTiles photos={albumPhotos} onOpen={setLightboxIndex} />
+      <PhotoTiles photos={albumTiles} onOpen={lightbox.open} />
+      {hasMoreTiles && <div ref={moreTiles} aria-hidden="true" />}
 
       <Lightbox
         className={`${LIGHTBOX_CLASS} ${viewerStyles.viewer}${viewerIdle ? ` ${viewerStyles.idle}` : ''}`}
         slides={lightboxSlides}
         open={lightboxIndex >= 0}
         index={lightboxIndex}
-        close={() => setLightboxIndex(-1)}
+        close={lightbox.close}
         on={{
-          view: ({ index }) => setLightboxIndex(index),
+          view: ({ index }) => lightbox.view(index),
         }}
         download={{
           download: ({ slide }) => downloadOriginal((slide as SlideWithExif).photoId, accessToken),
