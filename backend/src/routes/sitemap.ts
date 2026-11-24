@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Request, Response } from 'express';
+import { createRouter } from '../middleware/requestLog';
 import { buildSitemap, getSitemapGallerySlugs } from '../services/sitemapService';
 import { logger } from '../utils/logger';
 
@@ -13,7 +14,7 @@ export const SITEMAP_MAX_AGE_SECONDS = 300;
 const siteOrigin = (req: Request): string =>
   process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
 
-const router = Router();
+const router = createRouter();
 
 // Served to crawlers at /sitemap.xml by nginx.
 router.get('/sitemap.xml', async (req: Request, res: Response) => {

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { createRouter } from '../middleware/requestLog';
 import authRouter from './auth';
 import contactRouter from './contact';
 import galleriesRouter from './galleries';
@@ -13,7 +13,7 @@ import * as metricsController from '../controllers/metricsController';
 import { authMiddleware } from '../middleware/auth';
 import { validateBodyIds } from '../middleware/validateIds';
 
-const router = Router();
+const router = createRouter();
 
 router.use(healthRouter);
 router.use(sitemapRouter);

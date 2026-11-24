@@ -1,11 +1,11 @@
-import { Router } from 'express';
+import { createRouter } from '../middleware/requestLog';
 import * as photoController from '../controllers/photoController';
 import { authMiddleware } from '../middleware/auth';
 import { trackingRateLimit } from '../middleware/rateLimit';
 import { upload } from '../config/upload';
 import { uuidParam, validateBodyIds } from '../middleware/validateIds';
 
-const router = Router();
+const router = createRouter();
 
 router.param('id', uuidParam('Photo not found'));
 

@@ -1,4 +1,5 @@
-import express, { Router, type Request, type Response } from 'express';
+import express, { type Request, type Response } from 'express';
+import { createRouter } from '../middleware/requestLog';
 import { clientErrorRateLimit } from '../middleware/rateLimit';
 import { clientErrorMetrics } from '../services/clientErrorMetrics';
 import { logger, pathOnly } from '../utils/logger';
@@ -64,11 +65,11 @@ export const parseClientError = (body: unknown, headerUserAgent?: string): Clien
   return report;
 };
 
-const router = Router();
+const router = createRouter();
 
 // Public on purpose: errors on the public site matter as much as the admin's.
-// sendBeacon posts a text/plain body, which needs no CORS preflight, so the
-// parser accepts it as JSON too.
+// The client posts with fetch (keepalive, no credentials) and a text/plain
+// body, which needs no CORS preflight, so the parser accepts it as JSON too.
 router.post(
   '/',
   (_req, res, next) => {
