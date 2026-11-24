@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../../contexts/auth';
 import { getUnassignedPhotos } from '../../api/client';
 import PhotoUpload from '../../components/Admin/PhotoUpload/PhotoUpload';
 import PhotoManager from '../../components/Admin/PhotoManager/PhotoManager';
@@ -12,7 +12,7 @@ export default function Unassigned() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!token) return;
 
     try {
@@ -23,11 +23,11 @@ export default function Unassigned() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     fetchData();
-  }, [token]);
+  }, [fetchData]);
 
   const handleUploadComplete = (photo: Photo) => {
     setPhotos((prev) => [photo, ...prev]);
