@@ -1,0 +1,27 @@
+/* The masonry's columns and 12px spacing (PhotoGrid.tsx). gridColumns()
+   counts columns from the album's width, the viewport less .grid's padding:
+   three from 900px of album, two from 500px. */
+.columns {
+  display: flex;
+  gap: 12px;
+}
+
+.column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 995px) {
+  .column:nth-child(3) {
+    display: none;
+  }
+}
+
+@media (max-width: 547px) {
+  .column:nth-child(2) {
+    display: none;
+  }
+}

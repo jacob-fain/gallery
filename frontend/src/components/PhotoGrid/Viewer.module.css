@@ -1,0 +1,72 @@
+/* The lightbox's portal root. Its toolbar and arrows are the library's own
+   elements, so they are matched by its class names. */
+
+.label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* The toolbar's height (8px padding around a 48px button), so the label
+     lines up with its buttons. */
+  height: 64px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+  filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.8));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.viewer :global(.yarl__toolbar),
+.viewer :global(.yarl__navigation_prev),
+.viewer :global(.yarl__navigation_next),
+.chrome {
+  transition: opacity 300ms ease;
+}
+
+.idle :global(.yarl__toolbar),
+.idle :global(.yarl__navigation_prev),
+.idle :global(.yarl__navigation_next),
+.idle .chrome {
+  opacity: 0;
+  /* A tap that only wakes the controls must not also press a hidden one. */
+  pointer-events: none;
+}
+
+/* Swiping moves between photos on a touch screen. */
+@media (pointer: coarse) {
+  .viewer :global(.yarl__navigation_prev),
+  .viewer :global(.yarl__navigation_next) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewer :global(.yarl__toolbar),
+  .viewer :global(.yarl__navigation_prev),
+  .viewer :global(.yarl__navigation_next),
+  .chrome {
+    transition: none;
+  }
+}
+
+/* Matches the toolbar's larger buttons on phones (globals.css). */
+@media (max-width: 640px) {
+  .label {
+    height: 80px;
+    padding: 0 16px;
+  }
+}
+
+@media (max-width: 400px) {
+  .label {
+    height: 56px;
+    padding: 0 12px;
+  }
+}

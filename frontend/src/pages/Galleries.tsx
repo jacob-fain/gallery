@@ -4,7 +4,25 @@ import GalleryCard from '../components/GalleryCard/GalleryCard';
 import type { Gallery } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import PageHeading from '../components/PageHeading/PageHeading';
+import { DelayedSkeleton, HeadingSkeleton, SkeletonBlock } from '../components/Skeleton/Skeleton';
 import styles from './Galleries.module.css';
+
+const SKELETON_CARDS = 4;
+
+function GalleriesSkeleton() {
+  return (
+    <DelayedSkeleton>
+      <HeadingSkeleton />
+      <div className={styles.container}>
+        <div className={styles.grid}>
+          {Array.from({ length: SKELETON_CARDS }, (_, i) => (
+            <SkeletonBlock key={i} className={styles.coverSkeleton} />
+          ))}
+        </div>
+      </div>
+    </DelayedSkeleton>
+  );
+}
 
 export default function Galleries() {
   const [galleries, setGalleries] = useState<Gallery[]>([]);
@@ -27,7 +45,7 @@ export default function Galleries() {
   }, [attempt]);
 
   if (loading) {
-    return <div className="loading">Loading...</div>;
+    return <GalleriesSkeleton />;
   }
 
   if (failed) {

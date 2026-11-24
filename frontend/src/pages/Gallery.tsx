@@ -13,6 +13,8 @@ import LoadError from '../components/StatusMessage/LoadError';
 import NotFound from './NotFound';
 import PageTitle from '../components/PageTitle';
 import PageHeading from '../components/PageHeading/PageHeading';
+import { DelayedSkeleton, HeadingSkeleton } from '../components/Skeleton/Skeleton';
+import PhotoGridSkeleton from '../components/PhotoGrid/PhotoGridSkeleton';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
 import { useGalleryViewTracking } from '../utils/galleryViewTracking';
@@ -62,6 +64,10 @@ export default function Gallery() {
   const [passwordError, setPasswordError] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  // The gallery whose first photo has loaded. The floating buttons wait for
+  // it, so they do not hang over an empty page. Kept per slug, since moving
+  // to another gallery keeps this component mounted.
+  const [photoShownFor, setPhotoShownFor] = useState<string | null>(null);
 
   const shown = !loading && gallery !== null && (!isPrivateGallery(gallery) || accessToken !== null);
   useGalleryViewTracking(shown ? gallery.slug : null, accessToken);
@@ -179,7 +185,12 @@ export default function Gallery() {
   };
 
   if (loading && slug) {
-    return <div className="loading">Loading...</div>;
+    return (
+      <DelayedSkeleton>
+        <HeadingSkeleton gallery />
+        <PhotoGridSkeleton />
+      </DelayedSkeleton>
+    );
   }
 
   if (loadError === 'failed' && slug) {
@@ -257,16 +268,21 @@ export default function Gallery() {
   // A private gallery's state is still the locked response type here, with
   // the unlock details merged in.
   const unlocked = gallery as GalleryType;
+  const photoShown = photoShownFor === slug;
+  // Image load and error events do not bubble, but React's capture phase
+  // sees them. A failed photo counts too, so a gallery whose images all fail
+  // still offers its download.
+  const markPhotoShown = () => setPhotoShownFor(slug);
 
   return (
-    <div className={styles.container}>
+    <div className={styles.container} onLoadCapture={markPhotoShown} onErrorCapture={markPhotoShown}>
       <PageTitle page={gallery.title} />
       <PageHeading
         title={gallery.title}
         photoCount={unlocked.photoCount ?? photos.length}
         description={unlocked.description}
       />
-      {photos.length > 1 && (
+      {photoShown && photos.length > 1 && (
         <button
           className={styles.shuffleBtn}
           onClick={() => setPhotos(shuffle(photos))}
@@ -291,7 +307,7 @@ export default function Gallery() {
           </svg>
         </button>
       )}
-      {photos.length > 0 && (
+      {photoShown && photos.length > 0 && (
         <button
           className={styles.downloadBtn}
           onClick={handleDownload}

@@ -8,6 +8,7 @@
   position: relative;
   aspect-ratio: 3 / 2;
   overflow: hidden;
+  background: var(--color-placeholder);
 }
 
 .image {
@@ -15,6 +16,31 @@
   height: 100%;
   object-fit: cover;
   transition: transform 0.3s ease;
+}
+
+/* Until the cover has loaded (utils/imageFade.ts), the card is a plain
+   placeholder: the name and gradient come in with the photo. */
+.image:not([data-loaded]),
+.image:not([data-loaded]) ~ .overlay {
+  opacity: 0;
+}
+
+.image[data-loaded='fade'],
+.image[data-loaded='fade'] ~ .overlay {
+  animation: fadeIn 300ms ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image[data-loaded='fade'],
+  .image[data-loaded='fade'] ~ .overlay {
+    animation: none;
+  }
 }
 
 .placeholder {

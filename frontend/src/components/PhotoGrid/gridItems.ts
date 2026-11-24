@@ -19,6 +19,8 @@ export interface SlideWithExif {
   alt: string;
   photoId: string;
   exif?: ExifData;
+  // Named in the viewer's label. Unset for a photo in no gallery.
+  galleryName?: string;
 }
 
 function fallbackUrl(photo: PublicPhoto): string {
@@ -63,8 +65,15 @@ export function toLightboxSlides(photos: PublicPhoto[], galleryTitle?: string): 
       alt: altFor(photo, index, photos.length, galleryTitle),
       photoId: photo.id,
       exif: photo.exif_data ?? undefined,
+      galleryName: galleryTitle ?? photo.gallery_title ?? undefined,
     };
   });
+}
+
+// "Smith Wedding · 12 / 84", or "12 / 84" for a photo in no gallery.
+export function viewerLabel(slide: SlideWithExif | undefined, index: number, total: number): string {
+  const position = `${index + 1} / ${total}`;
+  return slide?.galleryName ? `${slide.galleryName} · ${position}` : position;
 }
 
 export function gridColumns(containerWidth: number): number {

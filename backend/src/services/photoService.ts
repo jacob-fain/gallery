@@ -4,6 +4,7 @@ import { Photo, PhotoWithUrls, CreatePhotoInput, UpdatePhotoInput } from '../typ
 import { getSignedUrl } from './s3Service';
 import { photoDownloadName } from './downloadNames';
 import type { PublicCursor } from './photoPaging';
+import type { PhotoRow } from './photoView';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
   const result = await query(
@@ -275,10 +276,11 @@ const CURSOR_TIME = `to_char(p.uploaded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH2
 export const getPublicPhotosPage = async (
   limit: number,
   after: PublicCursor | null = null
-): Promise<{ photos: Photo[]; next: PublicCursor | null }> => {
-  // One extra row says whether another page follows, without a count.
+): Promise<{ photos: PhotoRow[]; next: PublicCursor | null }> => {
+  // One extra row says whether another page follows, without a count. The
+  // gallery title names each photo's gallery in the All Photos viewer.
   const result = await query(
-    `SELECT p.*, ${CURSOR_TIME} AS cursor_uploaded_at
+    `SELECT p.*, g.title AS gallery_title, g.slug AS gallery_slug, ${CURSOR_TIME} AS cursor_uploaded_at
      FROM photos p
      LEFT JOIN galleries g ON p.gallery_id = g.id
      WHERE p.is_hidden = false AND (g.is_public = true OR p.gallery_id IS NULL)
@@ -290,7 +292,7 @@ export const getPublicPhotosPage = async (
   const rows = result.rows.slice(0, limit);
   const last = rows[rows.length - 1];
   return {
-    photos: rows.map(({ cursor_uploaded_at: _cursor, ...photo }) => photo as Photo),
+    photos: rows.map(({ cursor_uploaded_at: _cursor, ...photo }) => photo as PhotoRow),
     next: result.rows.length > limit ? { uploadedAt: last.cursor_uploaded_at, id: last.id } : null,
   };
 };
