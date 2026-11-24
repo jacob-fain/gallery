@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import multer from 'multer';
+import { logger } from '../utils/logger';
+import { routePattern } from './requestLog';
 
 // body-parser's errors carry an HTTP status and a type naming the failure.
 interface BodyParserError extends Error {
@@ -23,7 +25,7 @@ const BODY_ERRORS: Record<string, { status: number; error: string }> = {
  */
 export const createErrorHandler = (env: NodeJS.ProcessEnv = process.env) => (
   err: Error,
-  _req: Request,
+  req: Request,
   res: Response,
   // Express recognizes an error handler by its four parameters.
   _next: NextFunction
@@ -49,7 +51,8 @@ export const createErrorHandler = (env: NodeJS.ProcessEnv = process.env) => (
     return;
   }
 
-  console.error('Unhandled error:', err);
+  // The stack goes to the log only; the response never carries it.
+  logger.error('unhandled error', { method: req.method, route: routePattern(req), err });
   res.status(500).json({
     success: false,
     error: env.NODE_ENV === 'development' ? err.message : 'Internal server error',

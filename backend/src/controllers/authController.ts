@@ -7,6 +7,7 @@ import {
   revokeTokens,
 } from '../services/authService';
 import { clearSessionCookie, setSessionCookie } from '../middleware/session';
+import { logger } from '../utils/logger';
 
 /**
  * POST /api/auth/login
@@ -57,7 +58,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       },
     });
   } catch (err) {
-    console.error('Login error:', err);
+    logger.error('Login error', { err });
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -89,7 +90,7 @@ export const me = async (req: Request, res: Response): Promise<void> => {
       },
     });
   } catch (err) {
-    console.error('Get current user error:', err);
+    logger.error('Get current user error', { err });
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -108,7 +109,7 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
     clearSessionCookie(res);
     res.json({ success: true });
   } catch (err) {
-    console.error('Logout error:', err);
+    logger.error('Logout error', { err });
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };

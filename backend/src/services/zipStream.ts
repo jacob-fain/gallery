@@ -1,5 +1,6 @@
 import { ZipArchive } from 'archiver';
 import { Readable, Writable } from 'stream';
+import { logger } from '../utils/logger';
 
 export interface ZipSource {
   key: string;
@@ -56,7 +57,7 @@ export const writeZip = async (
   // already accounts for the disconnect.
   out.on('error', () => {});
   archive.on('error', fail);
-  archive.on('warning', (err) => console.warn('ZIP warning:', err));
+  archive.on('warning', (err) => logger.warn('ZIP warning', { err }));
   archive.on('entry', () => entryDone?.());
   archive.pipe(out);
 
@@ -68,7 +69,7 @@ export const writeZip = async (
     try {
       stream = await openStream(source.key);
     } catch (err) {
-      console.error(`Skipping ${source.key} in ZIP:`, err);
+      logger.error(`Skipping ${source.key} in ZIP`, { err });
       continue;
     }
     if (stopped) {

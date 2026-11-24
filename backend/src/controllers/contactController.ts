@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import nodemailer from 'nodemailer';
+import { logger } from '../utils/logger';
 
 const CONTACT_EMAIL = 'jacobharryfain@gmail.com';
 
@@ -106,16 +107,13 @@ export const sendContactMessage = async (req: Request, res: Response) => {
         `,
       });
     } else {
-      // Log message if SMTP not configured (for development)
-      console.log('=== Contact Form Submission ===');
-      console.log(`From: ${name} <${email}>`);
-      console.log(`Message: ${message}`);
-      console.log('===============================');
+      // Without SMTP the log is the only place the message survives.
+      logger.warn('contact message received with SMTP not configured', { name, email, message });
     }
 
     res.json({ success: true, data: { sent: true } });
   } catch (err) {
-    console.error('Error sending contact message:', err);
+    logger.error('Error sending contact message', { err });
     res.status(500).json({ success: false, error: 'Failed to send message' });
   }
 };

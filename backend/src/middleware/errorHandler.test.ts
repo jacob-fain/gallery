@@ -4,6 +4,7 @@ import type { Server } from 'http';
 import type { Request, Response } from 'express';
 import app from '../app';
 import { createErrorHandler } from './errorHandler';
+import { logger } from '../utils/logger';
 
 const fakeRes = () => {
   const out = { status: 0, body: undefined as unknown };
@@ -40,6 +41,16 @@ describe('createErrorHandler', () => {
         body: { success: false, error: 'Internal server error' },
       });
     }
+  });
+
+  it('logs an unexpected error with its stack, which the response never carries', () => {
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const err = new Error('boom');
+    const { out, res } = fakeRes();
+    createErrorHandler({ NODE_ENV: 'development' })(err, { method: 'GET' } as Request, res, () => {});
+    expect(error).toHaveBeenCalledWith('unhandled error', { method: 'GET', route: '(unmatched)', err });
+    expect(JSON.stringify(out.body)).not.toContain('at ');
+    error.mockRestore();
   });
 
   it('passes other client errors from the body parser through with their status', () => {

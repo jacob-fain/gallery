@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../config/db';
+import { isS3Configured } from '../config/s3';
+import { logger } from '../utils/logger';
 
 /**
  * Opaque id of the running build, set by the image build (BUILD_ID) so a
@@ -37,7 +39,7 @@ export const createReadiness = ({
         .then(
           (): ReadyResult => ({ ok: true }),
           (err): ReadyResult => {
-            console.error('Readiness probe failed:', err);
+            logger.error('readiness probe failed', { err });
             return { ok: false, reason: 'database unreachable' };
           }
         )
@@ -78,14 +80,18 @@ router.get('/health', (_req: Request, res: Response) => {
 });
 
 // Readiness: the database answers too. Deploys wait on this route for the
-// new build id before treating a release as live.
+// new build id before treating a release as live, and read "build" from the
+// body with a pattern, so it stays a single flat key. S3 is reported from
+// configuration only: calling S3 on every poll would cost requests and tie
+// readiness to AWS latency.
 router.get('/health/ready', async (_req: Request, res: Response) => {
   const result = await checkReady();
   res.set('Cache-Control', 'no-store');
+  const s3 = isS3Configured() ? 'configured' : 'not configured';
   if (result.ok) {
-    res.json({ status: 'ok', build: buildId() });
+    res.json({ status: 'ok', build: buildId(), s3 });
   } else {
-    res.status(503).json({ status: 'unavailable', reason: result.reason, build: buildId() });
+    res.status(503).json({ status: 'unavailable', reason: result.reason, build: buildId(), s3 });
   }
 });
 

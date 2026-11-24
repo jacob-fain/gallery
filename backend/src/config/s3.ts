@@ -1,4 +1,5 @@
 import { S3Client } from '@aws-sdk/client-s3';
+import { logger } from '../utils/logger';
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -13,10 +14,7 @@ const requiredEnvVars = [
 const missingVars = requiredEnvVars.filter((key) => !process.env[key]);
 
 if (missingVars.length > 0) {
-  console.warn(
-    `Warning: Missing AWS environment variables: ${missingVars.join(', ')}. ` +
-    'S3 operations will fail until these are configured.'
-  );
+  logger.warn('S3 is not configured; S3 operations will fail until it is', { missing: missingVars });
 }
 
 // Create S3 client

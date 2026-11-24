@@ -122,3 +122,61 @@ time.
   its own database password and JWT secret in its `.env.production`.
 - A cloudflared ingress rule for `staging.jacobfain.gallery` above the
   wildcard, a DNS route, and Cloudflare Access (Jacob's email only).
+
+## Monitoring signals
+
+What the backend exposes for the homelab side to watch. Alerting itself is
+configured on the server, outside this repository; these are suggestions.
+
+### Endpoints
+
+- `GET /api/health`: liveness, `{"status":"ok","timestamp":...,"build":...}`.
+  Touches nothing but the process. Uptime monitoring watches this path; it
+  stays stable.
+- `GET /api/health/ready`: readiness, never cached. 200 with
+  `{"status":"ok","build":"<id>","s3":"configured"}` when the database
+  answers, otherwise 503 with
+  `{"status":"unavailable","reason":"database unreachable","build":"<id>","s3":...}`.
+  `build` is the opaque 16-hex id both release paths bake into the image
+  (`dev` for a local build). `s3` comes from configuration only; no S3 call
+  is made. The database answer is cached for 5 seconds.
+- `GET /api/admin/metrics` (admin session only): uptime, build commit and
+  version, the newest applied migration, memory, database pool counts,
+  upload queue, and per-route request
+  counts with p50/p95/max latency over the last hour. It is in-memory and per
+  process, so it resets on restart.
+
+### Logs
+
+The backend writes one JSON object per line to stdout (warnings and errors
+to stderr). Each request logs one line when it ends:
+
+```json
+{"time":"2026-11-24T18:30:49.010Z","level":"info","msg":"request","requestId":"91ab4d02-fceb-4be0-8ee2-32a6f06b3aa2","method":"GET","route":"/api/galleries/:slug","status":404,"durationMs":2.95}
+```
+
+- `route` is the matched route pattern, never the raw URL; requests no route
+  matched log `(unmatched)`. Query strings, JWTs, cookies, authorization
+  headers and secret-named fields are redacted from every line.
+- `requestId` is also returned to the client as `X-Request-Id` and is on every
+  line logged while handling that request, so an error can be traced to its
+  request.
+- Responses with status 500 and above log at `error`; unhandled errors log a
+  separate `unhandled error` line with the stack. Successful health and
+  readiness checks are not logged.
+- `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`; default `info`)
+  sets the threshold.
+
+### Suggested alerts
+
+- `/api/health` failing for 2 to 3 consecutive checks: the process is down.
+- `/api/health/ready` returning 503 for more than a minute: the database is
+  unreachable while the process is up.
+- `/api/health/ready` reporting `"s3":"not configured"` in production: photo
+  uploads and downloads will fail.
+- 5xx rate: more than a handful of lines with `"msg":"request"` and
+  `"level":"error"` in 5 minutes (for example
+  `docker logs --since 5m gallery-backend-1 2>&1 | grep -c '"level":"error","msg":"request"'`).
+- p95 latency or a growing `db.waiting` or `uploads.queued` on
+  `/api/admin/metrics`, if the poller is given an admin session; otherwise
+  `durationMs` in the request lines carries the same information.

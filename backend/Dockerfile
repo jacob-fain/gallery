@@ -13,9 +13,12 @@ RUN npx tsc
 # image carries no compiler, test runner or type packages.
 FROM node:24.22.3-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
 # Opaque id of this build, reported by /api/health/ready. CI passes a hash
-# of the release tag and commit; local builds report "dev".
+# of the ref and commit; local builds report "dev". The commit and version
+# are shown only on the admin metrics route.
 ARG BUILD_ID=dev
-ENV NODE_ENV=production BUILD_ID=$BUILD_ID
+ARG GIT_SHA=
+ARG APP_VERSION=
+ENV NODE_ENV=production BUILD_ID=$BUILD_ID GIT_SHA=$GIT_SHA APP_VERSION=$APP_VERSION
 WORKDIR /app
 COPY package*.json ./
 # The lockfile records no libc for sharp's prebuilt packages, so npm installs

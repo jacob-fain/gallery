@@ -1,4 +1,5 @@
 import { Pool, PoolClient, PoolConfig } from 'pg';
+import { logger } from '../utils/logger';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required');
@@ -26,7 +27,7 @@ const pool = new Pool(poolConfig(process.env.DATABASE_URL));
 // pool discards that client and opens a new one on demand, so the process
 // keeps serving instead of exiting with uploads and downloads in flight.
 pool.on('error', (err) => {
-  console.error('Idle database client error:', err.message);
+  logger.error('Idle database client error', { err: err.message });
 });
 
 export const query = (text: string, params?: unknown[]) => {
@@ -58,10 +59,10 @@ export const withTransaction = async <T>(fn: (client: PoolClient) => Promise<T>)
 export const testConnection = async (): Promise<boolean> => {
   try {
     const result = await pool.query('SELECT NOW()');
-    console.log('Database connected:', result.rows[0].now);
+    logger.info('database connected', { serverTime: result.rows[0].now });
     return true;
   } catch (err) {
-    console.error('Database connection failed:', err);
+    logger.error('Database connection failed', { err });
     return false;
   }
 };
