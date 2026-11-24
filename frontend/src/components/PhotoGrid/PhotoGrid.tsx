@@ -10,11 +10,13 @@ import 'yet-another-react-lightbox/plugins/counter.css';
 import type { Photo, ExifData } from '../../types';
 import { trackPhotoView, trackPhotoDownload } from '../../api/client';
 import ExifOverlay from './ExifOverlay';
+import { derivedImages } from '../../utils/imageSizes';
 import styles from './PhotoGrid.module.css';
 
 // Extend slide type to include EXIF data
 interface SlideWithExif {
   src: string;
+  srcSet: { src: string; width: number; height: number }[];
   width: number;
   height: number;
   alt: string;
@@ -60,27 +62,35 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
   }, [lightboxIndex, photos]);
 
   const albumPhotos = photos.map((photo) => {
-    const aspectRatio = photo.height / photo.width;
+    const candidates = derivedImages(photo);
+    const largest = candidates[candidates.length - 1];
+    // The album appends { src, width } to the srcset whenever no candidate
+    // matches width, which would advertise the thumbnail at the largest size.
+    // Passing the largest real candidate's size keeps the srcset truthful.
     return {
-      src: getPhotoUrl(photo, 'thumbnail'),  // 600px for grid (saves bandwidth)
-      srcSet: [
-        { src: getPhotoUrl(photo, 'thumbnail'), width: 600, height: Math.round(600 * aspectRatio) },
-        { src: getPhotoUrl(photo, 'web'), width: 1920, height: Math.round(1920 * aspectRatio) },
-      ],
-      width: photo.width,
-      height: photo.height,
+      src: candidates[0]?.src ?? getPhotoUrl(photo, 'web'),
+      srcSet: candidates,
+      width: largest?.width ?? photo.width,
+      height: largest?.height ?? photo.height,
       alt: photo.original_filename,
     };
   });
 
-  const lightboxSlides: SlideWithExif[] = photos.map((photo) => ({
-    src: getPhotoUrl(photo, 'original'),
-    width: photo.width,
-    height: photo.height,
-    alt: photo.original_filename,
-    download: getPhotoUrl(photo, 'original'),
-    exif: photo.exif_data,
-  }));
+  const lightboxSlides: SlideWithExif[] = photos.map((photo) => {
+    const candidates = derivedImages(photo);
+    const largest = candidates[candidates.length - 1];
+    return {
+      // The web size, not the original: originals can be tens of megabytes
+      // and are fetched only by the download button.
+      src: largest?.src ?? getPhotoUrl(photo, 'web'),
+      srcSet: candidates,
+      width: largest?.width ?? photo.width,
+      height: largest?.height ?? photo.height,
+      alt: photo.original_filename,
+      download: getPhotoUrl(photo, 'original'),
+      exif: photo.exif_data,
+    };
+  });
 
   // Handle download - track before the actual download happens
   const handleDownload = ({ index }: { index: number }) => {

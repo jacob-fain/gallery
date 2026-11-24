@@ -4,9 +4,11 @@
 
 Run all of it and read each exit code before opening a PR.
 
+From the repository root:
+
 ```sh
-cd backend && npm ci && npm run typecheck && npm test && npm run build
-cd frontend && npm ci && npx eslint . --max-warnings 0 && npm run build
+(cd backend && npm ci && npm run typecheck && npm test && npm run build)
+(cd frontend && npm ci && npx eslint . --max-warnings 0 && npm test && npm run build)
 ```
 
 These are the same steps CI runs (`.github/workflows/ci.yml`), so a green
