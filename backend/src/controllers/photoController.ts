@@ -5,6 +5,8 @@ import * as galleryService from '../services/galleryService';
 import * as imageService from '../services/imageService';
 import * as s3Service from '../services/s3Service';
 import { canViewPhoto } from '../services/photoAccess';
+import { toPublicPhoto, toPublicPhotos } from '../services/photoView';
+import { cachePublicly } from '../middleware/cacheControl';
 import { storedFilename } from '../config/upload';
 import type { Photo } from '../types';
 
@@ -27,9 +29,9 @@ export const getPhoto = async (req: Request, res: Response) => {
       return res.status(404).json(NOT_FOUND);
     }
 
+    // Not cached: every request counts a view.
     await photoService.incrementPhotoViews(id);
-    const photoWithUrls = await photoService.enrichPhotoWithUrls(photo);
-    res.json({ success: true, data: photoWithUrls });
+    res.json({ success: true, data: await toPublicPhoto(photo) });
   } catch (err) {
     console.error('Error fetching photo:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch photo' });
@@ -48,8 +50,9 @@ export const listAllPhotos = async (req: Request, res: Response) => {
     }
 
     const photos = await photoService.getAllPublicPhotos(limit);
-    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
-    res.json({ success: true, data: photosWithUrls });
+    const data = await toPublicPhotos(photos);
+    cachePublicly(res);
+    res.json({ success: true, data });
   } catch (err) {
     console.error('Error fetching all photos:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch photos' });
@@ -73,8 +76,9 @@ export const listUnassignedPhotos = async (_req: Request, res: Response) => {
 export const getFeatured = async (_req: Request, res: Response) => {
   try {
     const photos = await photoService.getFeaturedPhotos();
-    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
-    res.json({ success: true, data: photosWithUrls });
+    const data = await toPublicPhotos(photos);
+    cachePublicly(res);
+    res.json({ success: true, data });
   } catch (err) {
     console.error('Error fetching featured photos:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch featured photos' });
@@ -89,14 +93,14 @@ export const downloadPhoto = async (req: Request, res: Response) => {
       return res.status(404).json(NOT_FOUND);
     }
 
+    // Not cached: every request counts a download. This is the only public
+    // route that signs an original.
     await photoService.incrementPhotoDownloads(id);
-
-    const photoWithUrls = await photoService.enrichPhotoWithUrls(photo);
     res.json({
       success: true,
       data: {
         filename: photo.original_filename,
-        downloadUrl: photoWithUrls.url,
+        downloadUrl: await photoService.getDownloadUrl(photo),
       },
     });
   } catch (err) {

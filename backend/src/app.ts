@@ -4,6 +4,7 @@ import compression from 'compression';
 import multer from 'multer';
 import routes from './routes';
 import { JSON_BODY_LIMIT } from './middleware/validateIds';
+import { noStoreByDefault } from './middleware/cacheControl';
 
 const app = express();
 app.disable('x-powered-by');
@@ -30,20 +31,9 @@ app.use(compression({
 }));
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
-// Cache headers for public GET endpoints
-app.use('/api', (req, res, next) => {
-  if (req.method === 'GET') {
-    const publicPaths = ['/galleries', '/featured', '/settings'];
-    const isPublic = publicPaths.some(p => req.path.startsWith(p));
-
-    if (isPublic && !req.path.includes('/admin')) {
-      res.set('Cache-Control', 'public, max-age=300'); // 5 min
-    } else {
-      res.set('Cache-Control', 'private, no-cache');
-    }
-  }
-  next();
-});
+// Handlers that return public data mark their success responses cacheable;
+// everything else, errors included, is never stored.
+app.use('/api', noStoreByDefault);
 
 // Routes
 app.use('/api', routes);

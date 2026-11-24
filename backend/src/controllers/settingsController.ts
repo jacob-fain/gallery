@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import * as settingsService from '../services/settingsService';
+import { cachePublicly } from '../middleware/cacheControl';
 
 /**
  * Get all site settings (public)
@@ -7,6 +8,7 @@ import * as settingsService from '../services/settingsService';
 export const getSettings = async (_req: Request, res: Response) => {
   try {
     const settings = await settingsService.getAllSettings();
+    cachePublicly(res);
     res.json({ success: true, data: settings });
   } catch (err) {
     console.error('Error fetching settings:', err);

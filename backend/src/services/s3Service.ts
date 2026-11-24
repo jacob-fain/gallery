@@ -28,6 +28,10 @@ export const cacheReuseDeadline = (signedAt: number, expiresIn: number): number 
   Math.max(signedAt, signedAt + expiresIn * 1000 - MIN_REMAINING_LIFETIME_MS);
 
 const urlCache = new Map<string, { url: string; expires: number }>();
+// Signings in progress, so concurrent cold requests for the same object share
+// one signature. Keyed by lifetime too: a caller asking for a long-lived URL
+// must never receive a short-lived one.
+const signing = new Map<string, Promise<string>>();
 
 // Periodic cleanup of expired cache entries (run every 10 minutes)
 setInterval(() => {
@@ -94,20 +98,27 @@ export const getSignedUrl = async (
     return cached.url;
   }
 
+  const signingKey = `${cacheKey}\n${expiresIn}`;
+  const inFlight = signing.get(signingKey);
+  if (inFlight) return inFlight;
+
   const command = new GetObjectCommand({
     Bucket: S3_BUCKET,
     Key: key,
     ResponseContentDisposition: downloadName ? attachmentDisposition(downloadName) : undefined,
   });
 
-  const url = await awsGetSignedUrl(s3Client, command, { expiresIn });
-
-  urlCache.set(cacheKey, {
-    url,
-    expires: cacheReuseDeadline(Date.now(), expiresIn),
-  });
-
-  return url;
+  const pending = awsGetSignedUrl(s3Client, command, { expiresIn })
+    .then((url) => {
+      urlCache.set(cacheKey, {
+        url,
+        expires: cacheReuseDeadline(Date.now(), expiresIn),
+      });
+      return url;
+    })
+    .finally(() => signing.delete(signingKey));
+  signing.set(signingKey, pending);
+  return pending;
 };
 
 /**

@@ -7,7 +7,7 @@ import LoadError from '../components/StatusMessage/LoadError';
 import NotFound from './NotFound';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
-import type { Gallery as GalleryType, Photo, PrivateGalleryResponse } from '../types';
+import type { Gallery as GalleryType, PublicPhoto, PrivateGalleryResponse } from '../types';
 import styles from './Gallery.module.css';
 
 // Type guard to check if response is a private gallery requiring password
@@ -23,7 +23,7 @@ const getStorageKey = (slug: string) => `gallery_access_${slug}`;
 export default function Gallery() {
   const { slug } = useParams<{ slug: string }>();
   const [gallery, setGallery] = useState<GalleryType | PrivateGalleryResponse | null>(null);
-  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photos, setPhotos] = useState<PublicPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<'missing' | 'failed' | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -250,7 +250,12 @@ export default function Gallery() {
       {photos.length === 0 ? (
         <div className="loading">No photos in this gallery yet.</div>
       ) : (
-        <PhotoGrid photos={photos} galleryTitle={gallery.title} onImagesExpired={refreshPhotos} />
+        <PhotoGrid
+          photos={photos}
+          galleryTitle={gallery.title}
+          accessToken={accessToken ?? undefined}
+          onImagesExpired={refreshPhotos}
+        />
       )}
     </div>
   );

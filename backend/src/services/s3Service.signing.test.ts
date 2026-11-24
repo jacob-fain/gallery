@@ -53,3 +53,28 @@ describe('getSignedUrl cache', () => {
     expect(await getSignedUrl('b.jpg', 300)).not.toBe(first);
   });
 });
+
+describe('getSignedUrl in-flight signing', () => {
+  it('signs once for concurrent cold requests of the same object', async () => {
+    const presigner = await import('@aws-sdk/s3-request-presigner');
+    vi.mocked(presigner.getSignedUrl).mockClear();
+    const urls = await Promise.all([getSignedUrl('c.jpg'), getSignedUrl('c.jpg'), getSignedUrl('c.jpg')]);
+    expect(new Set(urls).size).toBe(1);
+    expect(presigner.getSignedUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('never hands a short-lived signature to a caller asking for a long one', async () => {
+    const presigner = await import('@aws-sdk/s3-request-presigner');
+    vi.mocked(presigner.getSignedUrl).mockClear();
+    const [short, long] = await Promise.all([getSignedUrl('d.jpg', 300), getSignedUrl('d.jpg')]);
+    expect(short).not.toBe(long);
+    expect(presigner.getSignedUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it('signs again after a failed signing instead of repeating the failure', async () => {
+    const presigner = await import('@aws-sdk/s3-request-presigner');
+    vi.mocked(presigner.getSignedUrl).mockRejectedValueOnce(new Error('clock skew'));
+    await expect(getSignedUrl('e.jpg')).rejects.toThrow('clock skew');
+    await expect(getSignedUrl('e.jpg')).resolves.toMatch(/^https:\/\/s3\.example\/signed-/);
+  });
+});

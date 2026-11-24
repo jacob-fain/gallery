@@ -7,6 +7,8 @@ import {
   verifyGalleryAccessToken,
 } from '../services/authService';
 import { publicGallery, adminGallery } from '../services/galleryView';
+import { toPublicPhotos } from '../services/photoView';
+import { cachePublicly } from '../middleware/cacheControl';
 import { attachmentDisposition, zipEntryNames } from '../services/downloadNames';
 import { writeZip } from '../services/zipStream';
 
@@ -15,6 +17,7 @@ const PRIVATE_NEEDS_PASSWORD = 'A private gallery needs a password';
 export const listGalleries = async (_req: Request, res: Response) => {
   try {
     const galleries = await galleryService.getPublicGalleriesWithCovers();
+    cachePublicly(res);
     res.json({ success: true, data: galleries.map(publicGallery) });
   } catch (err) {
     console.error('Error fetching galleries:', err);
@@ -49,6 +52,7 @@ export const getGallery = async (req: Request, res: Response) => {
     // Increment view count for public galleries
     await galleryService.incrementGalleryViews(gallery.id);
 
+    cachePublicly(res);
     res.json({ success: true, data: publicGallery(gallery) });
   } catch (err) {
     console.error('Error fetching gallery:', err);
@@ -87,8 +91,11 @@ export const getGalleryPhotos = async (req: Request, res: Response) => {
     }
 
     const photos = await galleryService.getGalleryPhotos(gallery.id);
-    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
-    res.json({ success: true, data: photosWithUrls });
+    const data = await toPublicPhotos(photos);
+    // A private gallery's photos stay no-store: they are for one visitor's
+    // unlock token, not for any cache.
+    if (gallery.is_public) cachePublicly(res);
+    res.json({ success: true, data });
   } catch (err) {
     console.error('Error fetching gallery photos:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch photos' });

@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getFeaturedPhotos } from '../api/client';
-import type { Photo } from '../types';
+import type { PublicPhoto } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import { photoAlt } from '../utils/photoAlt';
 import styles from './Home.module.css';
 
 export default function Home() {
-  const [featuredPhotos, setFeaturedPhotos] = useState<Photo[]>([]);
+  const [featuredPhotos, setFeaturedPhotos] = useState<PublicPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [heroLoaded, setHeroLoaded] = useState(false);
   const [failed, setFailed] = useState(false);

@@ -7,8 +7,8 @@ import Counter from 'yet-another-react-lightbox/plugins/counter';
 import Download from 'yet-another-react-lightbox/plugins/download';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import 'yet-another-react-lightbox/plugins/counter.css';
-import type { Photo, ExifData } from '../../types';
-import { trackPhotoView, trackPhotoDownload } from '../../api/client';
+import type { PublicPhoto, ExifData } from '../../types';
+import { trackPhotoView, getPhotoDownloadUrl } from '../../api/client';
 import ExifOverlay from './ExifOverlay';
 import { derivedImages } from '../../utils/imageSizes';
 import { createRefreshGuard } from '../../utils/expiredImages';
@@ -22,13 +22,14 @@ interface SlideWithExif {
   width: number;
   height: number;
   alt: string;
-  download: string;
-  downloadFilename: string;
+  photoId: string;
   exif?: ExifData;
 }
 
 interface PhotoGridProps {
-  photos: Photo[];
+  photos: PublicPhoto[];
+  // Unlocks downloads of photos in a private gallery.
+  accessToken?: string;
   // Names the gallery in each photo's alt text. Without it a photo's own
   // gallery_title is used when the API joined one.
   galleryTitle?: string;
@@ -41,21 +42,22 @@ interface PhotoGridProps {
 const REFRESH_INTERVAL_MS = 60 * 1000;
 const LIGHTBOX_CLASS = 'photo-grid-lightbox';
 
-function getPhotoUrl(photo: Photo, size: 'thumbnail' | 'web' | 'original'): string {
-  if (size === 'thumbnail' && photo.thumbnailUrl) {
-    return photo.thumbnailUrl;
-  }
-  if (size === 'web' && photo.webUrl) {
-    return photo.webUrl;
-  }
-  if (size === 'original' && photo.url) {
-    return photo.url;
-  }
-  // Fallback to any available URL
-  return photo.webUrl || photo.url || photo.thumbnailUrl || '';
+function getPhotoUrl(photo: PublicPhoto): string {
+  return photo.webUrl || photo.thumbnailUrl || '';
 }
 
-export default function PhotoGrid({ photos, galleryTitle, onImagesExpired }: PhotoGridProps) {
+// The signed URL answers with Content-Disposition: attachment, so navigating
+// to it saves the file and leaves the page in place. Navigation, unlike
+// opening a tab, is not blocked after the await.
+async function downloadOriginal(photoId: string, accessToken?: string) {
+  try {
+    window.location.assign(await getPhotoDownloadUrl(photoId, accessToken));
+  } catch (err) {
+    console.error('Failed to download photo:', err);
+  }
+}
+
+export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesExpired }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const lastTrackedIndex = useRef(-1);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -91,7 +93,7 @@ export default function PhotoGrid({ photos, galleryTitle, onImagesExpired }: Pho
     }
   }, [lightboxIndex, photos]);
 
-  const altFor = (photo: Photo, index: number) =>
+  const altFor = (photo: PublicPhoto, index: number) =>
     photoAlt(index, photos.length, galleryTitle ?? photo.gallery_title);
 
   const albumPhotos = photos.map((photo, index) => {
@@ -101,7 +103,7 @@ export default function PhotoGrid({ photos, galleryTitle, onImagesExpired }: Pho
     // matches width, which would advertise the thumbnail at the largest size.
     // Passing the largest real candidate's size keeps the srcset truthful.
     return {
-      src: candidates[0]?.src ?? getPhotoUrl(photo, 'web'),
+      src: candidates[0]?.src ?? getPhotoUrl(photo),
       srcSet: candidates,
       width: largest?.width ?? photo.width,
       height: largest?.height ?? photo.height,
@@ -115,24 +117,15 @@ export default function PhotoGrid({ photos, galleryTitle, onImagesExpired }: Pho
     return {
       // The web size, not the original: originals can be tens of megabytes
       // and are fetched only by the download button.
-      src: largest?.src ?? getPhotoUrl(photo, 'web'),
+      src: largest?.src ?? getPhotoUrl(photo),
       srcSet: candidates,
       width: largest?.width ?? photo.width,
       height: largest?.height ?? photo.height,
       alt: altFor(photo, index),
-      download: getPhotoUrl(photo, 'original'),
-      downloadFilename: photo.original_filename,
-      exif: photo.exif_data,
+      photoId: photo.id,
+      exif: photo.exif_data ?? undefined,
     };
   });
-
-  // Handle download - track before the actual download happens
-  const handleDownload = ({ index }: { index: number }) => {
-    const photo = photos[index];
-    if (photo) {
-      trackPhotoDownload(photo.id);
-    }
-  };
 
   return (
     <div className={styles.grid} ref={gridRef}>
@@ -158,7 +151,9 @@ export default function PhotoGrid({ photos, galleryTitle, onImagesExpired }: Pho
         close={() => setLightboxIndex(-1)}
         on={{
           view: ({ index }) => setLightboxIndex(index),
-          download: handleDownload,
+        }}
+        download={{
+          download: ({ slide }) => downloadOriginal((slide as SlideWithExif).photoId, accessToken),
         }}
         plugins={[Counter, Download, Zoom]}
         controller={{
