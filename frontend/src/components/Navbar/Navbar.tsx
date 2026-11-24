@@ -4,6 +4,11 @@ import ContactModal from '../ContactModal/ContactModal';
 import ThemeToggle from '../ThemeToggle/ThemeToggle';
 import styles from './Navbar.module.css';
 
+// The contact form is off until the site sends mail through a send-only
+// service (#52). Turning it back on also needs CONTACT_FORM_ENABLED=true on
+// the backend.
+const CONTACT_ENABLED = false;
+
 export default function Navbar() {
   const [contactOpen, setContactOpen] = useState(false);
 
@@ -47,6 +52,7 @@ export default function Navbar() {
                 <line x1="14" y1="2" x2="14" y2="4" />
               </svg>
             </a>
+            {CONTACT_ENABLED && (
             <button
               onClick={() => setContactOpen(true)}
               className={styles.iconLink}
@@ -58,11 +64,14 @@ export default function Navbar() {
                 <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
               </svg>
             </button>
+            )}
             <ThemeToggle />
           </div>
         </div>
       </nav>
-      <ContactModal isOpen={contactOpen} onClose={() => setContactOpen(false)} />
+      {CONTACT_ENABLED && (
+        <ContactModal isOpen={contactOpen} onClose={() => setContactOpen(false)} />
+      )}
     </>
   );
 }
