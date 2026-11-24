@@ -51,6 +51,11 @@
   transition: color 0.15s ease;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  /* Full-height tap target without moving the text. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  white-space: nowrap;
 }
 
 .link:hover {
@@ -73,6 +78,10 @@
   color: var(--color-text-light);
   text-decoration: none;
   transition: color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  white-space: nowrap;
 }
 
 .viewSite:hover {
@@ -92,6 +101,8 @@
   color: var(--color-text);
   font-size: 0.875rem;
   transition: background 0.2s;
+  min-height: 44px;
+  white-space: nowrap;
 }
 
 .logoutBtn:hover {
@@ -105,29 +116,48 @@
   padding: calc(var(--navbar-height) + 32px) 48px 48px;
 }
 
+/* Below this width the links no longer fit beside the controls, so they move
+   to a second row that scrolls sideways. */
 @media (max-width: 768px) {
-  .content {
-    padding: calc(var(--navbar-height) + 24px) 24px 24px;
+  .layout {
+    --navbar-height: 96px;
   }
 
   .container {
     padding: 0 16px;
+    flex-wrap: wrap;
+    align-content: center;
   }
 
   .left {
-    gap: 16px;
+    display: contents;
   }
 
   .links {
+    order: 1;
+    flex-basis: 100%;
     gap: 16px;
+    overflow-x: auto;
+  }
+
+  .content {
+    padding: calc(var(--navbar-height) + 24px) 24px 24px;
   }
 
   .link {
     font-size: 0.8rem;
   }
 
+  /* The scrolling row clips anything drawn outside it, so the focus ring
+     goes inside the link. */
+  .link:focus-visible {
+    outline-offset: -2px;
+  }
+
+  /* 13px is the icon's hit-area overhang, so the toggle's area stops at its
+     neighbour's edge. */
   .right {
-    gap: 12px;
+    gap: 13px;
   }
 
   .user {
