@@ -43,3 +43,7 @@ deploy.sh
 # Agent worktrees and local agent settings
 .claude/worktrees/
 .claude/settings.local.json
+
+# Python bytecode (deploy scripts and their tests)
+__pycache__/
+*.pyc

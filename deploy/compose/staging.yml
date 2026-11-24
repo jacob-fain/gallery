@@ -1,0 +1,110 @@
+# Staging stack for the home server. Installed by the homelab session as
+# /opt/docker/gallery-staging/docker-compose.yml (root-owned) beside .env.production
+# (0600) and pinned.env, which homelab-gallery-apply writes. Images come only
+# from pinned.env, by digest; nothing here is built on the server.
+#
+# Its own project, network and volume (gallery-staging_postgres_data), and its
+# own .env.production: a separate database password, JWT secret and S3
+# bucket, so nothing here can reach production data. Served behind
+# Cloudflare Access as staging.jacobfain.gallery.
+name: gallery-staging
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  frontend:
+    image: ${FRONTEND_IMAGE:?pinned.env sets FRONTEND_IMAGE}
+    # Localhost only: the Cloudflare tunnel and the deploy health check use
+    # 127.0.0.1:8081; production holds 127.0.0.1:80.
+    ports:
+      - "127.0.0.1:8081:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    restart: unless-stopped
+    logging: *logging
+    networks: [gallery]
+
+  backend:
+    image: ${BACKEND_IMAGE:?pinned.env sets BACKEND_IMAGE}
+    # Publishes no port: only nginx on the gallery network reaches it. The
+    # rate limiter trusts X-Forwarded-For because nginx is the only hop, so
+    # publishing a port would let clients spoof their address.
+    environment: &backend-env
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://gallery:${DB_PASSWORD}@db:5432/gallery
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+    depends_on:
+      db:
+        condition: service_healthy
+    # tini as PID 1 forwards SIGTERM, so a restart stops cleanly instead of
+    # waiting out the kill timeout.
+    init: true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 768m
+    restart: unless-stopped
+    logging: *logging
+    networks: [gallery]
+
+  # One-shot: homelab-gallery-apply runs it before swapping containers.
+  migrate:
+    image: ${BACKEND_IMAGE:?pinned.env sets BACKEND_IMAGE}
+    command: ["node", "dist/migrate.js"]
+    environment: *backend-env
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: [migrate]
+    restart: "no"
+    logging: *logging
+    networks: [gallery]
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=gallery
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=gallery
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gallery -d gallery"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    shm_size: 256m
+    mem_limit: 384m
+    restart: unless-stopped
+    logging: *logging
+    networks: [gallery]
+
+volumes:
+  postgres_data:
+
+networks:
+  gallery:
+    driver: bridge

@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Picks up gallery deployments from GitHub and applies them on this server.
+
+Installed by the homelab session as /usr/local/lib/gallery-deploy/poll and run
+every minute by gallery-deploy-poll.timer as the gallery-deploy user. Nothing
+connects in: this asks GitHub for the newest deployment of each environment
+and, if nobody has answered it yet, hands its two image digests to
+homelab-gallery-apply through sudo, then posts the result back.
+
+Reads GITHUB_TOKEN from the environment (systemd EnvironmentFile). The token
+needs only Deployments read/write and Contents and Metadata read on
+jacob-fain/gallery. Standard library only.
+"""
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+REPO = "jacob-fain/gallery"
+API = f"https://api.github.com/repos/{REPO}"
+APPLY = ["sudo", "-n", "/usr/local/sbin/homelab-gallery-apply"]
+NOTIFY = "/usr/local/sbin/homelab-notify"
+STATE_DIR = os.environ.get("STATE_DIRECTORY", "/var/lib/gallery-deploy")
+APPLY_TIMEOUT_SECONDS = 25 * 60
+EXIT_BUSY = 75
+# An apply runs at most APPLY_TIMEOUT_SECONDS, so an in_progress status older
+# than this was left by a poller that died mid-run and is retried.
+STALE_IN_PROGRESS = datetime.timedelta(minutes=30)
+FINAL_STATES = ("success", "failure", "error", "inactive")
+DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+# GitHub environment name -> argument for homelab-gallery-apply.
+ENVIRONMENTS = {"production": "prod", "staging": "staging"}
+SITE = {"production": "https://jacobfain.gallery", "staging": "https://staging.jacobfain.gallery"}
+
+
+class Api:
+    def __init__(self, token, opener=urllib.request.urlopen):
+        self.token = token
+        self.opener = opener
+
+    def request(self, method, url, body=None, etag=None):
+        """Returns (status, json or None, etag). A 304 returns (304, None, etag)."""
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "gallery-deploy-poll",
+        }
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode()
+            headers["Content-Type"] = "application/json"
+        if etag:
+            headers["If-None-Match"] = etag
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with self.opener(req, timeout=30) as res:
+                raw = res.read()
+                return res.status, (json.loads(raw) if raw else None), res.headers.get("ETag")
+        except urllib.error.HTTPError as err:
+            if err.code == 304:
+                return 304, None, etag
+            raise
+
+
+def etag_path(env):
+    return os.path.join(STATE_DIR, f"{env}.etag")
+
+
+def read_etag(env):
+    try:
+        with open(etag_path(env)) as f:
+            return f.read().strip() or None
+    except FileNotFoundError:
+        return None
+
+
+def write_etag(env, etag):
+    if etag:
+        with open(etag_path(env), "w") as f:
+            f.write(etag)
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def retryable(latest_status, at):
+    """Whether a deployment whose newest status is latest_status needs applying."""
+    state = latest_status["state"]
+    if state in ("queued", "pending"):
+        return True
+    if state == "in_progress":
+        started = datetime.datetime.fromisoformat(latest_status["created_at"].replace("Z", "+00:00"))
+        return at - started > STALE_IN_PROGRESS
+    return False
+
+
+def post_status(api, deployment, state, description, env):
+    api.request(
+        "POST",
+        deployment["statuses_url"],
+        {
+            "state": state,
+            "description": description[:140],
+            "environment_url": SITE[env],
+            "auto_inactive": True,
+        },
+    )
+
+
+def notify(title, message):
+    # Through sudo: the alert credentials are readable only by root. The
+    # notify script limits lengths, strips control characters and holds
+    # alerts during quiet hours.
+    subprocess.run(["sudo", "-n", NOTIFY, title, message], check=False, timeout=30)
+
+
+def handle(api, env, run=subprocess.run):
+    """Processes the newest deployment for env. Returns what happened, for logs."""
+    etag = read_etag(env)
+    status, deployments, new_etag = api.request(
+        "GET", f"{API}/deployments?environment={env}&per_page=1", etag=etag
+    )
+    if status == 304 or not deployments:
+        return "nothing new"
+    deployment = deployments[0]
+
+    _, statuses, _ = api.request("GET", f"{deployment['statuses_url']}?per_page=1")
+    if statuses and not retryable(statuses[0], now()):
+        # The ETag is saved only once the status is final. A recent
+        # in_progress may belong to a poller that died: if its ETag were
+        # saved, every later poll would get a 304 and never reach the stale
+        # retry.
+        if statuses[0]["state"] in FINAL_STATES:
+            write_etag(env, new_etag)
+        return f"deployment {deployment['id']} already {statuses[0]['state']}"
+
+    payload = deployment.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            payload = {}
+    frontend = payload.get("frontend_digest", "")
+    backend = payload.get("backend_digest", "")
+    if not (DIGEST.match(frontend) and DIGEST.match(backend)):
+        post_status(api, deployment, "error", "payload lacks valid image digests", env)
+        write_etag(env, new_etag)
+        return f"deployment {deployment['id']} refused: bad payload"
+
+    post_status(api, deployment, "in_progress", "applying on the home server", env)
+    try:
+        result = run(
+            APPLY + [ENVIRONMENTS[env], frontend, backend],
+            capture_output=True,
+            text=True,
+            timeout=APPLY_TIMEOUT_SECONDS,
+        )
+        lines = (result.stdout or "").strip().splitlines()
+        last = lines[-1] if lines else "no output"
+        code = result.returncode
+    except subprocess.TimeoutExpired:
+        last, code = "timed out", 1
+
+    if code == EXIT_BUSY:
+        # Left queued, and the ETag not saved, so the next run tries again.
+        post_status(api, deployment, "queued", "waiting: " + last, env)
+        return f"deployment {deployment['id']} busy, will retry"
+
+    if code == 0:
+        post_status(api, deployment, "success", last, env)
+    else:
+        post_status(api, deployment, "failure", last, env)
+        if env == "production":
+            notify("Gallery deploy failed", f"{deployment.get('ref', '?')}: {last}")
+    write_etag(env, new_etag)
+    return f"deployment {deployment['id']} {'succeeded' if code == 0 else 'failed'}: {last}"
+
+
+def main():
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        print("GITHUB_TOKEN is not set", file=sys.stderr)
+        return 1
+    api = Api(token)
+    failed = False
+    for env in ENVIRONMENTS:
+        try:
+            print(f"{env}: {handle(api, env)}")
+        except Exception as err:  # one environment's error must not stop the other
+            failed = True
+            print(f"{env}: error: {err}", file=sys.stderr)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
