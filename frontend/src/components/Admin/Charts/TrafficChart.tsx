@@ -52,7 +52,7 @@ export default function TrafficChart({ data }: TrafficChartProps) {
                 border: '1px solid var(--color-border)',
                 borderRadius: '4px',
               }}
-              labelFormatter={formatDayLabel}
+              labelFormatter={(label) => formatDayLabel(String(label))}
               formatter={(value) => [value, 'Views']}
             />
             <Line
