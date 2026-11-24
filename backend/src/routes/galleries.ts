@@ -2,8 +2,11 @@ import { Router } from 'express';
 import * as galleryController from '../controllers/galleryController';
 import { authMiddleware } from '../middleware/auth';
 import { galleryPasswordRateLimit } from '../middleware/rateLimit';
+import { uuidParam, validateBodyIds } from '../middleware/validateIds';
 
 const router = Router();
+
+router.param('id', uuidParam);
 
 // ============ Admin Routes (auth required) ============
 
@@ -14,7 +17,12 @@ router.post('/', authMiddleware, galleryController.createGallery);
 router.get('/admin/all', authMiddleware, galleryController.listAllGalleries);
 
 // PUT /api/galleries/reorder - Reorder galleries (must be before /:id routes)
-router.put('/reorder', authMiddleware, galleryController.reorderGalleries);
+router.put(
+  '/reorder',
+  authMiddleware,
+  validateBodyIds({ gallery_ids: 'uuid[]' }),
+  galleryController.reorderGalleries
+);
 
 // PUT /api/galleries/:id - Update gallery
 router.put('/:id', authMiddleware, galleryController.updateGallery);
@@ -23,7 +31,12 @@ router.put('/:id', authMiddleware, galleryController.updateGallery);
 router.delete('/:id', authMiddleware, galleryController.deleteGallery);
 
 // PUT /api/galleries/:id/cover - Set cover image
-router.put('/:id/cover', authMiddleware, galleryController.setCoverImage);
+router.put(
+  '/:id/cover',
+  authMiddleware,
+  validateBodyIds({ photoId: 'uuid?' }),
+  galleryController.setCoverImage
+);
 
 // GET /api/galleries/:id/photos/admin - Get photos by gallery ID (admin)
 router.get('/:id/photos/admin', authMiddleware, galleryController.getGalleryPhotosAdmin);
