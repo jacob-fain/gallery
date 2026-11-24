@@ -5,6 +5,7 @@ import { getGallery, getGalleryPhotos, verifyGalleryPassword, getGalleryDownload
 import { isNotFound, visitorMessage } from '../api/errors';
 import LoadError from '../components/StatusMessage/LoadError';
 import NotFound from './NotFound';
+import PageTitle from '../components/PageTitle';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
 import type { Gallery as GalleryType, PublicPhoto, PrivateGalleryResponse } from '../types';
@@ -159,6 +160,7 @@ export default function Gallery() {
   if (isPrivateGallery(gallery) && !accessToken) {
     return (
       <div className={styles.container}>
+        <PageTitle page={gallery.title} />
         <div className={styles.passwordContainer}>
           <h1 className={styles.title}>{gallery.title}</h1>
           <p className={styles.passwordNote}>
@@ -199,6 +201,7 @@ export default function Gallery() {
 
   return (
     <div className={styles.container}>
+      <PageTitle page={gallery.title} />
       {photos.length > 1 && (
         <button
           className={styles.shuffleBtn}

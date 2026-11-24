@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/auth';
+import { useSiteTitle } from '../../contexts/siteTitle';
 import { getSettings, updateSettings } from '../../api/client';
 import styles from './Settings.module.css';
 
 export default function Settings() {
   const { token } = useAuth();
+  const { setSiteTitle: applySiteTitle } = useSiteTitle();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -45,8 +47,7 @@ export default function Settings() {
       });
       setSuccess('Settings saved successfully');
 
-      // Update document title immediately
-      document.title = siteTitle;
+      applySiteTitle(siteTitle);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
