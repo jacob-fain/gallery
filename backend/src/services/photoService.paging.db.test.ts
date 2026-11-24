@@ -70,6 +70,9 @@ describe.skipIf(!db)('paged photo lists (database)', () => {
     const tieA = await upload(pub, 'tieA', { uploadedAt: `${t}.000001+00` });
     const tieB = await upload(pub, 'tieB', { uploadedAt: `${t}.000001+00` });
     const oldest = await upload(pub, 'oldest', { uploadedAt: `${t}.000000+00` });
+    // One public photo older than the five under test, so the fifth page is
+    // never the last one, even on an otherwise empty database.
+    await upload(pub, 'older', { uploadedAt: '2999-05-31 12:00:00+00' });
     await upload(pub, 'hidden', { uploadedAt: `${t}.000004+00`, hidden: true });
     await upload(priv, 'private', { uploadedAt: `${t}.000004+00` });
     const ties = [tieA, tieB].sort().reverse();
