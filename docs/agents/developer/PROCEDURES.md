@@ -4,6 +4,9 @@
 
 Run all of it and read each exit code before opening a PR.
 
+The tests need Node 22.12 or later (Vitest 5). Use Node 24 through nvm
+(`nvm use`, which reads `.nvmrc`), the same version CI and the images run.
+
 From the repository root:
 
 ```sh
