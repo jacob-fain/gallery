@@ -13,7 +13,7 @@ vi.mock('../services/galleryService', async (importOriginal) => ({
 }));
 vi.mock('../services/photoService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/photoService')>()),
-  getAllPublicPhotos: vi.fn(),
+  getPublicPhotosPage: vi.fn(),
   getFeaturedPhotos: vi.fn(),
   getPhotoById: vi.fn(),
   getDownloadUrl: vi.fn(async () => 'https://s3.example/original?sig'),
@@ -88,7 +88,7 @@ beforeEach(() => {
   vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue(gallery(true));
   vi.mocked(galleryService.getGalleryById).mockResolvedValue(gallery(true));
   vi.mocked(galleryService.getGalleryPhotos).mockResolvedValue([photo as never]);
-  vi.mocked(photoService.getAllPublicPhotos).mockResolvedValue([photo as never]);
+  vi.mocked(photoService.getPublicPhotosPage).mockResolvedValue({ photos: [photo as never], next: null });
   vi.mocked(photoService.getFeaturedPhotos).mockResolvedValue([photo as never]);
   vi.mocked(photoService.getPhotoById).mockResolvedValue(photo as never);
   vi.mocked(settingsService.getAllSettings).mockResolvedValue({} as never);
@@ -142,6 +142,15 @@ describe('public photo lists carry no internal fields', () => {
       webUrl: 'https://s3.example/k/web.webp?sig',
       thumbnailUrl: 'https://s3.example/k/thumb.webp?sig',
     });
+  });
+
+  it('GET /photos pages with a cursor and keeps the array in data', async () => {
+    const { body } = await get('/photos');
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.nextCursor).toBeNull();
+    const refused = await get('/photos?cursor=not-ours');
+    expect(refused.status).toBe(400);
+    expect(refused.cache).toBe('no-store');
   });
 
   it('GET /photos/:id returns the same public shape', async () => {

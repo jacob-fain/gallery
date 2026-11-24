@@ -73,7 +73,14 @@ export interface FetchOptions {
   fresh?: boolean;
 }
 
+// The list endpoints put paging fields beside data.
+type ApiBody<T> = ApiResponse<T> & { nextCursor?: string | null; total?: number };
+
 async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
+  return (await fetchApiBody<T>(endpoint, options)).data;
+}
+
+async function fetchApiBody<T>(endpoint: string, options: FetchOptions = {}): Promise<ApiBody<T> & { data: T }> {
   const response = await fetch(
     `${API_BASE}${endpoint}`,
     options.fresh ? { cache: 'no-cache' } : undefined
@@ -83,19 +90,23 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
     throw new ApiError(`API request failed: ${response.status} ${response.statusText}`, response.status);
   }
 
-  const data: ApiResponse<T> = await response.json();
+  const data: ApiBody<T> = await response.json();
 
   if (!data.success || !data.data) {
     throw new Error(data.error || 'API request failed');
   }
 
-  return data.data;
+  return data as ApiBody<T> & { data: T };
 }
 
 // A fresh request never joins one in flight, since that one may carry the
 // expired URLs. It takes over the key instead: only the newest request for a
 // key fills the cache, so an older response cannot overwrite a fresher one.
 function fetchCached<T>(key: string, endpoint: string, options: FetchOptions = {}): Promise<T> {
+  return cachedRequest(key, options, () => fetchApi<T>(endpoint, options));
+}
+
+function cachedRequest<T>(key: string, options: FetchOptions, load: () => Promise<T>): Promise<T> {
   if (!options.fresh) {
     const cached = getCached<T>(key);
     if (cached) return Promise.resolve(cached);
@@ -103,7 +114,7 @@ function fetchCached<T>(key: string, endpoint: string, options: FetchOptions = {
     if (pending) return pending as Promise<T>;
   }
 
-  const request: Promise<T> = fetchApi<T>(endpoint, options).then(
+  const request: Promise<T> = load().then(
     (data) => {
       if (inflight.get(key) === request) {
         inflight.delete(key);
@@ -125,11 +136,22 @@ export function getFeaturedPhotos(): Promise<PublicPhoto[]> {
 }
 
 export function getAllPhotos(limit?: number, options: FetchOptions = {}): Promise<PublicPhoto[]> {
-  return fetchCached<PublicPhoto[]>(
-    limit ? `allPhotos:${limit}` : 'allPhotos',
-    limit ? `/photos?limit=${limit}` : '/photos',
-    options
-  );
+  if (limit) return fetchCached<PublicPhoto[]>(`allPhotos:${limit}`, `/photos?limit=${limit}`, options);
+  // The API sends the list in pages. All Photos shuffles the whole set and
+  // its lightbox walks all of it, so every page is fetched.
+  return cachedRequest('allPhotos', options, async () => {
+    const data: PublicPhoto[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: ApiBody<PublicPhoto[]> & { data: PublicPhoto[] } = await fetchApiBody<PublicPhoto[]>(
+        cursor ? `/photos?cursor=${encodeURIComponent(cursor)}` : '/photos',
+        options
+      );
+      data.push(...page.data);
+      cursor = page.nextCursor ?? null;
+    } while (cursor);
+    return data;
+  });
 }
 
 export function getGalleries(): Promise<Gallery[]> {
@@ -260,16 +282,20 @@ function checkSession(status: number): void {
 }
 
 async function fetchApiAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  return (await fetchApiAuthBody<T>(endpoint, options)).data as T;
+}
+
+async function fetchApiAuthBody<T>(endpoint: string, options: RequestInit = {}): Promise<ApiBody<T>> {
   const response = await fetch(`${API_BASE}${endpoint}`, { ...options, credentials: WITH_SESSION });
   checkSession(response.status);
 
-  const data: ApiResponse<T> = await response.json();
+  const data: ApiBody<T> = await response.json();
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || 'API request failed');
   }
 
-  return data.data as T;
+  return data;
 }
 
 // Admin Stats
@@ -334,12 +360,25 @@ export async function setCoverImage(
 }
 
 // Photo Management
-export async function getPhotosByGallery(galleryId: string): Promise<Photo[]> {
-  return fetchApiAuth<Photo[]>(`/galleries/${galleryId}/photos/admin`);
+
+/** A page of an admin photo list, and the length of the whole list. */
+export interface PhotoPage {
+  photos: Photo[];
+  total: number;
 }
 
-export async function getUnassignedPhotos(): Promise<Photo[]> {
-  return fetchApiAuth<Photo[]>('/photos/admin/unassigned');
+async function fetchPhotoPage(endpoint: string, offset: number, limit: number): Promise<PhotoPage> {
+  const body = await fetchApiAuthBody<Photo[]>(`${endpoint}?limit=${limit}&offset=${offset}`);
+  const photos = body.data ?? [];
+  return { photos, total: body.total ?? photos.length };
+}
+
+export function getGalleryPhotosPage(galleryId: string, offset: number, limit: number) {
+  return fetchPhotoPage(`/galleries/${galleryId}/photos/admin`, offset, limit);
+}
+
+export function getUnassignedPhotosPage(offset: number, limit: number) {
+  return fetchPhotoPage('/photos/admin/unassigned', offset, limit);
 }
 
 // Duplicate detection

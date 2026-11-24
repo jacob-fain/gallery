@@ -4,9 +4,11 @@ vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com
 const {
   clearCache,
   getAdminStats,
+  getAllPhotos,
   getGallery,
   getGalleryPhotos,
   getCurrentUser,
+  getGalleryPhotosPage,
   getPhotoDownloadUrl,
   isKnownPrivateGallery,
   login,
@@ -293,5 +295,41 @@ describe('public request errors', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     await expect(verifyGalleryPassword('g', 'x')).rejects.toMatchObject({ status: 502, serverMessage: null });
+  });
+});
+
+describe('paged photo lists', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  const page = (data: unknown[], extra: Record<string, unknown>) => ({
+    status: 200,
+    ok: true,
+    json: async () => ({ success: true, data, ...extra }),
+  });
+
+  it('fetches every public page, following nextCursor', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(page([{ id: 'a' }, { id: 'b' }], { nextCursor: 'c/1' }))
+      .mockResolvedValueOnce(page([{ id: 'c' }], { nextCursor: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect((await getAllPhotos()).map((p) => p.id)).toEqual(['a', 'b', 'c']);
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/photos', '/api/photos?cursor=c%2F1']);
+  });
+
+  it('asks an admin list for one page with the session cookie and reports the whole length', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(page([{ id: 'x' }], { total: 240, nextOffset: 101 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await getGalleryPhotosPage('g1', 100, 100)).toEqual({ photos: [{ id: 'x' }], total: 240 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/galleries/g1/photos/admin?limit=100&offset=100');
+    expect(init.credentials).toBe('include');
+    expect(JSON.stringify(init.headers ?? {})).not.toContain('Authorization');
   });
 });

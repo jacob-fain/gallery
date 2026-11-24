@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -20,16 +20,23 @@ import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries,
 import type { Photo, Gallery } from '../../../types';
 import { describeFailures, isPhotoGone, settleBulk } from '../../../utils/bulkResults';
 import { photoAlt } from '../../../utils/photoAlt';
+import { derivedImages } from '../../../utils/imageSizes';
+import { hasMore, mapPhotos, removePhotos } from '../../../utils/photoList';
+import { shuffle } from '../../../utils/shuffle';
+import LoadMore from './LoadMore';
+import type { PhotoListHandle } from './usePhotoList';
 import styles from './PhotoManager.module.css';
 
 // Select value for the Unassigned target; gallery ids are UUIDs, so it cannot collide.
 const UNASSIGNED_TARGET = 'unassigned';
 
 interface PhotoManagerProps {
-  photos: Photo[];
+  // The paged list, owned by the page so finished uploads can join it.
+  photos: PhotoListHandle;
   // null renders gallery-agnostic mode (unassigned photos): no cover, reorder, or shuffle
   gallery: Gallery | null;
-  onPhotosChange: () => void;
+  // Called after a change that can alter the gallery itself (its cover).
+  onPhotosChange?: () => void;
 }
 
 interface SortablePhotoCardProps {
@@ -46,7 +53,26 @@ interface SortablePhotoCardProps {
   onToggleHidden: (photoId: string) => void;
 }
 
-function SortablePhotoCard({
+function Thumbnail({ photo, alt }: { photo: Photo; alt: string }) {
+  // The card's square box reserves the space, so an image below the fold
+  // stays unloaded; the size attributes give the browser the aspect ratio.
+  const size = derivedImages({ width: photo.width, height: photo.height, thumbnailUrl: photo.thumbnailUrl })[0];
+  return (
+    <img
+      src={photo.thumbnailUrl}
+      alt={alt}
+      className={styles.image}
+      loading="lazy"
+      decoding="async"
+      width={size?.width}
+      height={size?.height}
+    />
+  );
+}
+
+// Memoized, with stable callbacks from PhotoManager, so selecting a photo or
+// opening a dialog re-renders one card or none instead of the whole grid.
+const SortablePhotoCard = memo(function SortablePhotoCard({
   photo,
   alt,
   isCover,
@@ -87,11 +113,7 @@ function SortablePhotoCard({
             className={styles.coverSelectArea}
             onClick={() => onCoverClick(photo.id)}
           >
-            <img
-              src={photo.thumbnailUrl}
-              alt={alt}
-              className={styles.image}
-            />
+            <Thumbnail photo={photo} alt={alt} />
             <div className={styles.coverSelectHint}>Click to set as cover</div>
           </div>
         ) : (
@@ -101,11 +123,7 @@ function SortablePhotoCard({
             {...attributes}
             {...listeners}
           >
-            <img
-              src={photo.thumbnailUrl}
-              alt={alt}
-              className={styles.image}
-            />
+            <Thumbnail photo={photo} alt={alt} />
             {sortable && <div className={styles.dragHint}>Drag to reorder</div>}
           </div>
         )}
@@ -168,23 +186,26 @@ function SortablePhotoCard({
       </div>
     </div>
   );
-}
+});
 
 export default function PhotoManager({
   photos,
   gallery,
   onPhotosChange,
 }: PhotoManagerProps) {
+  const { list, update, latest, reload, loadAll, loadMore } = photos;
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
-  const [localPhotos, setLocalPhotos] = useState<Photo[]>(photos);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // Shown above the grid when an action fails; actions used to fail silently.
   const [actionError, setActionError] = useState<string | null>(null);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [coverSelectMode, setCoverSelectMode] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-  const [optimisticCoverId, setOptimisticCoverId] = useState<string | null>(null);
+  // The cover just chosen, shown until the gallery reloads with a different
+  // cover than the one it replaced (the new one, or after a failure, the old).
+  const [optimisticCover, setOptimisticCover] = useState<{ id: string; replaces: string | null } | null>(null);
   const [shuffleConfirm, setShuffleConfirm] = useState(false);
   const [shuffling, setShuffling] = useState(false);
   const [moveModalOpen, setMoveModalOpen] = useState(false);
@@ -192,11 +213,10 @@ export default function PhotoManager({
   const [selectedTargetGallery, setSelectedTargetGallery] = useState<string>('');
   const [moving, setMoving] = useState(false);
 
-  // Sync local photos when props change (after API updates)
-  useEffect(() => {
-    setLocalPhotos(photos);
-    setOptimisticCoverId(null); // Clear optimistic state when real data arrives
-  }, [photos]);
+  const galleryId = gallery?.id ?? null;
+  const coverId = gallery?.cover_image_id ?? null;
+  const items = list.items;
+  const complete = !hasMore(list);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -209,7 +229,7 @@ export default function PhotoManager({
     })
   );
 
-  const handleToggleSelect = (photoId: string) => {
+  const handleToggleSelect = useCallback((photoId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(photoId)) {
@@ -219,58 +239,74 @@ export default function PhotoManager({
       }
       return next;
     });
-  };
+  }, []);
 
-  const handleSelectAll = () => {
-    if (selectedIds.size === localPhotos.length) {
+  const selectedCount = items.reduce((n, p) => (selectedIds.has(p.id) ? n + 1 : n), 0);
+  // All means every photo of the gallery: Select All loads the pages not yet
+  // scrolled to before selecting.
+  const allSelected = complete && items.length > 0 && selectedCount === items.length;
+
+  const handleSelectAll = async () => {
+    if (allSelected) {
       setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(localPhotos.map((p) => p.id)));
+      return;
     }
+    setSelectingAll(true);
+    const all = await loadAll();
+    setSelectingAll(false);
+    if (!all) {
+      setActionError('Failed to load every photo, so nothing was selected');
+      return;
+    }
+    setSelectedIds(new Set(all.map((p) => p.id)));
   };
 
   const handleClearSelection = () => {
     setSelectedIds(new Set());
   };
 
+  // The loaded photos are the front of the gallery, so their new order is
+  // sent alone and the server keeps the rest after them.
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
+    if (!over || active.id === over.id) return;
 
-    if (over && active.id !== over.id) {
-      const oldIndex = localPhotos.findIndex((p) => p.id === active.id);
-      const newIndex = localPhotos.findIndex((p) => p.id === over.id);
+    const before = latest().items;
+    const oldIndex = before.findIndex((p) => p.id === active.id);
+    const newIndex = before.findIndex((p) => p.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
 
-      const newOrder = arrayMove(localPhotos, oldIndex, newIndex);
-      setLocalPhotos(newOrder);
+    const newOrder = arrayMove(before, oldIndex, newIndex);
+    update((l) => ({ ...l, items: newOrder }));
 
-      // Save to backend
-      if (gallery) {
-        try {
-          await reorderPhotos(gallery.id, newOrder.map((p) => p.id));
-        } catch (err) {
-          setActionError(err instanceof Error ? err.message : 'Failed to save the new order');
-          // Revert on error
-          setLocalPhotos(photos);
-        }
+    if (galleryId) {
+      try {
+        await reorderPhotos(galleryId, newOrder.map((p) => p.id));
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : 'Failed to save the new order');
+        reload();
       }
     }
   };
 
-  const handleSetCover = async (photoId: string) => {
-    if (!gallery) return;
+  const handleSetCover = useCallback(
+    async (photoId: string) => {
+      if (!galleryId) return;
 
-    // Optimistic UI - show cover immediately
-    setOptimisticCoverId(photoId);
-    setCoverSelectMode(false);
+      // Optimistic UI - show cover immediately
+      setOptimisticCover({ id: photoId, replaces: coverId });
+      setCoverSelectMode(false);
 
-    try {
-      await setCoverImage(gallery.id, photoId);
-      onPhotosChange();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to set the cover');
-      setOptimisticCoverId(null);
-    }
-  };
+      try {
+        await setCoverImage(galleryId, photoId);
+        onPhotosChange?.();
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : 'Failed to set the cover');
+        setOptimisticCover(null);
+      }
+    },
+    [galleryId, coverId, onPhotosChange]
+  );
 
   const handleDelete = async (photoId: string) => {
     // Add to deleting set for immediate visual feedback
@@ -283,13 +319,13 @@ export default function PhotoManager({
         if (!isPhotoGone(err)) throw err;
       });
       setDeleteConfirm(null);
-      setLocalPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      update((l) => removePhotos(l, [photoId]));
       setSelectedIds((prev) => {
         const next = new Set(prev);
         next.delete(photoId);
         return next;
       });
-      onPhotosChange();
+      onPhotosChange?.();
     } catch (err) {
       setDeleteConfirm(null);
       setActionError(err instanceof Error ? err.message : 'Failed to delete photo');
@@ -302,54 +338,48 @@ export default function PhotoManager({
     }
   };
 
-  const handleToggleHidden = async (photoId: string) => {
-    const photo = localPhotos.find((p) => p.id === photoId);
-    if (!photo) return;
+  const handleToggleHidden = useCallback(
+    async (photoId: string) => {
+      const photo = latest().items.find((p) => p.id === photoId);
+      if (!photo) return;
+      const setHidden = (hidden: boolean) =>
+        update((l) => mapPhotos(l, (p) => (p.id === photoId ? { ...p, is_hidden: hidden } : p)));
 
-    // Optimistic UI update
-    setLocalPhotos((prev) =>
-      prev.map((p) =>
-        p.id === photoId ? { ...p, is_hidden: !p.is_hidden } : p
-      )
-    );
+      // Optimistic UI update
+      setHidden(!photo.is_hidden);
 
-    try {
-      await updatePhoto(photoId, { is_hidden: !photo.is_hidden });
-      onPhotosChange();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to change visibility');
-      setLocalPhotos((prev) =>
-        prev.map((p) =>
-          p.id === photoId ? { ...p, is_hidden: photo.is_hidden } : p
-        )
-      );
-    }
-  };
+      try {
+        await updatePhoto(photoId, { is_hidden: !photo.is_hidden });
+        onPhotosChange?.();
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : 'Failed to change visibility');
+        setHidden(photo.is_hidden);
+      }
+    },
+    [latest, update, onPhotosChange]
+  );
 
-  // Shuffle photos randomly
+  // Shuffles the whole gallery, so the pages not loaded yet are fetched first.
   const handleShuffle = async () => {
-    if (!gallery) return;
+    if (!galleryId) return;
 
     setShuffling(true);
-
-    // Fisher-Yates shuffle
-    const shuffled = [...localPhotos];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-
-    // Optimistic UI - show shuffled order immediately
-    setLocalPhotos(shuffled);
     setShuffleConfirm(false);
 
     try {
-      await reorderPhotos(gallery.id, shuffled.map((p) => p.id));
-      onPhotosChange();
+      const all = await loadAll();
+      if (!all) {
+        setActionError('Failed to load every photo, so the gallery was not shuffled');
+        return;
+      }
+      const shuffled = shuffle(all);
+      // Optimistic UI - show shuffled order immediately
+      update((l) => ({ ...l, items: shuffled }));
+      await reorderPhotos(galleryId, shuffled.map((p) => p.id));
+      onPhotosChange?.();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to shuffle');
-      // Revert on error
-      setLocalPhotos(photos);
+      reload();
     } finally {
       setShuffling(false);
     }
@@ -370,12 +400,11 @@ export default function PhotoManager({
       // deleted: those leave the grid and the selection, failures stay.
       const results = await Promise.allSettled(ids.map((id) => deletePhoto(id)));
       const outcome = settleBulk(ids, results, isPhotoGone);
-      const done = new Set(outcome.done);
-      setLocalPhotos((prev) => prev.filter((p) => !done.has(p.id)));
+      update((l) => removePhotos(l, outcome.done));
       setSelectedIds(new Set(outcome.failed.map((f) => f.id)));
       setBulkDeleteConfirm(false);
       setActionError(describeFailures('Deleted', 'deleted', outcome));
-      onPhotosChange();
+      onPhotosChange?.();
     } finally {
       setBulkActionLoading(false);
       setDeletingIds(new Set());
@@ -400,18 +429,22 @@ export default function PhotoManager({
     if (selectedIds.size === 0 || !selectedTargetGallery) return;
 
     setMoving(true);
+    const ids = Array.from(selectedIds);
     try {
       await movePhotos(
-        Array.from(selectedIds),
+        ids,
         selectedTargetGallery === UNASSIGNED_TARGET ? null : selectedTargetGallery
       );
+      update((l) => removePhotos(l, ids));
       setSelectedIds(new Set());
       setMoveModalOpen(false);
-      onPhotosChange();
+      onPhotosChange?.();
     } catch (err) {
       setMoveModalOpen(false);
       setActionError(err instanceof Error ? err.message : 'Failed to move photos');
-      onPhotosChange();
+      // Some may have moved before the failure.
+      reload();
+      onPhotosChange?.();
     } finally {
       setMoving(false);
     }
@@ -422,16 +455,14 @@ export default function PhotoManager({
   // public ones first.
   const handleBulkSetHidden = async (hide: boolean) => {
     if (selectedIds.size === 0) return;
-    const ids = localPhotos
-      .filter((p) => selectedIds.has(p.id) && p.is_hidden !== hide)
+    const ids = latest()
+      .items.filter((p) => selectedIds.has(p.id) && p.is_hidden !== hide)
       .map((p) => p.id);
     if (ids.length === 0) return;
     const changing = new Set(ids);
 
     setBulkActionLoading(true);
-    setLocalPhotos((prev) =>
-      prev.map((p) => (changing.has(p.id) ? { ...p, is_hidden: hide } : p))
-    );
+    update((l) => mapPhotos(l, (p) => (changing.has(p.id) ? { ...p, is_hidden: hide } : p)));
 
     setActionError(null);
     try {
@@ -441,24 +472,21 @@ export default function PhotoManager({
       const outcome = settleBulk(ids, results);
       // Put back the ones that did not change, keep the rest.
       const failed = new Set(outcome.failed.map((f) => f.id));
-      setLocalPhotos((prev) =>
-        prev.map((p) => (failed.has(p.id) ? { ...p, is_hidden: !hide } : p))
-      );
+      update((l) => mapPhotos(l, (p) => (failed.has(p.id) ? { ...p, is_hidden: !hide } : p)));
       setActionError(
         hide
           ? describeFailures('Hid', 'hidden', outcome)
           : describeFailures('Showed', 'shown', outcome)
       );
-      onPhotosChange();
+      onPhotosChange?.();
     } finally {
       setBulkActionLoading(false);
     }
   };
 
-  const selectedHidden = localPhotos.some((p) => selectedIds.has(p.id) && p.is_hidden);
-  const selectedVisible = localPhotos.some((p) => selectedIds.has(p.id) && !p.is_hidden);
+  const sortableIds = useMemo(() => items.map((p) => p.id), [items]);
 
-  if (photos.length === 0) {
+  if (items.length === 0 && complete) {
     return (
       <div className={styles.empty}>
         No photos yet. Upload some photos above!
@@ -466,10 +494,12 @@ export default function PhotoManager({
     );
   }
 
-  const allSelected = selectedIds.size === localPhotos.length;
+  const selectedHidden = items.some((p) => selectedIds.has(p.id) && p.is_hidden);
+  const selectedVisible = items.some((p) => selectedIds.has(p.id) && !p.is_hidden);
   const someSelected = selectedIds.size > 0;
-  const effectiveCoverId = optimisticCoverId || gallery?.cover_image_id;
-  const currentCover = localPhotos.find((p) => p.id === effectiveCoverId);
+  const effectiveCoverId =
+    optimisticCover && optimisticCover.replaces === coverId ? optimisticCover.id : coverId;
+  const currentCover = items.find((p) => p.id === effectiveCoverId);
 
   return (
     <>
@@ -487,7 +517,7 @@ export default function PhotoManager({
               <button
                 className={styles.shuffleBtn}
                 onClick={() => setShuffleConfirm(true)}
-                disabled={shuffling || localPhotos.length < 2}
+                disabled={shuffling || list.total < 2}
               >
                 {shuffling ? 'Shuffling...' : 'Shuffle'}
               </button>
@@ -510,12 +540,17 @@ export default function PhotoManager({
                 <input
                   type="checkbox"
                   checked={allSelected}
+                  disabled={selectingAll}
                   ref={(el) => {
                     if (el) el.indeterminate = someSelected && !allSelected;
                   }}
                   onChange={handleSelectAll}
                 />
-                {allSelected ? 'Deselect All' : 'Select All'}
+                {selectingAll
+                  ? `Loading all ${list.total}...`
+                  : allSelected
+                  ? 'Deselect All'
+                  : `Select All (${list.total})`}
               </label>
 
               {someSelected && (
@@ -580,15 +615,15 @@ export default function PhotoManager({
         onDragEnd={handleDragEnd}
       >
         <SortableContext
-          items={localPhotos.map((p) => p.id)}
+          items={sortableIds}
           strategy={rectSortingStrategy}
         >
           <div className={`${styles.grid} ${coverSelectMode ? styles.coverSelectMode : ''}`}>
-            {localPhotos.map((photo, index) => (
+            {items.map((photo, index) => (
               <SortablePhotoCard
                 key={photo.id}
                 photo={photo}
-                alt={photoAlt(index, localPhotos.length, gallery?.title)}
+                alt={photoAlt(index, list.total, gallery?.title)}
                 isCover={effectiveCoverId === photo.id}
                 isSelected={selectedIds.has(photo.id)}
                 isDeleting={deletingIds.has(photo.id)}
@@ -596,13 +631,21 @@ export default function PhotoManager({
                 sortable={!!gallery}
                 onToggleSelect={handleToggleSelect}
                 onCoverClick={handleSetCover}
-                onDelete={(id) => setDeleteConfirm(id)}
+                onDelete={setDeleteConfirm}
                 onToggleHidden={handleToggleHidden}
               />
             ))}
           </div>
         </SortableContext>
       </DndContext>
+
+      <LoadMore
+        loaded={items.length}
+        total={list.total}
+        loading={photos.loadingMore}
+        failed={photos.moreFailed}
+        onLoad={loadMore}
+      />
 
       {/* Single Delete Confirmation Modal */}
       {deleteConfirm && (
@@ -665,7 +708,7 @@ export default function PhotoManager({
           <div className={styles.modalContent}>
             <h2 className={styles.modalTitle}>Shuffle Photos?</h2>
             <p className={styles.confirmText}>
-              This will randomly reorder all {localPhotos.length} photos in this gallery.
+              This will randomly reorder all {list.total} photos in this gallery.
             </p>
             <div className={styles.confirmActions}>
               <button
