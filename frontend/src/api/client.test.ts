@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
 const {
   clearCache,
+  createGallery,
   getAdminStats,
   getAllPhotos,
   getGallery,
@@ -14,6 +15,7 @@ const {
   login,
   logout,
   onSessionExpired,
+  updateGallery,
   uploadPhoto,
   verifyGalleryPassword,
 } = await import('./client');
@@ -141,6 +143,25 @@ describe('admin requests and session expiry', () => {
   });
 });
 
+
+describe('gallery saves', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it("rejects a taken slug with the API's message, for the form to show", async () => {
+    const body = { success: false, error: 'A gallery with this slug already exists' };
+    vi.stubGlobal('fetch', respond(409, body));
+
+    await expect(createGallery({ title: 'A', slug: 'taken', is_public: true })).rejects.toThrow(
+      'A gallery with this slug already exists'
+    );
+    await expect(updateGallery('g1', { slug: 'taken' })).rejects.toThrow(
+      'A gallery with this slug already exists'
+    );
+  });
+});
 describe('fresh photo fetches', () => {
   afterEach(() => {
     clearCache();
