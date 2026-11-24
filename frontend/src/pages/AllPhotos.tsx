@@ -4,12 +4,14 @@ import { getAllPhotos } from '../api/client';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
 import type { Photo } from '../types';
+import LoadError from '../components/StatusMessage/LoadError';
 import styles from './AllPhotos.module.css';
 
 export default function AllPhotos() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   const refreshPhotos = useCallback(() => {
     getAllPhotos(undefined, { fresh: true })
@@ -23,21 +25,29 @@ export default function AllPhotos() {
       try {
         const data = await getAllPhotos();
         setPhotos(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load photos');
+      } catch {
+        setFailed(true);
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, []);
+  }, [attempt]);
 
   if (loading) {
     return <div className="loading">Loading...</div>;
   }
 
-  if (error) {
-    return <div className="error">{error}</div>;
+  if (failed) {
+    return (
+      <LoadError
+        onRetry={() => {
+          setFailed(false);
+          setLoading(true);
+          setAttempt((n) => n + 1);
+        }}
+      />
+    );
   }
 
   return (

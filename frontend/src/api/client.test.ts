@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
-const { clearCache, getAdminStats, getGalleryPhotos, onSessionExpired, uploadPhoto } = await import('./client');
+const { clearCache, getAdminStats, getGallery, getGalleryPhotos, onSessionExpired, uploadPhoto, verifyGalleryPassword } =
+  await import('./client');
 
 const respond = (status: number, body: unknown) =>
   vi.fn().mockResolvedValue({ status, ok: status < 400, json: async () => body });
@@ -94,5 +95,38 @@ describe('fresh photo fetches', () => {
     // The fresh response replaces the cached one.
     expect(await getGalleryPhotos('g')).toEqual([{ id: 'new' }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('public request errors', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it('reports a missing gallery with its status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 404, ok: false, statusText: 'Not Found' }));
+    await expect(getGallery('nope')).rejects.toMatchObject({ status: 404, serverMessage: null });
+  });
+
+  it("keeps the API's message for a wrong password", async () => {
+    vi.stubGlobal('fetch', respond(401, { success: false, error: 'Invalid password' }));
+    await expect(verifyGalleryPassword('g', 'x')).rejects.toMatchObject({
+      status: 401,
+      serverMessage: 'Invalid password',
+    });
+  });
+
+  it('rejects a password check answered without JSON instead of a parse error', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 502,
+      ok: false,
+      json: async () => {
+        throw new SyntaxError('Unexpected token <');
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(verifyGalleryPassword('g', 'x')).rejects.toMatchObject({ status: 502, serverMessage: null });
   });
 });

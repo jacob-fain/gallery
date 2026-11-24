@@ -1,5 +1,6 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { sendContactMessage } from '../../api/client';
+import { visitorMessage } from '../../api/errors';
 import styles from './ContactModal.module.css';
 
 interface ContactModalProps {
@@ -43,7 +44,7 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
       setEmail('');
       setMessage('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message. Please try again.');
+      setError(visitorMessage(err, 'Your message could not be sent. Please try again.'));
     } finally {
       setSending(false);
     }

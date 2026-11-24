@@ -9,6 +9,7 @@ import type {
   PrivateGalleryResponse,
   GalleryAccessResponse,
 } from '../types';
+import { ApiError } from './errors';
 
 // In production (HTTPS), use relative path since nginx proxies /api
 // In dev (HTTP), use port 3001 directly
@@ -58,6 +59,7 @@ export function clearCache(prefix?: string): void {
 
 // ============ Public API ============
 
+
 // `fresh` skips this module's cache and revalidates the browser's HTTP cache,
 // for reloading photos whose signed URLs have expired.
 export interface FetchOptions {
@@ -71,7 +73,7 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
   );
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    throw new ApiError(`API request failed: ${response.status} ${response.statusText}`, response.status);
   }
 
   const data: ApiResponse<T> = await response.json();
@@ -150,10 +152,12 @@ export async function verifyGalleryPassword(
     body: JSON.stringify({ password }),
   });
 
-  const data: ApiResponse<GalleryAccessResponse> = await response.json();
+  // A refused or failed request may carry no JSON body.
+  const data: ApiResponse<GalleryAccessResponse> | null = await response.json().catch(() => null);
 
-  if (!response.ok || !data.success || !data.data) {
-    throw new Error(data.error || 'Password verification failed');
+  if (!response.ok || !data?.success || !data.data) {
+    const serverMessage = data?.error || null;
+    throw new ApiError(serverMessage || 'Password verification failed', response.status, serverMessage);
   }
 
   return data.data;
@@ -543,7 +547,8 @@ export async function sendContactMessage(
   const data: ApiResponse<{ sent: boolean }> | null = await response.json().catch(() => null);
 
   if (!response.ok || !data?.success) {
-    throw new Error(data?.error || 'Failed to send message. Please try again.');
+    const serverMessage = data?.error || null;
+    throw new ApiError(serverMessage || 'Failed to send message', response.status, serverMessage);
   }
 }
 

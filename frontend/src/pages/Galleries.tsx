@@ -2,33 +2,43 @@ import { useEffect, useState } from 'react';
 import { getGalleries } from '../api/client';
 import GalleryCard from '../components/GalleryCard/GalleryCard';
 import type { Gallery } from '../types';
+import LoadError from '../components/StatusMessage/LoadError';
 import styles from './Galleries.module.css';
 
 export default function Galleries() {
   const [galleries, setGalleries] = useState<Gallery[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     async function load() {
       try {
         const data = await getGalleries();
         setGalleries(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load galleries');
+      } catch {
+        setFailed(true);
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, []);
+  }, [attempt]);
 
   if (loading) {
     return <div className="loading">Loading...</div>;
   }
 
-  if (error) {
-    return <div className="error">{error}</div>;
+  if (failed) {
+    return (
+      <LoadError
+        onRetry={() => {
+          setFailed(false);
+          setLoading(true);
+          setAttempt((n) => n + 1);
+        }}
+      />
+    );
   }
 
   if (galleries.length === 0) {
