@@ -1,4 +1,5 @@
 import { query } from '../config/db';
+import { logger } from '../utils/logger';
 
 /**
  * View and download counts are recorded off the response path: a visitor
@@ -15,7 +16,7 @@ export const track = (label: string, write: () => Promise<unknown>): void => {
     .then(
       () => undefined,
       (err: unknown) => {
-        console.error(`Failed to record ${label}:`, err instanceof Error ? err.message : err);
+        logger.error(`Failed to record ${label}`, { err });
       }
     )
     .finally(() => inFlight.delete(pending));

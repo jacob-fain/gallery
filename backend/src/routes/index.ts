@@ -9,6 +9,7 @@ import sitemapRouter from './sitemap';
 import * as photoController from '../controllers/photoController';
 import * as galleryController from '../controllers/galleryController';
 import * as analyticsController from '../controllers/analyticsController';
+import * as metricsController from '../controllers/metricsController';
 import { authMiddleware } from '../middleware/auth';
 import { validateBodyIds } from '../middleware/validateIds';
 
@@ -25,6 +26,9 @@ router.get('/admin/stats', authMiddleware, galleryController.getStats);
 
 // Admin analytics
 router.get('/admin/analytics', authMiddleware, analyticsController.getAnalytics);
+
+// Admin process metrics (in-memory, this process only)
+router.get('/admin/metrics', authMiddleware, metricsController.getMetrics);
 
 // Admin homepage management
 router.get('/admin/homepage', authMiddleware, photoController.getFeaturedAdmin);

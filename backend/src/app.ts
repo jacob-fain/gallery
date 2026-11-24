@@ -5,6 +5,7 @@ import routes from './routes';
 import { JSON_BODY_LIMIT } from './middleware/validateIds';
 import { noStoreByDefault } from './middleware/cacheControl';
 import { createErrorHandler } from './middleware/errorHandler';
+import { requestLog } from './middleware/requestLog';
 
 const app = express();
 app.disable('x-powered-by');
@@ -14,6 +15,9 @@ app.disable('x-powered-by');
 // address nginx forwards, which rate limits key on. A client cannot spoof it:
 // nginx overwrites X-Forwarded-For rather than appending to it.
 app.set('trust proxy', 'loopback, uniquelocal');
+
+// First, so every response, a refused CORS request included, has an id and a log line.
+app.use(requestLog);
 
 // Middleware
 app.use(cors({

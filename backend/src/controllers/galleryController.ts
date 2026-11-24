@@ -13,6 +13,7 @@ import { cachePublicly } from '../middleware/cacheControl';
 import { nextOffset, parseAdminPage } from '../services/photoPaging';
 import { attachmentDisposition, zipEntryNames } from '../services/downloadNames';
 import { writeZip } from '../services/zipStream';
+import { logger } from '../utils/logger';
 
 const PRIVATE_NEEDS_PASSWORD = 'A private gallery needs a password';
 const SLUG_TAKEN = 'A gallery with this slug already exists';
@@ -23,7 +24,7 @@ export const listGalleries = async (_req: Request, res: Response) => {
     cachePublicly(res);
     res.json({ success: true, data: galleries.map(publicGalleryCard) });
   } catch (err) {
-    console.error('Error fetching galleries:', err);
+    logger.error('Error fetching galleries', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch galleries' });
   }
 };
@@ -57,7 +58,7 @@ export const getGallery = async (req: Request, res: Response) => {
     cachePublicly(res);
     res.json({ success: true, data: publicGallery(gallery) });
   } catch (err) {
-    console.error('Error fetching gallery:', err);
+    logger.error('Error fetching gallery', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch gallery' });
   }
 };
@@ -111,7 +112,7 @@ export const getGalleryPhotos = async (req: Request, res: Response) => {
     if (gallery.is_public) cachePublicly(res);
     res.json({ success: true, data });
   } catch (err) {
-    console.error('Error fetching gallery photos:', err);
+    logger.error('Error fetching gallery photos', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch photos' });
   }
 };
@@ -126,7 +127,7 @@ export const getStats = async (_req: Request, res: Response) => {
     const stats = await galleryService.getStats();
     res.json({ success: true, data: stats });
   } catch (err) {
-    console.error('Error fetching stats:', err);
+    logger.error('Error fetching stats', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch statistics' });
   }
 };
@@ -139,7 +140,7 @@ export const listAllGalleries = async (_req: Request, res: Response) => {
     const galleries = await galleryService.getAllGalleries();
     res.json({ success: true, data: galleries.map(adminGallery) });
   } catch (err) {
-    console.error('Error fetching all galleries:', err);
+    logger.error('Error fetching all galleries', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch galleries' });
   }
 };
@@ -197,7 +198,7 @@ export const createGallery = async (req: Request, res: Response) => {
     if (galleryService.isSlugConflictError(err)) {
       return res.status(409).json({ success: false, error: SLUG_TAKEN });
     }
-    console.error('Error creating gallery:', err);
+    logger.error('Error creating gallery', { err });
     res.status(500).json({ success: false, error: 'Failed to create gallery' });
   }
 };
@@ -251,7 +252,7 @@ export const updateGallery = async (req: Request, res: Response) => {
     if (galleryService.isSlugConflictError(err)) {
       return res.status(409).json({ success: false, error: SLUG_TAKEN });
     }
-    console.error('Error updating gallery:', err);
+    logger.error('Error updating gallery', { err });
     res.status(500).json({ success: false, error: 'Failed to update gallery' });
   }
 };
@@ -275,7 +276,7 @@ export const deleteGallery = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: { deleted: true } });
   } catch (err) {
-    console.error('Error deleting gallery:', err);
+    logger.error('Error deleting gallery', { err });
     res.status(500).json({ success: false, error: 'Failed to delete gallery' });
   }
 };
@@ -308,7 +309,7 @@ export const setCoverImage = async (req: Request, res: Response) => {
     const updated = await galleryService.setCoverImage(id, photoId || null);
     res.json({ success: true, data: updated ? adminGallery(updated) : null });
   } catch (err) {
-    console.error('Error setting cover image:', err);
+    logger.error('Error setting cover image', { err });
     res.status(500).json({ success: false, error: 'Failed to set cover image' });
   }
 };
@@ -341,7 +342,7 @@ export const getGalleryPhotosAdmin = async (req: Request, res: Response) => {
       nextOffset: page ? nextOffset(page.offset, photos.length, total) : null,
     });
   } catch (err) {
-    console.error('Error fetching gallery photos:', err);
+    logger.error('Error fetching gallery photos', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch photos' });
   }
 };
@@ -363,7 +364,7 @@ export const reorderGalleries = async (req: Request, res: Response) => {
     await galleryService.reorderGalleries(gallery_ids);
     res.json({ success: true, data: { reordered: true } });
   } catch (err) {
-    console.error('Error reordering galleries:', err);
+    logger.error('Error reordering galleries', { err });
     res.status(500).json({ success: false, error: 'Failed to reorder galleries' });
   }
 };
@@ -420,7 +421,7 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
       },
     });
   } catch (err) {
-    console.error('Error verifying gallery password:', err);
+    logger.error('Error verifying gallery password', { err });
     res.status(500).json({ success: false, error: 'Failed to verify password' });
   }
 };
@@ -473,10 +474,10 @@ export const downloadGalleryZip = async (req: Request, res: Response) => {
     if (result.status === 'complete') {
       recordGalleryDownload(gallery.id);
     } else if (result.status === 'failed') {
-      console.error(`Gallery ZIP for ${gallery.slug} failed mid-stream:`, result.error);
+      logger.error(`Gallery ZIP for ${gallery.slug} failed mid-stream`, { err: result.error });
     }
   } catch (err) {
-    console.error('Error downloading gallery:', err);
+    logger.error('Error downloading gallery', { err });
     if (!res.headersSent) {
       res.status(500).json({ success: false, error: 'Failed to download gallery' });
     }

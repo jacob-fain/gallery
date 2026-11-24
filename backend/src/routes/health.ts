@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../config/db';
+import { isS3Configured } from '../config/s3';
+import { logger } from '../utils/logger';
 
 /**
  * Opaque id of the running build, set by the image build (BUILD_ID) so a
@@ -8,8 +10,24 @@ import { query } from '../config/db';
  */
 export const buildId = (): string => process.env.BUILD_ID || 'dev';
 
-type Probe = () => Promise<unknown>;
-type ReadyResult = { ok: true } | { ok: false; reason: string };
+/** Resolves to the newest applied migration, or null when none is recorded. */
+type Probe = () => Promise<string | null>;
+type ReadyResult = { ok: true; migration: string | null } | { ok: false; reason: string };
+
+/**
+ * The newest migration recorded in _migrations. Answering it also proves the
+ * database is up, so it is the readiness probe. A database the runner has
+ * never touched has no _migrations table, which is not an outage.
+ */
+export const latestMigration = async (): Promise<string | null> => {
+  try {
+    const { rows } = await query('SELECT filename FROM _migrations ORDER BY filename DESC LIMIT 1');
+    return (rows[0]?.filename as string | undefined) ?? null;
+  } catch (err) {
+    if ((err as { code?: string }).code === '42P01') return null;
+    throw err;
+  }
+};
 
 /**
  * Database readiness with a timeout, cached briefly. At most one probe runs
@@ -35,9 +53,9 @@ export const createReadiness = ({
     if (!probing) {
       probing = probe()
         .then(
-          (): ReadyResult => ({ ok: true }),
+          (migration): ReadyResult => ({ ok: true, migration }),
           (err): ReadyResult => {
-            console.error('Readiness probe failed:', err);
+            logger.error('readiness probe failed', { err });
             return { ok: false, reason: 'database unreachable' };
           }
         )
@@ -68,7 +86,7 @@ export const createReadiness = ({
   };
 };
 
-const checkReady = createReadiness({ probe: () => query('SELECT 1') });
+const checkReady = createReadiness({ probe: latestMigration });
 
 const router = Router();
 
@@ -78,14 +96,18 @@ router.get('/health', (_req: Request, res: Response) => {
 });
 
 // Readiness: the database answers too. Deploys wait on this route for the
-// new build id before treating a release as live.
+// new build id before treating a release as live, and read "build" from the
+// body with a pattern, so it stays a single flat key. S3 is reported from
+// configuration only: calling S3 on every poll would cost requests and tie
+// readiness to AWS latency.
 router.get('/health/ready', async (_req: Request, res: Response) => {
   const result = await checkReady();
   res.set('Cache-Control', 'no-store');
+  const s3 = isS3Configured() ? 'configured' : 'not configured';
   if (result.ok) {
-    res.json({ status: 'ok', build: buildId() });
+    res.json({ status: 'ok', build: buildId(), s3, migration: result.migration });
   } else {
-    res.status(503).json({ status: 'unavailable', reason: result.reason, build: buildId() });
+    res.status(503).json({ status: 'unavailable', reason: result.reason, build: buildId(), s3 });
   }
 });
 

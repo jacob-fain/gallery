@@ -11,6 +11,9 @@ export default defineConfig({
     env: {
       DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgresql://unit:unit@127.0.0.1:1/unit',
       JWT_SECRET: 'unit-test-secret-that-is-at-least-32-characters',
+      // Request and error lines would drown test output; logger tests set
+      // their own level.
+      LOG_LEVEL: 'silent',
     },
   },
 });

@@ -12,6 +12,7 @@ import { encodeCursor, nextOffset, parseAdminPage, parsePublicPage } from '../se
 import { storedFilename } from '../config/upload';
 import { photoDownloadName } from '../services/downloadNames';
 import type { Photo } from '../types';
+import { logger } from '../utils/logger';
 
 const NOT_FOUND = { success: false, error: 'Photo not found' } as const;
 
@@ -36,7 +37,7 @@ export const getPhoto = async (req: Request, res: Response) => {
     // the lightbox sends when a photo is actually shown.
     res.json({ success: true, data: await toPublicPhoto(photo) });
   } catch (err) {
-    console.error('Error fetching photo:', err);
+    logger.error('Error fetching photo', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch photo' });
   }
 };
@@ -59,7 +60,7 @@ export const listAllPhotos = async (req: Request, res: Response) => {
     cachePublicly(res);
     res.json({ success: true, data, nextCursor: next ? encodeCursor(next) : null });
   } catch (err) {
-    console.error('Error fetching all photos:', err);
+    logger.error('Error fetching all photos', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch photos' });
   }
 };
@@ -85,7 +86,7 @@ export const listUnassignedPhotos = async (req: Request, res: Response) => {
       nextOffset: page ? nextOffset(page.offset, photos.length, total) : null,
     });
   } catch (err) {
-    console.error('Error fetching unassigned photos:', err);
+    logger.error('Error fetching unassigned photos', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch unassigned photos' });
   }
 };
@@ -97,7 +98,7 @@ export const getFeatured = async (_req: Request, res: Response) => {
     cachePublicly(res);
     res.json({ success: true, data });
   } catch (err) {
-    console.error('Error fetching featured photos:', err);
+    logger.error('Error fetching featured photos', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch featured photos' });
   }
 };
@@ -121,7 +122,7 @@ export const downloadPhoto = async (req: Request, res: Response) => {
       },
     });
   } catch (err) {
-    console.error('Error downloading photo:', err);
+    logger.error('Error downloading photo', { err });
     res.status(500).json({ success: false, error: 'Failed to download photo' });
   }
 };
@@ -252,7 +253,7 @@ export const uploadPhoto = async (req: Request, res: Response) => {
     const photoWithUrls = await photoService.enrichPhotoWithUrls(photo);
     res.status(201).json({ success: true, data: photoWithUrls });
   } catch (err) {
-    console.error('Error uploading photo:', err);
+    logger.error('Error uploading photo', { err });
     res.status(500).json({ success: false, error: 'Failed to upload photo' });
   }
 };
@@ -305,7 +306,7 @@ export const checkDuplicates = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: found });
   } catch (err) {
-    console.error('Error checking duplicates:', err);
+    logger.error('Error checking duplicates', { err });
     res.status(500).json({ success: false, error: 'Failed to check duplicates' });
   }
 };
@@ -334,7 +335,7 @@ export const updatePhoto = async (req: Request, res: Response) => {
     const photoWithUrls = await photoService.enrichPhotoWithUrls(photo!);
     res.json({ success: true, data: photoWithUrls });
   } catch (err) {
-    console.error('Error updating photo:', err);
+    logger.error('Error updating photo', { err });
     res.status(500).json({ success: false, error: 'Failed to update photo' });
   }
 };
@@ -363,7 +364,7 @@ export const deletePhoto = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: { deleted: true } });
   } catch (err) {
-    console.error('Error deleting photo:', err);
+    logger.error('Error deleting photo', { err });
     res.status(500).json({ success: false, error: 'Failed to delete photo' });
   }
 };
@@ -393,7 +394,7 @@ export const reorderPhotos = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: { reordered: true } });
   } catch (err) {
-    console.error('Error reordering photos:', err);
+    logger.error('Error reordering photos', { err });
     res.status(500).json({ success: false, error: 'Failed to reorder photos' });
   }
 };
@@ -437,7 +438,7 @@ export const movePhotos = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: { moved: movedCount } });
   } catch (err) {
-    console.error('Error moving photos:', err);
+    logger.error('Error moving photos', { err });
     res.status(500).json({ success: false, error: 'Failed to move photos' });
   }
 };
@@ -453,7 +454,7 @@ export const getFeaturedAdmin = async (_req: Request, res: Response) => {
     const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
     res.json({ success: true, data: photosWithUrls });
   } catch (err) {
-    console.error('Error fetching featured photos:', err);
+    logger.error('Error fetching featured photos', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch featured photos' });
   }
 };
@@ -489,7 +490,7 @@ export const setHero = async (req: Request, res: Response) => {
     const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
     res.json({ success: true, data: photosWithUrls });
   } catch (err) {
-    console.error('Error setting hero photo:', err);
+    logger.error('Error setting hero photo', { err });
     res.status(500).json({ success: false, error: 'Failed to set hero photo' });
   }
 };
@@ -518,7 +519,7 @@ export const addFeatured = async (req: Request, res: Response) => {
     const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
     res.json({ success: true, data: photosWithUrls });
   } catch (err) {
-    console.error('Error adding featured photo:', err);
+    logger.error('Error adding featured photo', { err });
     res.status(500).json({ success: false, error: 'Failed to add featured photo' });
   }
 };
@@ -541,7 +542,7 @@ export const removeFeatured = async (req: Request, res: Response) => {
     const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
     res.json({ success: true, data: photosWithUrls });
   } catch (err) {
-    console.error('Error removing featured photo:', err);
+    logger.error('Error removing featured photo', { err });
     res.status(500).json({ success: false, error: 'Failed to remove featured photo' });
   }
 };
@@ -576,7 +577,7 @@ export const reorderFeatured = async (req: Request, res: Response) => {
     const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
     res.json({ success: true, data: photosWithUrls });
   } catch (err) {
-    console.error('Error reordering featured photos:', err);
+    logger.error('Error reordering featured photos', { err });
     res.status(500).json({ success: false, error: 'Failed to reorder featured photos' });
   }
 };

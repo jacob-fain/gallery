@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import pool, { poolConfig } from './db';
+import { logger } from '../utils/logger';
 
 describe('database pool', () => {
   it('bounds connection, idle, statement and query waits', () => {
@@ -12,7 +13,7 @@ describe('database pool', () => {
 
   it('logs an idle client error instead of exiting', () => {
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => {});
     pool.emit('error', new Error('terminating connection due to administrator command'));
     expect(exit).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalled();
