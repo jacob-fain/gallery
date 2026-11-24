@@ -38,98 +38,97 @@ export const getFeaturedPhotosAdmin = async (): Promise<Photo[]> => {
   return result.rows;
 };
 
-// Set a photo as the hero (featured_order = 0)
-export const setHeroPhoto = async (photoId: string): Promise<void> => {
-  // Check if photo is already featured
-  const existing = await query(
-    `SELECT featured_order FROM photos WHERE id = $1`,
-    [photoId]
+/**
+ * Arbitrary advisory lock key held by every change to the homepage order.
+ * Each change reads the current order and writes a new one, so two admin tabs
+ * changing it at once would otherwise interleave and leave gaps or duplicate
+ * positions (#60).
+ */
+export const FEATURED_LOCK_KEY = 4_172_031;
+
+/**
+ * Runs fn in a transaction that holds the featured-order lock. Statements fn
+ * runs start after the lock is granted, so under READ COMMITTED each one sees
+ * every change committed by the holder before it.
+ */
+const withFeaturedLock = <T>(fn: (client: PoolClient) => Promise<T>): Promise<T> =>
+  withTransaction(async (client) => {
+    await client.query(`SELECT pg_advisory_xact_lock($1)`, [FEATURED_LOCK_KEY]);
+    return fn(client);
+  });
+
+/**
+ * Rewrites featured_order as 0..n-1 following the given ordering of the
+ * featured rows, so every change leaves the homepage order dense and also
+ * repairs any gap or duplicate left by older code. Rows already in place are
+ * not rewritten.
+ */
+const renumberFeatured = (client: PoolClient, orderBy: string, params: unknown[] = []) =>
+  client.query(
+    `WITH ranked AS (
+       SELECT p.id, ROW_NUMBER() OVER (ORDER BY ${orderBy}) - 1 AS pos
+       FROM photos p
+       WHERE p.featured_order IS NOT NULL
+     )
+     UPDATE photos p
+     SET featured_order = ranked.pos, is_featured = true
+     FROM ranked
+     WHERE p.id = ranked.id
+       AND (p.featured_order IS DISTINCT FROM ranked.pos OR p.is_featured IS DISTINCT FROM true)`,
+    params
   );
-  const currentOrder = existing.rows[0]?.featured_order;
 
-  if (currentOrder === 0) {
-    // Already the hero, nothing to do
-    return;
-  }
-
-  if (currentOrder !== null) {
-    // Photo is featured but not hero - remove from current position first
-    await query(
-      `UPDATE photos SET featured_order = featured_order - 1
-       WHERE featured_order > $1 AND featured_order IS NOT NULL`,
-      [currentOrder]
+/** Makes a photo the hero (featured_order 0), shifting the rest down one. */
+export const setHeroPhoto = async (photoId: string): Promise<void> =>
+  withFeaturedLock(async (client) => {
+    const result = await client.query(
+      `UPDATE photos SET featured_order = -1, is_featured = true
+       WHERE id = $1 AND featured_order IS DISTINCT FROM 0`,
+      [photoId]
     );
-  }
+    if (result.rowCount === 0) return; // Already the hero, or no such photo.
+    await renumberFeatured(client, 'p.featured_order, p.id');
+  });
 
-  // Shift all existing featured photos down by 1
-  await query(
-    `UPDATE photos SET featured_order = featured_order + 1 WHERE featured_order IS NOT NULL`
-  );
-
-  // Set the new hero
-  await query(
-    `UPDATE photos SET featured_order = 0, is_featured = true WHERE id = $1`,
-    [photoId]
-  );
-};
-
-// Add a photo to featured (at the end)
-export const addToFeatured = async (photoId: string): Promise<void> => {
-  // Check if already featured
-  const existing = await query(
-    `SELECT featured_order FROM photos WHERE id = $1`,
-    [photoId]
-  );
-  if (existing.rows[0]?.featured_order !== null) {
-    return; // Already featured
-  }
-
-  const result = await query(
-    `SELECT COALESCE(MAX(featured_order), -1) + 1 as next_order FROM photos WHERE featured_order IS NOT NULL`
-  );
-  const nextOrder = result.rows[0].next_order;
-  await query(
-    `UPDATE photos SET featured_order = $1, is_featured = true WHERE id = $2`,
-    [nextOrder, photoId]
-  );
-};
-
-// Remove a photo from featured
-export const removeFromFeatured = async (photoId: string): Promise<void> => {
-  // Get current order before removing
-  const result = await query(
-    `SELECT featured_order FROM photos WHERE id = $1`,
-    [photoId]
-  );
-  const currentOrder = result.rows[0]?.featured_order;
-
-  if (currentOrder === null) {
-    return; // Not featured
-  }
-
-  // Remove from featured
-  await query(
-    `UPDATE photos SET featured_order = NULL, is_featured = false WHERE id = $1`,
-    [photoId]
-  );
-
-  // Shift remaining photos up
-  await query(
-    `UPDATE photos SET featured_order = featured_order - 1 WHERE featured_order > $1`,
-    [currentOrder]
-  );
-};
-
-// Reorder featured photos
-export const reorderFeaturedPhotos = async (photoIds: string[]): Promise<void> => {
-  // Update each photo with its new order
-  for (let i = 0; i < photoIds.length; i++) {
-    await query(
-      `UPDATE photos SET featured_order = $1 WHERE id = $2 AND featured_order IS NOT NULL`,
-      [i, photoIds[i]]
+/** Adds a photo to the end of the homepage order. */
+export const addToFeatured = async (photoId: string): Promise<void> =>
+  withFeaturedLock(async (client) => {
+    await client.query(
+      `UPDATE photos
+       SET featured_order = (SELECT COALESCE(MAX(featured_order), -1) + 1 FROM photos WHERE featured_order IS NOT NULL),
+           is_featured = true
+       WHERE id = $1 AND featured_order IS NULL`,
+      [photoId]
     );
-  }
-};
+  });
+
+/** Removes a photo from the homepage order, closing the gap it leaves. */
+export const removeFromFeatured = async (photoId: string): Promise<void> =>
+  withFeaturedLock(async (client) => {
+    const result = await client.query(
+      `UPDATE photos SET featured_order = NULL, is_featured = false
+       WHERE id = $1 AND featured_order IS NOT NULL`,
+      [photoId]
+    );
+    if (result.rowCount === 0) return; // Not featured.
+    await renumberFeatured(client, 'p.featured_order, p.id');
+  });
+
+/**
+ * Puts the featured photos in the given order. Ids that are not featured are
+ * ignored, and featured photos missing from the list (one featured from
+ * another tab since this list was loaded) keep their relative order after
+ * the listed ones, so no position is ever shared.
+ */
+export const reorderFeaturedPhotos = async (photoIds: string[]): Promise<void> =>
+  withFeaturedLock(async (client) => {
+    await renumberFeatured(
+      client,
+      `(SELECT MIN(t.n) FROM unnest($1::uuid[]) WITH ORDINALITY AS t(id, n) WHERE t.id = p.id) NULLS LAST,
+       p.featured_order, p.id`,
+      [photoIds]
+    );
+  });
 
 /**
  * Signed URL for the full-size original, served as an attachment under the
@@ -352,22 +351,25 @@ export const deletePhoto = async (id: string): Promise<{ galleryId: string } | n
 };
 
 /**
- * Reorder photos in a gallery
- * @param galleryId - Gallery ID to verify ownership
+ * Reorder photos in a gallery in one statement, so a failure leaves the old
+ * order intact and two concurrent reorders cannot interleave row by row.
+ * Ids not in the gallery are ignored; a repeated id takes its first position.
+ * @param galleryId - Gallery the photos must belong to
  * @param photoIds - Array of photo IDs in desired order
  */
 export const reorderPhotos = async (
   galleryId: string,
   photoIds: string[]
 ): Promise<void> => {
-  // Update each photo's sort_order based on its position in the array
-  const updates = photoIds.map((photoId, index) =>
-    query(
-      `UPDATE photos SET sort_order = $1 WHERE id = $2 AND gallery_id = $3`,
-      [index, photoId, galleryId]
-    )
+  await query(
+    `UPDATE photos p
+     SET sort_order = t.pos
+     FROM (
+       SELECT id, MIN(n) - 1 AS pos FROM unnest($2::uuid[]) WITH ORDINALITY AS u(id, n) GROUP BY id
+     ) t
+     WHERE p.id = t.id AND p.gallery_id = $1`,
+    [galleryId, photoIds]
   );
-  await Promise.all(updates);
 };
 
 /**
