@@ -65,12 +65,10 @@ back, then `npm ci`.
 
 ## Release
 
-1. Every PR planned for the release is merged and `main` CI is green.
-2. Draft notes: one plain bullet per user-visible change, most important
-   first, no headers, no issue numbers, ending with the compare link. Get
-   Jacob's approval.
-3. On Jacob's explicit "release", tag and publish with `gh release create
-   vX.Y.Z --target <main sha> --title "vX.Y.Z - Short Name" --notes-file <file>`.
-   Never pass `--generate-notes`: it attributes changes to accounts.
-4. Watch the deploy in the background, then confirm the live site reports the
-   new build on `/api/health` and the home page loads.
+Use the release skill (`.claude/skills/release/SKILL.md`). In short: `main`
+green, notes drafted in the standard shape, Jacob's explicit yes, then
+`gh release create` on the `main` commit (never `--generate-notes`). The tag
+promotes the images `main` already built and deploys them; verify
+`/api/health/ready` reports the new build. Until the pull deploy is installed,
+production still deploys through the old "Release and Deploy" workflow, so do
+not tag by hand.

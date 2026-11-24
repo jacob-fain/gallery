@@ -8,10 +8,12 @@ here as host code first.
 
 ## How a release reaches the server
 
-1. A merge to `main` (staging) or a `v*` tag (production) builds both images
-   and pushes them to GHCR. The release workflow then records a GitHub
-   Deployment whose payload holds the two image digests. Production
-   deployments wait for Jacob's approval in the `production` environment.
+1. A merge to `main` builds both images, pushes them to GHCR, and records a
+   staging Deployment whose payload holds the two image digests. A `v*` tag,
+   created only by a release on Jacob's word (`.claude/skills/release`),
+   builds nothing: it promotes the images built for that commit on `main`,
+   which staging already ran, and records a production Deployment. Both are
+   off until the `PULL_DEPLOY_ENABLED` repository variable is `true`.
 2. `gallery-deploy-poll` (systemd timer, every minute, user `gallery-deploy`)
    asks GitHub for the newest deployment of each environment, using an ETag so
    an unchanged answer is free.
