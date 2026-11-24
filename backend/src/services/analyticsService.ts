@@ -90,11 +90,48 @@ const countPerDay = async (
 };
 
 /**
- * Get views over time (last N days, grouped by day)
+ * Gallery views per DASHBOARD_TIMEZONE day for the last `days` days, today
+ * included. Days before the rollup watermark are read from analytics_daily
+ * (their raw events may have been deleted by retention); later days are
+ * counted from analytics_events. Each day comes from exactly one source, so
+ * a rollup never changes a reported number.
  */
 export const getViewsOverTime = async (days: number = 30, now: Date = new Date()): Promise<ViewsOverTime[]> => {
-  const rows = await countPerDay('analytics_events', 'created_at', `event_type = 'gallery_view'`, days, now);
-  return rows.map(({ date, count }) => ({ date, views: count }));
+  const result = await query(
+    `WITH bounds AS (
+       SELECT today, today - ($2::int - 1) AS first_day,
+              (SELECT rolled_through FROM analytics_rollup_state) AS rolled_through
+       FROM (SELECT ($3::timestamptz AT TIME ZONE $1)::date AS today) t
+     ),
+     day_list AS (
+       SELECT d::date AS day
+       FROM bounds, generate_series(first_day::timestamp, today::timestamp, interval '1 day') AS d
+     ),
+     raw AS (
+       SELECT (created_at AT TIME ZONE $1)::date AS day, COUNT(*)::int AS n
+       FROM analytics_events, bounds
+       WHERE event_type = 'gallery_view'
+         AND created_at >= GREATEST(first_day, rolled_through)::timestamp AT TIME ZONE $1
+         AND created_at < (today + 1)::timestamp AT TIME ZONE $1
+       GROUP BY 1
+     ),
+     rolled AS (
+       SELECT day, SUM(count)::int AS n
+       FROM analytics_daily, bounds
+       WHERE event_type = 'gallery_view'
+         AND day >= first_day
+         AND day < rolled_through
+         AND day <= today
+       GROUP BY 1
+     )
+     SELECT to_char(day_list.day, 'YYYY-MM-DD') AS date, COALESCE(raw.n, rolled.n, 0) AS views
+     FROM day_list
+       LEFT JOIN raw USING (day)
+       LEFT JOIN rolled USING (day)
+     ORDER BY day_list.day`,
+    [DASHBOARD_TIMEZONE, days, now]
+  );
+  return result.rows.map((row: { date: string; views: number }) => ({ date: row.date, views: row.views }));
 };
 
 /**
