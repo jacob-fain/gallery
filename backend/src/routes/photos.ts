@@ -20,6 +20,9 @@ router.post(
   photoController.uploadPhoto
 );
 
+// GET /api/photos/admin/all - List every photo including hidden (admin)
+router.get('/admin/all', authMiddleware, photoController.listAllPhotosAdmin);
+
 // GET /api/photos/admin/unassigned - List photos without a gallery
 router.get('/admin/unassigned', authMiddleware, photoController.listUnassignedPhotos);
 

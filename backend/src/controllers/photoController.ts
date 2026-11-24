@@ -55,6 +55,20 @@ export const listAllPhotos = async (req: Request, res: Response) => {
 };
 
 /**
+ * List every photo including hidden ones (admin)
+ */
+export const listAllPhotosAdmin = async (_req: Request, res: Response) => {
+  try {
+    const photos = await photoService.getAllPhotosAdmin();
+    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
+    res.json({ success: true, data: photosWithUrls });
+  } catch (err) {
+    console.error('Error fetching all photos (admin):', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch photos' });
+  }
+};
+
+/**
  * List photos not assigned to any gallery (admin)
  */
 export const listUnassignedPhotos = async (_req: Request, res: Response) => {

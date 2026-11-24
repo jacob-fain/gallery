@@ -321,6 +321,10 @@ export async function getUnassignedPhotos(token: string): Promise<Photo[]> {
   return fetchApiAuth<Photo[]>('/photos/admin/unassigned', token);
 }
 
+export async function getAllPhotosAdmin(token: string): Promise<Photo[]> {
+  return fetchApiAuth<Photo[]>('/photos/admin/all', token);
+}
+
 // Duplicate detection
 export interface DuplicateInfo {
   id: string;

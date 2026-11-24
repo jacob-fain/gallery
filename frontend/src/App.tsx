@@ -21,6 +21,7 @@ const AdminGalleries = lazy(() => import('./pages/admin/Galleries'));
 const Photos = lazy(() => import('./pages/admin/Photos'));
 const Homepage = lazy(() => import('./pages/admin/Homepage'));
 const Unassigned = lazy(() => import('./pages/admin/Unassigned'));
+const Review = lazy(() => import('./pages/admin/Review'));
 const Settings = lazy(() => import('./pages/admin/Settings'));
 const AdminLayout = lazy(() => import('./components/Admin/AdminLayout/AdminLayout'));
 
@@ -57,6 +58,7 @@ function AdminApp() {
                     <Route path="galleries/:id/photos" element={<Photos />} />
                     <Route path="homepage" element={<Homepage />} />
                     <Route path="unassigned" element={<Unassigned />} />
+                    <Route path="review" element={<Review />} />
                     <Route path="settings" element={<Settings />} />
                   </Routes>
                 </AdminLayout>
