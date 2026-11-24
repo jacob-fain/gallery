@@ -51,17 +51,13 @@ export default function Gallery() {
       try {
         setLoading(true);
 
-        // Start both requests in parallel for speed
-        // Photos request will fail for private galleries without token, which is fine
-        const galleryPromise = getGallery(slug);
-        const photosPromise = getGalleryPhotos(slug).catch(() => null);
-
-        const galleryData = await galleryPromise;
+        // Photos are requested only once the gallery is known to be public:
+        // without an access token a private gallery's photos are refused.
+        const galleryData = await getGallery(slug);
         setGallery(galleryData);
 
-        // If public gallery, use the photos we already started fetching
         if (!isPrivateGallery(galleryData)) {
-          const photosData = await photosPromise;
+          const photosData = await getGalleryPhotos(slug).catch(() => null);
           if (photosData) {
             setPhotos(photosData);
           }
