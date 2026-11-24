@@ -67,7 +67,7 @@ services:
     depends_on: [s3]
 
   migrate:
-    image: gallery-e2e-backend:local
+    image: ${E2E_PROJECT:-gallery-e2e}-backend:local
     build: ../backend
     command: ["node", "dist/migrate.js"]
     environment: *backend-env
@@ -77,7 +77,7 @@ services:
 
   # The production script, so the suite signs in the way an operator would.
   seed:
-    image: gallery-e2e-backend:local
+    image: ${E2E_PROJECT:-gallery-e2e}-backend:local
     command: ["node", "dist/scripts/seed-admin.js"]
     environment:
       <<: *backend-env
@@ -88,7 +88,7 @@ services:
         condition: service_completed_successfully
 
   backend:
-    image: gallery-e2e-backend:local
+    image: ${E2E_PROJECT:-gallery-e2e}-backend:local
     environment: *backend-env
     volumes:
       # global-setup.ts makes the certificate; a missing one fails the start
@@ -113,7 +113,7 @@ services:
         condition: service_completed_successfully
 
   frontend:
-    image: gallery-e2e-frontend:local
+    image: ${E2E_PROJECT:-gallery-e2e}-frontend:local
     build: ../frontend
     depends_on:
       backend:
