@@ -52,7 +52,7 @@ export default function UploadChart({ data }: UploadChartProps) {
                 border: '1px solid var(--color-border)',
                 borderRadius: '4px',
               }}
-              labelFormatter={formatDayLabel}
+              labelFormatter={(label) => formatDayLabel(String(label))}
               formatter={(value) => [value, 'Uploads']}
             />
             <Bar
