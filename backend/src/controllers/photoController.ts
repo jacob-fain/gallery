@@ -5,6 +5,7 @@ import * as galleryService from '../services/galleryService';
 import * as imageService from '../services/imageService';
 import * as s3Service from '../services/s3Service';
 import { canViewPhoto } from '../services/photoAccess';
+import { storedFilename } from '../config/upload';
 
 const NOT_FOUND = { success: false, error: 'Photo not found' } as const;
 
@@ -201,7 +202,7 @@ export const uploadPhoto = async (req: Request, res: Response) => {
     const photo = await photoService.createPhoto({
       gallery_id: galleryId,
       filename: `${photoId}.jpg`,
-      original_filename: req.file.originalname,
+      original_filename: storedFilename(req.file.originalname),
       s3_key: keys.original,
       s3_thumbnail_key: keys.thumbnail,
       s3_web_key: keys.web,
