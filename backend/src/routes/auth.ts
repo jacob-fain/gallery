@@ -11,4 +11,7 @@ router.post('/login', loginRateLimit, authController.login);
 // GET /api/auth/me - Get current user (protected)
 router.get('/me', authMiddleware, authController.me);
 
+// POST /api/auth/logout - Revoke all of the user's admin tokens (protected)
+router.post('/logout', authMiddleware, authController.logout);
+
 export default router;

@@ -7,7 +7,8 @@ const deny = (res: Response, error: string): void => {
 
 /**
  * Require an admin session: a valid admin token in "Authorization: Bearer
- * <token>" whose user still exists. Attaches the user to req.user.
+ * <token>" whose user still exists and has not revoked it (its token_version
+ * still matches). Attaches the user to req.user.
  */
 export const authMiddleware = async (
   req: Request,
@@ -33,11 +34,11 @@ export const authMiddleware = async (
     return;
   }
 
-  // Checked on every request so a deleted account loses access immediately,
-  // not when its token expires.
+  // Checked on every request so a deleted account, a logout or a password
+  // change takes effect immediately, not when the token expires.
   try {
     const user = await getUserById(payload.userId);
-    if (!user) {
+    if (!user || user.token_version !== payload.tokenVersion) {
       deny(res, 'Invalid or expired token');
       return;
     }

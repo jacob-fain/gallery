@@ -186,6 +186,17 @@ export async function getCurrentUser(token: string): Promise<User> {
   return data.data;
 }
 
+/**
+ * Revoke every admin session on the server. Best effort: the caller clears
+ * the local token either way.
+ */
+export async function logout(token: string): Promise<void> {
+  await fetch(`${API_BASE}/auth/logout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 // ============ Admin API (Authenticated) ============
 
 async function fetchApiAuth<T>(

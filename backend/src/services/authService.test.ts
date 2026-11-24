@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import jwt from 'jsonwebtoken';
 import {
   generateToken,
+  verifyPasswordForUnknownUser,
   verifyToken,
   generateGalleryAccessToken,
   verifyGalleryAccessToken,
@@ -11,8 +12,8 @@ const secret = process.env.JWT_SECRET as string;
 
 describe('admin tokens', () => {
   it('verify and carry only the identity fields', () => {
-    const payload = verifyToken(generateToken('user-1', 'admin@example.com'));
-    expect(payload).toEqual({ userId: 'user-1', email: 'admin@example.com' });
+    const payload = verifyToken(generateToken('user-1', 'admin@example.com', 0));
+    expect(payload).toEqual({ userId: 'user-1', email: 'admin@example.com', tokenVersion: 0 });
   });
 
   it('reject a gallery access token', () => {
@@ -71,7 +72,7 @@ describe('gallery access tokens', () => {
   });
 
   it('reject an admin token', () => {
-    expect(verifyGalleryAccessToken(generateToken('user-1', 'admin@example.com'))).toBeNull();
+    expect(verifyGalleryAccessToken(generateToken('user-1', 'admin@example.com', 0))).toBeNull();
   });
 
   it('reject a token signed before audiences existed', () => {
@@ -79,5 +80,14 @@ describe('gallery access tokens', () => {
       expiresIn: '24h',
     });
     expect(verifyGalleryAccessToken(legacy)).toBeNull();
+  });
+});
+
+describe('verifyPasswordForUnknownUser', () => {
+  it('always fails, after doing a real bcrypt comparison', async () => {
+    const started = Date.now();
+    expect(await verifyPasswordForUnknownUser('anything')).toBe(false);
+    // Ten bcrypt rounds take milliseconds, not microseconds.
+    expect(Date.now() - started).toBeGreaterThan(5);
   });
 });

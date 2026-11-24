@@ -47,7 +47,8 @@ async function seedAdmin() {
       `INSERT INTO users (email, password_hash)
        VALUES ($1, $2)
        ON CONFLICT (email)
-       DO UPDATE SET password_hash = $2
+       -- A new password also revokes every existing admin session.
+       DO UPDATE SET password_hash = $2, token_version = users.token_version + 1
        RETURNING id, email, created_at`,
       [email, passwordHash]
     );
