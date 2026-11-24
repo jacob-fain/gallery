@@ -11,8 +11,21 @@ import { s3Client, S3_BUCKET, isS3Configured } from '../config/s3';
 // Default signed URL expiration: 1 hour
 const DEFAULT_EXPIRES_IN = 3600;
 
-// Cache signed URLs for 50 minutes (URLs valid for 60 min, leave 10 min buffer)
-const URL_CACHE_TTL_MS = 50 * 60 * 1000;
+// Every URL handed out, fresh or cached, stays valid at least this long. The
+// API response holding it can sit in the browser's HTTP cache and the SPA's
+// in-memory cache for 5 minutes each before an image loads from it, and a
+// page can stay open long after that, so a URL near the end of its life
+// breaks images (#59).
+export const MIN_REMAINING_LIFETIME_MS = 50 * 60 * 1000;
+
+/**
+ * The time until which a URL signed at `signedAt` for `expiresIn` seconds may
+ * be served from the cache. A URL whose whole lifetime is under
+ * MIN_REMAINING_LIFETIME_MS is never reused.
+ */
+export const cacheReuseDeadline = (signedAt: number, expiresIn: number): number =>
+  Math.max(signedAt, signedAt + expiresIn * 1000 - MIN_REMAINING_LIFETIME_MS);
+
 const urlCache = new Map<string, { url: string; expires: number }>();
 
 // Periodic cleanup of expired cache entries (run every 10 minutes)
@@ -87,7 +100,7 @@ export const getSignedUrl = async (
   // Cache the URL
   urlCache.set(key, {
     url,
-    expires: Date.now() + URL_CACHE_TTL_MS,
+    expires: cacheReuseDeadline(Date.now(), expiresIn),
   });
 
   return url;

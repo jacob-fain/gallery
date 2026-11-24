@@ -11,6 +11,7 @@ import type { Photo, ExifData } from '../../types';
 import { trackPhotoView, trackPhotoDownload } from '../../api/client';
 import ExifOverlay from './ExifOverlay';
 import { derivedImages } from '../../utils/imageSizes';
+import { createRefreshGuard } from '../../utils/expiredImages';
 import styles from './PhotoGrid.module.css';
 
 // Extend slide type to include EXIF data
@@ -26,7 +27,14 @@ interface SlideWithExif {
 
 interface PhotoGridProps {
   photos: Photo[];
+  // Called when a grid or lightbox image fails to load, which after the page
+  // has been open a while means its signed URL expired. The parent refetches
+  // the photos; calls are rate limited here.
+  onImagesExpired?: () => void;
 }
+
+const REFRESH_INTERVAL_MS = 60 * 1000;
+const LIGHTBOX_CLASS = 'photo-grid-lightbox';
 
 function getPhotoUrl(photo: Photo, size: 'thumbnail' | 'web' | 'original'): string {
   if (size === 'thumbnail' && photo.thumbnailUrl) {
@@ -42,9 +50,26 @@ function getPhotoUrl(photo: Photo, size: 'thumbnail' | 'web' | 'original'): stri
   return photo.webUrl || photo.url || photo.thumbnailUrl || '';
 }
 
-export default function PhotoGrid({ photos }: PhotoGridProps) {
+export default function PhotoGrid({ photos, onImagesExpired }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const lastTrackedIndex = useRef(-1);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [mayRefresh] = useState(() => createRefreshGuard(REFRESH_INTERVAL_MS));
+
+  // Image error events do not bubble, so they are caught in the capture
+  // phase. The lightbox renders in a portal outside the grid and does not
+  // expose its images' errors, so its images are matched by class.
+  useEffect(() => {
+    if (!onImagesExpired) return;
+    const handleError = (event: Event) => {
+      const img = event.target;
+      if (!(img instanceof HTMLImageElement)) return;
+      const ours = gridRef.current?.contains(img) || img.closest(`.${LIGHTBOX_CLASS}`);
+      if (ours && mayRefresh()) onImagesExpired();
+    };
+    document.addEventListener('error', handleError, true);
+    return () => document.removeEventListener('error', handleError, true);
+  }, [onImagesExpired, mayRefresh]);
 
   // Track photo view when lightbox opens or navigates to a new photo
   useEffect(() => {
@@ -101,7 +126,7 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
   };
 
   return (
-    <div className={styles.grid}>
+    <div className={styles.grid} ref={gridRef}>
       <MasonryPhotoAlbum
         photos={albumPhotos}
         columns={(containerWidth) => {
@@ -117,6 +142,7 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
       />
 
       <Lightbox
+        className={LIGHTBOX_CLASS}
         slides={lightboxSlides}
         open={lightboxIndex >= 0}
         index={lightboxIndex}
