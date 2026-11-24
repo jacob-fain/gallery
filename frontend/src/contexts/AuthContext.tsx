@@ -1,5 +1,11 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { login as apiLogin, logout as apiLogout, getCurrentUser, type User } from '../api/client';
+import {
+  login as apiLogin,
+  logout as apiLogout,
+  getCurrentUser,
+  onSessionExpired,
+  type User,
+} from '../api/client';
 import { AuthContext } from './auth';
 import { clearAdminMode } from '../utils/subdomain';
 
@@ -32,6 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     validateToken();
   }, [token]);
+
+  // A 401 on any admin request means the session ended on the server: sign
+  // out locally, which sends the admin back to the login page.
+  useEffect(() => {
+    onSessionExpired(() => {
+      localStorage.removeItem(TOKEN_KEY);
+      setToken(null);
+      setUser(null);
+    });
+    return () => onSessionExpired(null);
+  }, []);
 
   const login = async (email: string, password: string) => {
     const response = await apiLogin(email, password);

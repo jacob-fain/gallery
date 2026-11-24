@@ -199,6 +199,18 @@ export async function logout(token: string): Promise<void> {
 
 // ============ Admin API (Authenticated) ============
 
+// Called when the server refuses the admin token (expired, or revoked by a
+// logout elsewhere), so the app can sign out instead of showing errors.
+let sessionExpiredHandler: (() => void) | null = null;
+
+export function onSessionExpired(handler: (() => void) | null): void {
+  sessionExpiredHandler = handler;
+}
+
+function checkSession(status: number): void {
+  if (status === 401) sessionExpiredHandler?.();
+}
+
 async function fetchApiAuth<T>(
   endpoint: string,
   token: string,
@@ -211,6 +223,7 @@ async function fetchApiAuth<T>(
       Authorization: `Bearer ${token}`,
     },
   });
+  checkSession(response.status);
 
   const data: ApiResponse<T> = await response.json();
 
@@ -362,6 +375,7 @@ export async function uploadPhoto(
     xhr.addEventListener('load', () => {
       try {
         const data: ApiResponse<Photo> = JSON.parse(xhr.responseText);
+        checkSession(xhr.status);
         if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data) {
           clearCache('photos:');
           clearCache('allPhotos');
