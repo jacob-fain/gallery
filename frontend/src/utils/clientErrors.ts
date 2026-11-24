@@ -92,22 +92,19 @@ export const createReporter = ({ send, path, userAgent, release, max = MAX_REPOR
   };
 };
 
-/** Posts a report without delaying the page, and survives the page unloading. */
-export const beaconTo = (endpoint: string) => (report: ClientErrorReport): void => {
-  const body = JSON.stringify(report);
-  // text/plain needs no CORS preflight, which a beacon cannot make; the API
-  // parses it as JSON.
-  try {
-    if (navigator.sendBeacon?.(endpoint, new Blob([body], { type: 'text/plain' }))) return;
-  } catch {
-    // Fall through to fetch.
-  }
+/**
+ * Posts a report without delaying the page; keepalive lets it outlive the
+ * page unloading. Not sendBeacon: a beacon always carries cookies, and the
+ * admin session cookie must never ride along on a report.
+ */
+export const postTo = (endpoint: string) => (report: ClientErrorReport): void => {
   try {
     void fetch(endpoint, {
       method: 'POST',
-      body,
+      body: JSON.stringify(report),
       keepalive: true,
       credentials: 'omit',
+      // text/plain needs no CORS preflight; the API parses it as JSON.
       headers: { 'Content-Type': 'text/plain' },
     }).catch(() => {});
   } catch {
@@ -131,7 +128,7 @@ export const reportClientError = (source: ErrorSource, error: unknown): void => 
 export const installClientErrorReporting = (endpoint: string, release?: string): void => {
   if (active) return;
   active = createReporter({
-    send: beaconTo(endpoint),
+    send: postTo(endpoint),
     path: () => window.location.pathname,
     userAgent: navigator.userAgent,
     release,

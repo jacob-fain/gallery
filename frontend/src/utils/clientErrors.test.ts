@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_REPORTS_PER_PAGE,
-  beaconTo,
+  postTo,
   createReporter,
   pathOf,
   stripUrlQueries,
@@ -119,45 +119,35 @@ describe('stripUrlQueries and pathOf', () => {
   });
 });
 
-describe('beaconTo', () => {
+describe('postTo', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   const report: ClientErrorReport = { source: 'error', message: 'Error: x', url: '/', userAgent: 'ua' };
 
-  it('sends a text/plain beacon', async () => {
+  it('posts with a keepalive fetch that sends no cookies, never a beacon', () => {
     const sendBeacon = vi.fn(() => true);
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
     vi.stubGlobal('navigator', { sendBeacon });
     vi.stubGlobal('fetch', fetchMock);
-    beaconTo('/api/client-errors')(report);
-    expect(sendBeacon).toHaveBeenCalledOnce();
-    const [endpoint, blob] = sendBeacon.mock.calls[0] as unknown as [string, Blob];
-    expect(endpoint).toBe('/api/client-errors');
-    expect(blob.type).toBe('text/plain');
-    expect(JSON.parse(await blob.text())).toEqual(report);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('falls back to a keepalive fetch without credentials', () => {
-    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
-    vi.stubGlobal('navigator', { sendBeacon: () => false });
-    vi.stubGlobal('fetch', fetchMock);
-    beaconTo('/api/client-errors')(report);
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/client-errors',
-      expect.objectContaining({ method: 'POST', keepalive: true, credentials: 'omit', body: JSON.stringify(report) })
-    );
-  });
-
-  it('never throws, even when both transports do', () => {
-    vi.stubGlobal('navigator', {
-      sendBeacon: () => {
-        throw new Error('blocked');
-      },
+    postTo('/api/client-errors')(report);
+    expect(sendBeacon).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith('/api/client-errors', {
+      method: 'POST',
+      keepalive: true,
+      credentials: 'omit',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(report),
     });
+  });
+
+  it('never throws, whether fetch throws or rejects', async () => {
     vi.stubGlobal('fetch', () => {
       throw new Error('blocked');
     });
-    expect(() => beaconTo('/api/client-errors')(report)).not.toThrow();
+    expect(() => postTo('/api/client-errors')(report)).not.toThrow();
+    vi.stubGlobal('fetch', () => Promise.reject(new TypeError('offline')));
+    expect(() => postTo('/api/client-errors')(report)).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });
