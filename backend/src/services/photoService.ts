@@ -1,6 +1,7 @@
-import { query } from '../config/db';
+import { PoolClient } from 'pg';
+import { query, withTransaction } from '../config/db';
 import { Photo, PhotoWithUrls, CreatePhotoInput, UpdatePhotoInput } from '../types';
-import { getSignedUrl, copyFile, deleteFile, generatePhotoKeys } from './s3Service';
+import { getSignedUrl } from './s3Service';
 import { sanitizeFilename } from './downloadNames';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
@@ -194,35 +195,56 @@ export const enrichPhotosWithUrls = async (photos: Photo[]): Promise<PhotoWithUr
 };
 
 /**
- * Create a new photo record in the database
+ * Lock the target gallery's row so concurrent uploads and moves into it take
+ * turns computing the next sort_order, and return that next position.
+ * Unassigned photos list by upload time, so a null gallery needs no lock.
+ */
+const nextSortOrder = async (client: PoolClient, galleryId: string | null): Promise<number> => {
+  if (galleryId) {
+    await client.query(`SELECT 1 FROM galleries WHERE id = $1 FOR UPDATE`, [galleryId]);
+  }
+  const result = await client.query(
+    `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM photos
+     WHERE gallery_id IS NOT DISTINCT FROM $1`,
+    [galleryId]
+  );
+  return result.rows[0].next;
+};
+
+/**
+ * Create a new photo record in the database, placed after every photo
+ * already in its gallery (#83)
  * @param data - Photo creation input
  * @returns Created photo record
  */
-export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> => {
-  const result = await query(
-    `INSERT INTO photos (
-      gallery_id, filename, original_filename,
-      s3_key, s3_thumbnail_key, s3_web_key,
-      width, height, file_size, exif_data, content_hash
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    RETURNING *`,
-    [
-      data.gallery_id,
-      data.filename,
-      data.original_filename,
-      data.s3_key,
-      data.s3_thumbnail_key,
-      data.s3_web_key,
-      data.width,
-      data.height,
-      data.file_size,
-      data.exif_data ? JSON.stringify(data.exif_data) : null,
-      data.content_hash || null,
-    ]
-  );
-  return result.rows[0];
-};
+export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> =>
+  withTransaction(async (client) => {
+    const sortOrder = await nextSortOrder(client, data.gallery_id);
+    const result = await client.query(
+      `INSERT INTO photos (
+        gallery_id, filename, original_filename,
+        s3_key, s3_thumbnail_key, s3_web_key,
+        width, height, file_size, exif_data, content_hash, sort_order
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *`,
+      [
+        data.gallery_id,
+        data.filename,
+        data.original_filename,
+        data.s3_key,
+        data.s3_thumbnail_key,
+        data.s3_web_key,
+        data.width,
+        data.height,
+        data.file_size,
+        data.exif_data ? JSON.stringify(data.exif_data) : null,
+        data.content_hash || null,
+        sortOrder,
+      ]
+    );
+    return result.rows[0];
+  });
 
 /**
  * Find a photo by the SHA-256 hash of its original file
@@ -367,65 +389,39 @@ export const reorderPhotos = async (
 };
 
 /**
- * Move photos to a different gallery
- * Copies S3 files to new paths and updates database
- * @param photoIds - Array of photo IDs to move
- * @param targetGalleryId - Destination gallery ID
- * @returns Number of photos moved
+ * Move photos to another gallery, or to Unassigned when targetGalleryId is
+ * null. Moved photos keep their relative order and go after the photos
+ * already in the target. Only the database changes: S3 keys are stored per
+ * row and never derived from the gallery, so the objects stay where they
+ * are (#72).
+ * @returns Number of photos moved (ids already in the target are skipped)
  */
 export const movePhotos = async (
   photoIds: string[],
-  targetGalleryId: string
-): Promise<number> => {
-  let movedCount = 0;
-
-  for (const photoId of photoIds) {
-    const photo = await getPhotoById(photoId);
-    if (!photo) continue;
-
-    // Skip if already in target gallery
-    if (photo.gallery_id === targetGalleryId) continue;
-
-    const sourceGalleryId = photo.gallery_id;
-
-    // Generate new S3 keys for target gallery
-    const newKeys = generatePhotoKeys(targetGalleryId, photoId);
-
-    try {
-      // Copy all 3 versions to new paths
-      await Promise.all([
-        copyFile(photo.s3_key, newKeys.original),
-        copyFile(photo.s3_web_key, newKeys.web),
-        copyFile(photo.s3_thumbnail_key, newKeys.thumbnail),
-      ]);
-
-      // Update database with new gallery and S3 keys
-      await query(
-        `UPDATE photos
-         SET gallery_id = $1, s3_key = $2, s3_web_key = $3, s3_thumbnail_key = $4, sort_order = 9999
-         WHERE id = $5`,
-        [targetGalleryId, newKeys.original, newKeys.web, newKeys.thumbnail, photoId]
+  targetGalleryId: string | null
+): Promise<number> =>
+  withTransaction(async (client) => {
+    const base = await nextSortOrder(client, targetGalleryId);
+    const moved = await client.query(
+      `WITH picked AS (
+         SELECT id, ROW_NUMBER() OVER (ORDER BY sort_order, uploaded_at, id) - 1 AS n
+         FROM photos
+         WHERE id = ANY($2) AND gallery_id IS DISTINCT FROM $1
+       )
+       UPDATE photos p
+       SET gallery_id = $1, sort_order = $3 + picked.n
+       FROM picked
+       WHERE p.id = picked.id
+       RETURNING p.id`,
+      [targetGalleryId, photoIds, base]
+    );
+    const movedIds = moved.rows.map((r) => r.id);
+    if (movedIds.length > 0) {
+      // A gallery's cover must be one of its own photos.
+      await client.query(
+        `UPDATE galleries SET cover_image_id = NULL WHERE cover_image_id = ANY($1)`,
+        [movedIds]
       );
-
-      // Delete old S3 files
-      await Promise.allSettled([
-        deleteFile(photo.s3_key),
-        deleteFile(photo.s3_web_key),
-        deleteFile(photo.s3_thumbnail_key),
-      ]);
-
-      // If this photo was the cover of source gallery, clear it
-      await query(
-        `UPDATE galleries SET cover_image_id = NULL WHERE id = $1 AND cover_image_id = $2`,
-        [sourceGalleryId, photoId]
-      );
-
-      movedCount++;
-    } catch (err) {
-      console.error(`Failed to move photo ${photoId}:`, err);
-      // Continue with other photos
     }
-  }
-
-  return movedCount;
-};
+    return movedIds.length;
+  });

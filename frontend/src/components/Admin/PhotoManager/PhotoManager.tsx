@@ -22,6 +22,9 @@ import type { Photo, Gallery } from '../../../types';
 import { describeFailures, isPhotoGone, settleBulk } from '../../../utils/bulkResults';
 import styles from './PhotoManager.module.css';
 
+// Select value for the Unassigned target; gallery ids are UUIDs, so it cannot collide.
+const UNASSIGNED_TARGET = 'unassigned';
+
 interface PhotoManagerProps {
   photos: Photo[];
   // null renders gallery-agnostic mode (unassigned photos): no cover, reorder, or shuffle
@@ -402,7 +405,11 @@ export default function PhotoManager({
 
     setMoving(true);
     try {
-      await movePhotos(token, Array.from(selectedIds), selectedTargetGallery);
+      await movePhotos(
+        token,
+        Array.from(selectedIds),
+        selectedTargetGallery === UNASSIGNED_TARGET ? null : selectedTargetGallery
+      );
       setSelectedIds(new Set());
       setMoveModalOpen(false);
       onPhotosChange();
@@ -682,7 +689,7 @@ export default function PhotoManager({
             <p className={styles.confirmText}>
               Select a gallery to move the selected photos to:
             </p>
-            {availableGalleries.length === 0 ? (
+            {availableGalleries.length === 0 && !gallery ? (
               <p className={styles.noGalleries}>No other galleries available.</p>
             ) : (
               <select
@@ -691,6 +698,7 @@ export default function PhotoManager({
                 onChange={(e) => setSelectedTargetGallery(e.target.value)}
               >
                 <option value="">Select a gallery...</option>
+                {gallery && <option value={UNASSIGNED_TARGET}>Unassigned</option>}
                 {availableGalleries.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.title}
