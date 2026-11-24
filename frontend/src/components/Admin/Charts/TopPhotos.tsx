@@ -5,7 +5,7 @@ interface TopPhotosProps {
   data: {
     id: string;
     filename: string;
-    gallery_id: string;
+    gallery_id: string | null;
     gallery_title: string;
     thumbnailUrl: string;
     view_count: number;
@@ -27,7 +27,7 @@ export default function TopPhotos({ data }: TopPhotosProps) {
                 {index + 1}.
               </span>
               <Link
-                to={`/galleries/${photo.gallery_id}/photos`}
+                to={photo.gallery_id ? `/galleries/${photo.gallery_id}/photos` : '/unassigned'}
                 className={styles.photoThumbnail}
               >
                 <img src={photo.thumbnailUrl} alt={photo.filename} />
