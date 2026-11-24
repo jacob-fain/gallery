@@ -5,11 +5,18 @@
 Run all of it and read each exit code before opening a PR.
 
 ```sh
-cd backend && npm run typecheck && npm test && npm run build
-cd frontend && npm run lint && npm run build
+cd backend && npm ci && npm run typecheck && npm test && npm run build
+cd frontend && npm ci && npx eslint . --max-warnings 0 && npm run build
 ```
 
-Once CI exists, the same steps run on every PR and are required to merge.
+These are the same steps CI runs (`.github/workflows/ci.yml`), so a green
+local gate predicts a green CI run. Lint warnings fail the gate, as they do in
+CI.
+
+On this machine `npm i <pkg>` hangs while installing. To add or bump a
+dependency, run `npm i <pkg> --package-lock-only --ignore-scripts` on a copy
+of `package.json` and `package-lock.json` in a scratch directory, copy both
+back, then `npm ci`.
 
 ## Open a PR
 
