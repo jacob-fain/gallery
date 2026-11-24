@@ -157,22 +157,33 @@ export default function Homepage() {
     })
   );
 
-  const loadPhotos = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await getHomepagePhotos();
-      setPhotos(data);
-    } catch (err) {
-      console.error('Failed to load homepage photos:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // A promise chain so every setState runs in a callback, which
+  // react-hooks/set-state-in-effect accepts from an effect. Clearing the error
+  // is the retry button's job, since the first load starts without one.
+  const loadPhotos = useCallback(
+    () =>
+      getHomepagePhotos()
+        .then((data) => {
+          setPhotos(data);
+        })
+        .catch((err) => {
+          console.error('Failed to load homepage photos:', err);
+          setError(err instanceof Error ? err.message : 'Failed to load');
+        })
+        .finally(() => {
+          setLoading(false);
+        }),
+    []
+  );
 
   useEffect(() => {
     loadPhotos();
   }, [loadPhotos]);
+
+  const retryLoad = () => {
+    setError(null);
+    loadPhotos();
+  };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -246,7 +257,7 @@ export default function Homepage() {
         <h1 className={styles.title}>Homepage</h1>
         <div className={styles.empty}>
           <p>Error: {error}</p>
-          <button onClick={loadPhotos} style={{ marginTop: '1rem', padding: '0.5rem 1rem' }}>
+          <button onClick={retryLoad} style={{ marginTop: '1rem', padding: '0.5rem 1rem' }}>
             Try Again
           </button>
         </div>

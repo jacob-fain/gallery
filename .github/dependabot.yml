@@ -32,3 +32,9 @@ updates:
         update-types:
           - minor
           - patch
+    # @types/node tracks the Node runtime (24), so its major moves only with a
+    # Node upgrade.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
