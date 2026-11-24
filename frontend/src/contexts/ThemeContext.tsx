@@ -3,15 +3,17 @@ import {
   DARK_SCHEME_QUERY,
   THEME_STORAGE_KEY,
   ThemeContext,
-  parseStoredTheme,
+  readAndMigrateChoice,
   resolveTheme,
   type Theme,
 } from './theme';
 
+// theme.js has normally migrated already; this covers a page where it did not run.
 function readChoice(): Theme | null {
   try {
-    return parseStoredTheme(localStorage.getItem(THEME_STORAGE_KEY));
+    return readAndMigrateChoice(localStorage);
   } catch {
+    // Reading the localStorage global itself throws when storage is blocked.
     return null;
   }
 }

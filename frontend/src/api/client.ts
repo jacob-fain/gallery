@@ -136,8 +136,27 @@ export function getGalleries(): Promise<Gallery[]> {
   return fetchCached<Gallery[]>('galleries', '/galleries');
 }
 
-export function getGallery(slug: string): Promise<Gallery | PrivateGalleryResponse> {
-  return fetchCached<Gallery | PrivateGalleryResponse>(`gallery:${slug}`, `/galleries/${slug}`);
+// Slugs whose latest metadata response said private. Kept for the page's
+// lifetime, past the cache TTL: privacy rarely changes, and a wrong guess
+// costs only a photos request after the metadata instead of alongside it.
+const privateSlugs = new Set<string>();
+
+export async function getGallery(slug: string): Promise<Gallery | PrivateGalleryResponse> {
+  const data = await fetchCached<Gallery | PrivateGalleryResponse>(`gallery:${slug}`, `/galleries/${slug}`);
+  if ('requires_password' in data && data.requires_password === true) {
+    privateSlugs.add(slug);
+  } else {
+    privateSlugs.delete(slug);
+  }
+  return data;
+}
+
+/**
+ * Whether an earlier metadata response showed this gallery as private. The
+ * public galleries list cannot answer this: it lists only public galleries.
+ */
+export function isKnownPrivateGallery(slug: string): boolean {
+  return privateSlugs.has(slug);
 }
 
 export function getGalleryPhotos(

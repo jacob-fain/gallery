@@ -7,6 +7,7 @@ const {
   getGallery,
   getGalleryPhotos,
   getPhotoDownloadUrl,
+  isKnownPrivateGallery,
   onSessionExpired,
   uploadPhoto,
   verifyGalleryPassword,
@@ -184,6 +185,29 @@ describe('concurrent public fetches', () => {
     // The older response arrived last but does not replace the fresh one.
     expect(await getGalleryPhotos('g')).toEqual([{ id: 'new' }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('known private galleries', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it('remembers the latest metadata response, past the cache', async () => {
+    const privateGallery = { title: 'P', slug: 'p', is_public: false, requires_password: true };
+    vi.stubGlobal('fetch', respond(200, { success: true, data: privateGallery }));
+    expect(isKnownPrivateGallery('p')).toBe(false);
+    await getGallery('p');
+    expect(isKnownPrivateGallery('p')).toBe(true);
+
+    clearCache();
+    expect(isKnownPrivateGallery('p')).toBe(true);
+
+    vi.stubGlobal('fetch', respond(200, { success: true, data: { title: 'P', slug: 'p', is_public: true } }));
+    await getGallery('p');
+    expect(isKnownPrivateGallery('p')).toBe(false);
   });
 });
 
