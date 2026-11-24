@@ -3,6 +3,7 @@ import cors from 'cors';
 import compression from 'compression';
 import multer from 'multer';
 import routes from './routes';
+import { JSON_BODY_LIMIT } from './middleware/validateIds';
 
 const app = express();
 
@@ -26,7 +27,7 @@ app.use(compression({
     return compression.filter(req, res);
   },
 }));
-app.use(express.json());
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 // Cache headers for public GET endpoints
 app.use('/api', (req, res, next) => {

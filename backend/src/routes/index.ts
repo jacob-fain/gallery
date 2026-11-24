@@ -8,6 +8,7 @@ import * as photoController from '../controllers/photoController';
 import * as galleryController from '../controllers/galleryController';
 import * as analyticsController from '../controllers/analyticsController';
 import { authMiddleware } from '../middleware/auth';
+import { validateBodyIds } from '../middleware/validateIds';
 
 const router = Router();
 
@@ -27,10 +28,10 @@ router.get('/admin/analytics', authMiddleware, analyticsController.getAnalytics)
 
 // Admin homepage management
 router.get('/admin/homepage', authMiddleware, photoController.getFeaturedAdmin);
-router.post('/admin/homepage/hero', authMiddleware, photoController.setHero);
-router.post('/admin/homepage/featured', authMiddleware, photoController.addFeatured);
-router.delete('/admin/homepage/featured', authMiddleware, photoController.removeFeatured);
-router.put('/admin/homepage/reorder', authMiddleware, photoController.reorderFeatured);
+router.post('/admin/homepage/hero', authMiddleware, validateBodyIds({ photo_id: 'uuid' }), photoController.setHero);
+router.post('/admin/homepage/featured', authMiddleware, validateBodyIds({ photo_id: 'uuid' }), photoController.addFeatured);
+router.delete('/admin/homepage/featured', authMiddleware, validateBodyIds({ photo_id: 'uuid' }), photoController.removeFeatured);
+router.put('/admin/homepage/reorder', authMiddleware, validateBodyIds({ photo_ids: 'uuid[]' }), photoController.reorderFeatured);
 
 // Mount route modules
 router.use('/auth', authRouter);
