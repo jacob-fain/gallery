@@ -2,22 +2,24 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // Libraries that change less often than the app get their own chunks, so a
-// deploy that only touches app code leaves them cached. The function form
-// matches every file of a package (react-dom/client included), where the
-// object form matched only each package's main entry. Only a package's own
-// files are named: its dependencies are left to Rollup, so a dependency the
-// public pages share with an admin library is never pulled into that
-// library's chunk and the public pages never load admin-only code.
-const VENDOR_CHUNKS: [string, RegExp][] = [
-  ['vendor-react', /\/node_modules\/(react|react-dom|scheduler|react-router|react-router-dom|@remix-run\/router)\//],
-  ['vendor-lightbox', /\/node_modules\/yet-another-react-lightbox\//],
-  ['vendor-charts', /\/node_modules\/recharts\//],
-  ['vendor-dnd', /\/node_modules\/@dnd-kit\//],
+// deploy that only touches app code leaves them cached. A group also takes
+// the modules its matches import, unless a higher-priority group claims them,
+// so anything the public pages share with an admin library must be claimed
+// first or it lands in that library's chunk and every public page loads
+// admin-only code. The top group claims React and the syntax helpers the
+// build injects for older browsers, which app code and recharts both use.
+// (Turning off includeDependenciesRecursively instead leaves recharts'
+// dependencies in the Dashboard chunk, a cycle with vendor-charts.)
+const VENDOR_CHUNKS = [
+  {
+    name: 'vendor-react',
+    test: /[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom|@remix-run[\\/]router)[\\/]|^\0@oxc-project\+runtime@/,
+    priority: 1,
+  },
+  { name: 'vendor-lightbox', test: /[\\/]node_modules[\\/]yet-another-react-lightbox[\\/]/ },
+  { name: 'vendor-charts', test: /[\\/]node_modules[\\/]recharts[\\/]/ },
+  { name: 'vendor-dnd', test: /[\\/]node_modules[\\/]@dnd-kit[\\/]/ },
 ]
-
-function vendorChunk(id: string): string | undefined {
-  return VENDOR_CHUNKS.find(([, pattern]) => pattern.test(id))?.[0]
-}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -29,9 +31,15 @@ export default defineConfig({
     port: 5173,
   },
   build: {
-    rollupOptions: {
+    // Vite 6's default targets. Vite 8's default starts at Safari 16.4 and
+    // Chrome 111, and would stop transpiling syntax that Safari 14 to 16.3
+    // and Chrome 87 to 110 cannot parse.
+    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'],
+    rolldownOptions: {
       output: {
-        manualChunks: vendorChunk,
+        codeSplitting: {
+          groups: VENDOR_CHUNKS,
+        },
       },
     },
   },
