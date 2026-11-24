@@ -3,10 +3,14 @@ export interface ExifData {
   cameraMake?: string;
   cameraModel?: string;
   lensModel?: string;
-  iso?: number;
+  // An array only on photos uploaded before the parser kept the first value.
+  iso?: number | number[];
   aperture?: number;
   shutterSpeed?: number;
   focalLength?: number;
+  // Camera wall-clock time: "2024-06-01T14:30:00", with the camera's offset
+  // appended when it recorded one. Older uploads end in a "Z" that is not UTC.
+  // Display it with formatDateTaken, never through new Date().
   dateTaken?: string;
 }
 
