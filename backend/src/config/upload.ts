@@ -13,11 +13,13 @@ const allowedMimeTypes = [
   'image/heic',
 ];
 
-const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.heif', '.heic'];
+// HEIC/HEIF are left out: an untyped HEIC is usually an iPhone photo,
+// which sharp's prebuilt binaries most likely cannot decode (#131).
+const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff'];
 
-// Some browsers report HEIC files with no type, which arrives as
-// application/octet-stream. Those are accepted by extension; the controller
-// still checks the bytes with sharp before storing anything.
+// A file the browser gives no type arrives as application/octet-stream. Those
+// are accepted by extension; the controller still checks the bytes with sharp
+// before storing anything.
 const isAllowedUpload = (file: Express.Multer.File): boolean => {
   if (allowedMimeTypes.includes(file.mimetype)) return true;
   const untyped = file.mimetype === '' || file.mimetype === 'application/octet-stream';

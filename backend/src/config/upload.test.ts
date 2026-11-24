@@ -43,14 +43,16 @@ describe('upload middleware', () => {
     expect(await res.json()).toEqual({ name: 'café_東京.jpg' });
   });
 
-  it('accepts an untyped HEIC file by its extension', async () => {
-    const res = await post('IMG_0001.HEIC', 'application/octet-stream');
+  it('accepts an untyped file by its image extension', async () => {
+    const res = await post('IMG_0001.JPG', 'application/octet-stream');
     expect(res.status).toBe(200);
   });
 
-  it('still rejects an untyped file with another extension', async () => {
-    const res = await post('notes.txt', 'application/octet-stream');
-    expect(res.status).toBe(415);
+  it('rejects an untyped file with any other extension, HEIC included', async () => {
+    for (const name of ['notes.txt', 'IMG_0001.HEIC']) {
+      const res = await post(name, 'application/octet-stream');
+      expect(res.status).toBe(415);
+    }
   });
 });
 

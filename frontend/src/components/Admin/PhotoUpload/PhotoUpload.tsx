@@ -12,8 +12,9 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const CHECK_BATCH_SIZE = 20;
 // Parallel uploads
 const UPLOAD_CONCURRENCY = 3;
-// Some browsers give HEIC files an empty type; the server checks the bytes.
-const IMAGE_EXTENSION = /\.(jpe?g|png|webp|tiff?|heic|heif)$/i;
+// A file the browser gives no type is judged by extension; the server checks
+// the bytes. HEIC is left out: the server most likely cannot decode it (#131).
+const IMAGE_EXTENSION = /\.(jpe?g|png|webp|tiff?)$/i;
 
 const isImageFile = (file: File) =>
   file.type ? file.type.startsWith('image/') : IMAGE_EXTENSION.test(file.name);
@@ -396,7 +397,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         <input
           ref={inputRef}
           type="file"
-          accept="image/*,.heic,.heif"
+          accept="image/*"
           multiple
           onChange={handleChange}
           className={styles.input}
