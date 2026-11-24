@@ -42,8 +42,13 @@ const PHOTO_EVENT_SQL = (counter: 'view_count' | 'download_count', eventType: st
 const PHOTO_VIEW_SQL = PHOTO_EVENT_SQL('view_count', 'photo_view');
 const PHOTO_DOWNLOAD_SQL = PHOTO_EVENT_SQL('download_count', 'photo_download');
 
+// A gallery view counts when the visitor can open the gallery: it is public,
+// or the visitor holds an access token for it ($2, null without one). The
+// UPDATE doubles as that check and as the lookup of the id by slug.
 const GALLERY_VIEW_SQL = `WITH counted AS (
-     UPDATE galleries SET view_count = view_count + 1 WHERE id = $1 RETURNING id
+     UPDATE galleries SET view_count = view_count + 1
+     WHERE slug = $1 AND (is_public = true OR id = $2)
+     RETURNING id
    )
    INSERT INTO analytics_events (event_type, gallery_id)
    SELECT 'gallery_view', id FROM counted`;
@@ -56,8 +61,8 @@ export const recordPhotoView = (photoId: string) =>
 export const recordPhotoDownload = (photoId: string) =>
   track('photo download', () => query(PHOTO_DOWNLOAD_SQL, [photoId]));
 
-export const recordGalleryView = (galleryId: string) =>
-  track('gallery view', () => query(GALLERY_VIEW_SQL, [galleryId]));
+export const recordGalleryView = (slug: string, accessGalleryId: string | null) =>
+  track('gallery view', () => query(GALLERY_VIEW_SQL, [slug, accessGalleryId]));
 
 export const recordGalleryDownload = (galleryId: string) =>
   track('gallery download', () => query(GALLERY_DOWNLOAD_SQL, [galleryId]));

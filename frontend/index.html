@@ -20,11 +20,11 @@
     <meta name="twitter:title" content="Jacob Fain Photography" />
     <meta name="twitter:description" content="Photography portfolio of Jacob Fain." />
     <meta name="twitter:image" content="https://jacobfain.gallery/og-image.jpg" />
+    <!-- Applies the theme before first paint. A file, not inline, so the
+         Content-Security-Policy can allow only same-origin scripts. -->
+    <script src="/theme.js"></script>
   </head>
   <body>
-    <!-- Applies the saved theme before first paint. A file, not inline, so
-         the Content-Security-Policy can allow only same-origin scripts. -->
-    <script src="/theme.js"></script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

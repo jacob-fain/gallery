@@ -21,6 +21,10 @@ const API_BASE = import.meta.env.VITE_API_URL ||
 // Makes back navigation instant. Photo URLs in a response stay valid for at
 // least 50 minutes when the API sends them (MIN_REMAINING_LIFETIME_MS in
 // backend/src/services/s3Service.ts), so this must stay well under that.
+//
+// Only the public getters below fill it, and only public pages call them.
+// The admin UI is a separate page load (its own origin in production), so its
+// cache never holds these entries and admin mutations have nothing to clear.
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CacheEntry<T> {
@@ -29,6 +33,9 @@ interface CacheEntry<T> {
 }
 
 const cache = new Map<string, CacheEntry<unknown>>();
+// Requests still in flight, so callers that ask for the same data at once
+// (a remount, StrictMode's double effects) share one request.
+const inflight = new Map<string, Promise<unknown>>();
 
 function getCached<T>(key: string): T | null {
   const entry = cache.get(key);
@@ -41,19 +48,18 @@ function getCached<T>(key: string): T | null {
   return null;
 }
 
-function setCache<T>(key: string, data: T): void {
-  cache.set(key, { data, expires: Date.now() + CACHE_TTL_MS });
-}
-
-// Clear cache for a specific prefix (used when data is modified)
+// Clear cache for a specific prefix
 export function clearCache(prefix?: string): void {
   if (!prefix) {
     cache.clear();
+    inflight.clear();
     return;
   }
-  for (const key of cache.keys()) {
-    if (key.startsWith(prefix)) {
-      cache.delete(key);
+  for (const map of [cache, inflight]) {
+    for (const key of map.keys()) {
+      if (key.startsWith(prefix)) {
+        map.delete(key);
+      }
     }
   }
 }
@@ -86,61 +92,83 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
   return data.data;
 }
 
-export async function getFeaturedPhotos(): Promise<PublicPhoto[]> {
-  const cacheKey = 'featured';
-  const cached = getCached<PublicPhoto[]>(cacheKey);
-  if (cached) return cached;
+// A fresh request never joins one in flight, since that one may carry the
+// expired URLs. It takes over the key instead: only the newest request for a
+// key fills the cache, so an older response cannot overwrite a fresher one.
+function fetchCached<T>(key: string, endpoint: string, options: FetchOptions = {}): Promise<T> {
+  if (!options.fresh) {
+    const cached = getCached<T>(key);
+    if (cached) return Promise.resolve(cached);
+    const pending = inflight.get(key);
+    if (pending) return pending as Promise<T>;
+  }
 
-  const data = await fetchApi<PublicPhoto[]>('/featured');
-  setCache(cacheKey, data);
-  return data;
+  const request: Promise<T> = fetchApi<T>(endpoint, options).then(
+    (data) => {
+      if (inflight.get(key) === request) {
+        inflight.delete(key);
+        cache.set(key, { data, expires: Date.now() + CACHE_TTL_MS });
+      }
+      return data;
+    },
+    (error: unknown) => {
+      if (inflight.get(key) === request) inflight.delete(key);
+      throw error;
+    }
+  );
+  inflight.set(key, request);
+  return request;
 }
 
-export async function getAllPhotos(limit?: number, options: FetchOptions = {}): Promise<PublicPhoto[]> {
-  const cacheKey = limit ? `allPhotos:${limit}` : 'allPhotos';
-  const cached = options.fresh ? null : getCached<PublicPhoto[]>(cacheKey);
-  if (cached) return cached;
-
-  const data = await fetchApi<PublicPhoto[]>(limit ? `/photos?limit=${limit}` : '/photos', options);
-  setCache(cacheKey, data);
-  return data;
+export function getFeaturedPhotos(): Promise<PublicPhoto[]> {
+  return fetchCached<PublicPhoto[]>('featured', '/featured');
 }
 
-export async function getGalleries(): Promise<Gallery[]> {
-  const cacheKey = 'galleries';
-  const cached = getCached<Gallery[]>(cacheKey);
-  if (cached) return cached;
-
-  const data = await fetchApi<Gallery[]>('/galleries');
-  setCache(cacheKey, data);
-  return data;
+export function getAllPhotos(limit?: number, options: FetchOptions = {}): Promise<PublicPhoto[]> {
+  return fetchCached<PublicPhoto[]>(
+    limit ? `allPhotos:${limit}` : 'allPhotos',
+    limit ? `/photos?limit=${limit}` : '/photos',
+    options
+  );
 }
+
+export function getGalleries(): Promise<Gallery[]> {
+  return fetchCached<Gallery[]>('galleries', '/galleries');
+}
+
+// Slugs whose latest metadata response said private. Kept for the page's
+// lifetime, past the cache TTL: privacy rarely changes, and a wrong guess
+// costs only a photos request after the metadata instead of alongside it.
+const privateSlugs = new Set<string>();
 
 export async function getGallery(slug: string): Promise<Gallery | PrivateGalleryResponse> {
-  const cacheKey = `gallery:${slug}`;
-  const cached = getCached<Gallery | PrivateGalleryResponse>(cacheKey);
-  if (cached) return cached;
-
-  const data = await fetchApi<Gallery | PrivateGalleryResponse>(`/galleries/${slug}`);
-  setCache(cacheKey, data);
+  const data = await fetchCached<Gallery | PrivateGalleryResponse>(`gallery:${slug}`, `/galleries/${slug}`);
+  if ('requires_password' in data && data.requires_password === true) {
+    privateSlugs.add(slug);
+  } else {
+    privateSlugs.delete(slug);
+  }
   return data;
 }
 
-export async function getGalleryPhotos(
+/**
+ * Whether an earlier metadata response showed this gallery as private. The
+ * public galleries list cannot answer this: it lists only public galleries.
+ */
+export function isKnownPrivateGallery(slug: string): boolean {
+  return privateSlugs.has(slug);
+}
+
+export function getGalleryPhotos(
   slug: string,
   accessToken?: string,
   options: FetchOptions = {}
 ): Promise<PublicPhoto[]> {
   const cacheKey = accessToken ? `photos:${slug}:${accessToken}` : `photos:${slug}`;
-  const cached = options.fresh ? null : getCached<PublicPhoto[]>(cacheKey);
-  if (cached) return cached;
-
   const url = accessToken
     ? `/galleries/${slug}/photos?access=${encodeURIComponent(accessToken)}`
     : `/galleries/${slug}/photos`;
-  const data = await fetchApi<PublicPhoto[]>(url, options);
-  setCache(cacheKey, data);
-  return data;
+  return fetchCached<PublicPhoto[]>(cacheKey, url, options);
 }
 
 export async function verifyGalleryPassword(
@@ -270,13 +298,11 @@ export async function getAllGalleries(token: string): Promise<Gallery[]> {
 }
 
 export async function createGallery(token: string, data: CreateGalleryInput): Promise<Gallery> {
-  const result = await fetchApiAuth<Gallery>('/galleries', token, {
+  return fetchApiAuth<Gallery>('/galleries', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  clearCache('galleries');
-  return result;
 }
 
 export async function updateGallery(
@@ -284,38 +310,28 @@ export async function updateGallery(
   id: string,
   data: UpdateGalleryInput
 ): Promise<Gallery> {
-  const result = await fetchApiAuth<Gallery>(`/galleries/${id}`, token, {
+  return fetchApiAuth<Gallery>(`/galleries/${id}`, token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  clearCache('galleries');
-  clearCache('gallery:');
-  return result;
 }
 
 export async function deleteGallery(token: string, id: string): Promise<{ deleted: boolean }> {
-  const result = await fetchApiAuth<{ deleted: boolean }>(`/galleries/${id}`, token, {
+  return fetchApiAuth<{ deleted: boolean }>(`/galleries/${id}`, token, {
     method: 'DELETE',
   });
-  clearCache('galleries');
-  clearCache('gallery:');
-  clearCache('photos:');
-  clearCache('allPhotos');
-  return result;
 }
 
 export async function reorderGalleries(
   token: string,
   galleryIds: string[]
 ): Promise<{ reordered: boolean }> {
-  const result = await fetchApiAuth<{ reordered: boolean }>('/galleries/reorder', token, {
+  return fetchApiAuth<{ reordered: boolean }>('/galleries/reorder', token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gallery_ids: galleryIds }),
   });
-  clearCache('galleries');
-  return result;
 }
 
 export async function setCoverImage(
@@ -323,13 +339,11 @@ export async function setCoverImage(
   galleryId: string,
   photoId: string | null
 ): Promise<Gallery> {
-  const result = await fetchApiAuth<Gallery>(`/galleries/${galleryId}/cover`, token, {
+  return fetchApiAuth<Gallery>(`/galleries/${galleryId}/cover`, token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photoId }),
   });
-  clearCache('galleries');
-  return result;
 }
 
 // Photo Management
@@ -414,10 +428,6 @@ export async function uploadPhoto(
       try {
         const data: ApiResponse<Photo> = JSON.parse(xhr.responseText);
         if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data) {
-          clearCache('photos:');
-          clearCache('allPhotos');
-          clearCache('featured');
-          clearCache('galleries');
           resolve(data.data);
         } else {
           reject(new UploadError(data.error || 'Upload failed', xhr.status));
@@ -445,27 +455,17 @@ export async function updatePhoto(
   id: string,
   data: { is_hidden?: boolean; sort_order?: number }
 ): Promise<Photo> {
-  const result = await fetchApiAuth<Photo>(`/photos/${id}`, token, {
+  return fetchApiAuth<Photo>(`/photos/${id}`, token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  clearCache('photos:');
-  clearCache('allPhotos');
-  clearCache('featured');
-  clearCache('galleries');
-  return result;
 }
 
 export async function deletePhoto(token: string, id: string): Promise<{ deleted: boolean }> {
-  const result = await fetchApiAuth<{ deleted: boolean }>(`/photos/${id}`, token, {
+  return fetchApiAuth<{ deleted: boolean }>(`/photos/${id}`, token, {
     method: 'DELETE',
   });
-  clearCache('photos:');
-  clearCache('allPhotos');
-  clearCache('featured');
-  clearCache('galleries');
-  return result;
 }
 
 export async function reorderPhotos(
@@ -473,16 +473,11 @@ export async function reorderPhotos(
   galleryId: string,
   photoIds: string[]
 ): Promise<{ reordered: boolean }> {
-  const result = await fetchApiAuth<{ reordered: boolean }>('/photos/reorder', token, {
+  return fetchApiAuth<{ reordered: boolean }>('/photos/reorder', token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gallery_id: galleryId, photo_ids: photoIds }),
   });
-  clearCache('photos:');
-  clearCache('allPhotos');
-  clearCache('featured');
-  clearCache('galleries');
-  return result;
 }
 
 // A null targetGalleryId moves the photos to Unassigned.
@@ -491,16 +486,11 @@ export async function movePhotos(
   photoIds: string[],
   targetGalleryId: string | null
 ): Promise<{ moved: number }> {
-  const result = await fetchApiAuth<{ moved: number }>('/photos/move', token, {
+  return fetchApiAuth<{ moved: number }>('/photos/move', token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_ids: photoIds, target_gallery_id: targetGalleryId }),
   });
-  clearCache('photos:');
-  clearCache('allPhotos');
-  clearCache('featured');
-  clearCache('galleries');
-  return result;
 }
 
 // ============ Gallery ZIP Download ============
@@ -525,6 +515,18 @@ export function getGalleryDownloadUrl(slug: string, accessToken?: string): strin
 export function trackPhotoView(photoId: string): void {
   fetch(`${API_BASE}/photos/${photoId}/view`, { method: 'POST' }).catch(() => {
     // Silently ignore errors - tracking should not affect UX
+  });
+}
+
+/**
+ * Count a view of a gallery page, once it is shown. Not counted by the
+ * metadata request, which browsers may answer from cache. A private gallery
+ * counts only with its access token.
+ */
+export function trackGalleryView(slug: string, accessToken?: string): void {
+  const query = accessToken ? `?access=${encodeURIComponent(accessToken)}` : '';
+  fetch(`${API_BASE}/galleries/${slug}/view${query}`, { method: 'POST' }).catch(() => {
+    // Tracking never affects the page.
   });
 }
 
@@ -569,43 +571,35 @@ export async function getHomepagePhotos(token: string): Promise<Photo[]> {
 }
 
 export async function setHeroPhoto(token: string, photoId: string): Promise<Photo[]> {
-  const result = await fetchApiAuth<Photo[]>('/admin/homepage/hero', token, {
+  return fetchApiAuth<Photo[]>('/admin/homepage/hero', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_id: photoId }),
   });
-  clearCache('featured');
-  return result;
 }
 
 export async function addToHomepage(token: string, photoId: string): Promise<Photo[]> {
-  const result = await fetchApiAuth<Photo[]>('/admin/homepage/featured', token, {
+  return fetchApiAuth<Photo[]>('/admin/homepage/featured', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_id: photoId }),
   });
-  clearCache('featured');
-  return result;
 }
 
 export async function removeFromHomepage(token: string, photoId: string): Promise<Photo[]> {
-  const result = await fetchApiAuth<Photo[]>('/admin/homepage/featured', token, {
+  return fetchApiAuth<Photo[]>('/admin/homepage/featured', token, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_id: photoId }),
   });
-  clearCache('featured');
-  return result;
 }
 
 export async function reorderHomepagePhotos(token: string, photoIds: string[]): Promise<Photo[]> {
-  const result = await fetchApiAuth<Photo[]>('/admin/homepage/reorder', token, {
+  return fetchApiAuth<Photo[]>('/admin/homepage/reorder', token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photo_ids: photoIds }),
   });
-  clearCache('featured');
-  return result;
 }
 
 // ============ Site Settings ============
