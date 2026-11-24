@@ -2,17 +2,10 @@ import { Request, Response } from 'express';
 import { createRouter } from '../middleware/requestLog';
 import { buildSitemap, getSitemapGallerySlugs } from '../services/sitemapService';
 import { logger } from '../utils/logger';
+import { siteOrigin } from '../utils/siteOrigin';
 
 /** Short enough that a newly published gallery is listed within minutes. */
 export const SITEMAP_MAX_AGE_SECONDS = 300;
-
-/**
- * The public origin sitemap URLs are written under. FRONTEND_URL is the
- * public site in production; the request is only a fallback, since behind
- * the tunnel nginx sees plain http.
- */
-const siteOrigin = (req: Request): string =>
-  process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
 
 const router = createRouter();
 

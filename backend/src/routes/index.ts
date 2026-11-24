@@ -6,6 +6,7 @@ import photosRouter from './photos';
 import settingsRouter from './settings';
 import healthRouter from './health';
 import sitemapRouter from './sitemap';
+import shareRouter from './share';
 import * as photoController from '../controllers/photoController';
 import * as galleryController from '../controllers/galleryController';
 import * as analyticsController from '../controllers/analyticsController';
@@ -43,5 +44,6 @@ router.use('/contact', contactRouter);
 router.use('/galleries', galleriesRouter);
 router.use('/photos', photosRouter);
 router.use('/settings', settingsRouter);
+router.use('/share', shareRouter);
 
 export default router;

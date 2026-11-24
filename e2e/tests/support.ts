@@ -50,7 +50,13 @@ export function adminApi(request: APIRequestContext) {
     return (await response.json()).data as T;
   };
   return {
-    createGallery: async (body: { title: string; slug: string; is_public: boolean; password?: string }) =>
+    createGallery: async (body: {
+      title: string;
+      slug: string;
+      is_public: boolean;
+      password?: string;
+      description?: string;
+    }) =>
       ok<{ id: string; slug: string }>(await request.post(`${ADMIN}/api/galleries`, { headers, data: body })),
     upload: async (galleryId: string, name: string, buffer: Buffer) =>
       ok<{ id: string }>(
