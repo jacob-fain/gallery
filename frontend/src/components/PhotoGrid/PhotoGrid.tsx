@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { MasonryPhotoAlbum } from 'react-photo-album';
 import 'react-photo-album/masonry.css';
 import Lightbox from 'yet-another-react-lightbox';
@@ -7,24 +7,19 @@ import Counter from 'yet-another-react-lightbox/plugins/counter';
 import Download from 'yet-another-react-lightbox/plugins/download';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import 'yet-another-react-lightbox/plugins/counter.css';
-import type { PublicPhoto, ExifData } from '../../types';
+import type { PublicPhoto } from '../../types';
 import { trackPhotoView, getPhotoDownloadUrl } from '../../api/client';
 import ExifOverlay from './ExifOverlay';
-import { derivedImages } from '../../utils/imageSizes';
 import { createRefreshGuard } from '../../utils/expiredImages';
-import { photoAlt } from '../../utils/photoAlt';
+import {
+  GRID_SIZES,
+  gridColumns,
+  toAlbumPhotos,
+  toLightboxSlides,
+  type AlbumPhoto,
+  type SlideWithExif,
+} from './gridItems';
 import styles from './PhotoGrid.module.css';
-
-// Extend slide type to include EXIF data
-interface SlideWithExif {
-  src: string;
-  srcSet: { src: string; width: number; height: number }[];
-  width: number;
-  height: number;
-  alt: string;
-  photoId: string;
-  exif?: ExifData;
-}
 
 interface PhotoGridProps {
   photos: PublicPhoto[];
@@ -41,10 +36,7 @@ interface PhotoGridProps {
 
 const REFRESH_INTERVAL_MS = 60 * 1000;
 const LIGHTBOX_CLASS = 'photo-grid-lightbox';
-
-function getPhotoUrl(photo: PublicPhoto): string {
-  return photo.webUrl || photo.thumbnailUrl || '';
-}
+const LIGHTBOX_PLUGINS = [Counter, Download, Zoom];
 
 // The signed URL answers with Content-Disposition: attachment, so navigating
 // to it saves the file and leaves the page in place. Navigation, unlike
@@ -56,6 +48,26 @@ async function downloadOriginal(photoId: string, accessToken?: string) {
     console.error('Failed to download photo:', err);
   }
 }
+
+interface PhotoTilesProps {
+  photos: AlbumPhoto[];
+  onOpen: (index: number) => void;
+}
+
+// Memoized so that moving through the lightbox, which changes only the
+// parent's index state, re-renders the lightbox and not every tile. Its props
+// must stay referentially stable for that: memoized photos and a state setter.
+const PhotoTiles = memo(function PhotoTiles({ photos, onOpen }: PhotoTilesProps) {
+  return (
+    <MasonryPhotoAlbum
+      photos={photos}
+      columns={gridColumns}
+      spacing={12}
+      sizes={GRID_SIZES}
+      onClick={({ index }) => onOpen(index)}
+    />
+  );
+});
 
 export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesExpired }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState(-1);
@@ -93,55 +105,12 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
     }
   }, [lightboxIndex, photos]);
 
-  const altFor = (photo: PublicPhoto, index: number) =>
-    photoAlt(index, photos.length, galleryTitle ?? photo.gallery_title);
-
-  const albumPhotos = photos.map((photo, index) => {
-    const candidates = derivedImages(photo);
-    const largest = candidates[candidates.length - 1];
-    // The album appends { src, width } to the srcset whenever no candidate
-    // matches width, which would advertise the thumbnail at the largest size.
-    // Passing the largest real candidate's size keeps the srcset truthful.
-    return {
-      src: candidates[0]?.src ?? getPhotoUrl(photo),
-      srcSet: candidates,
-      width: largest?.width ?? photo.width,
-      height: largest?.height ?? photo.height,
-      alt: altFor(photo, index),
-    };
-  });
-
-  const lightboxSlides: SlideWithExif[] = photos.map((photo, index) => {
-    const candidates = derivedImages(photo);
-    const largest = candidates[candidates.length - 1];
-    return {
-      // The web size, not the original: originals can be tens of megabytes
-      // and are fetched only by the download button.
-      src: largest?.src ?? getPhotoUrl(photo),
-      srcSet: candidates,
-      width: largest?.width ?? photo.width,
-      height: largest?.height ?? photo.height,
-      alt: altFor(photo, index),
-      photoId: photo.id,
-      exif: photo.exif_data ?? undefined,
-    };
-  });
+  const albumPhotos = useMemo(() => toAlbumPhotos(photos, galleryTitle), [photos, galleryTitle]);
+  const lightboxSlides = useMemo(() => toLightboxSlides(photos, galleryTitle), [photos, galleryTitle]);
 
   return (
     <div className={styles.grid} ref={gridRef}>
-      <MasonryPhotoAlbum
-        photos={albumPhotos}
-        columns={(containerWidth) => {
-          if (containerWidth < 500) return 1;
-          if (containerWidth < 900) return 2;
-          return 3;
-        }}
-        spacing={12}
-        onClick={({ index }) => setLightboxIndex(index)}
-        render={{
-          image: (props) => <img {...props} loading="lazy" />,
-        }}
-      />
+      <PhotoTiles photos={albumPhotos} onOpen={setLightboxIndex} />
 
       <Lightbox
         className={LIGHTBOX_CLASS}
@@ -155,7 +124,7 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
         download={{
           download: ({ slide }) => downloadOriginal((slide as SlideWithExif).photoId, accessToken),
         }}
-        plugins={[Counter, Download, Zoom]}
+        plugins={LIGHTBOX_PLUGINS}
         controller={{
           closeOnPullUp: true,
           closeOnPullDown: true,

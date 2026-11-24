@@ -35,3 +35,32 @@ export function derivedImages(
   add(photo.webUrl, WEB_MAX_WIDTH);
   return candidates;
 }
+
+export interface ResponsiveImage {
+  src: string;
+  srcSet?: string;
+  // Absent when the API sent no dimensions; the image then sizes itself on
+  // load, as it did before dimensions existed.
+  width?: number;
+  height?: number;
+}
+
+/**
+ * The attributes for a plain <img> of a photo: the smallest derived image as
+ * the fallback src, every derived size in the srcset, and the intrinsic size
+ * so the browser reserves the box before any bytes arrive. Pair it with a
+ * `sizes` that matches the layout, or the browser assumes 100vw.
+ */
+export function responsiveImage(
+  photo: Pick<PublicPhoto, 'width' | 'height'> & { thumbnailUrl?: string; webUrl?: string }
+): ResponsiveImage {
+  const candidates = derivedImages(photo);
+  const largest = candidates[candidates.length - 1];
+  if (!largest) return { src: photo.webUrl || photo.thumbnailUrl || '' };
+  return {
+    src: candidates[0].src,
+    srcSet: candidates.map((c) => `${c.src} ${c.width}w`).join(', '),
+    width: largest.width,
+    height: largest.height,
+  };
+}

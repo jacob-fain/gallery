@@ -33,14 +33,8 @@
   height: 100%;
   object-fit: cover;
   object-position: center;
-  opacity: 0;
-  transition: opacity 0.8s ease;
   /* Subtle Ken Burns zoom effect */
   animation: heroZoom 20s ease-out forwards;
-}
-
-.heroImageLoaded {
-  opacity: 1;
 }
 
 @keyframes heroZoom {

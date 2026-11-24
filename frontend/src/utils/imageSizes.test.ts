@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Photo } from '../types';
-import { derivedImages } from './imageSizes';
+import { derivedImages, responsiveImage } from './imageSizes';
 
 const photo = (width: number, height: number): Photo =>
   ({
@@ -47,5 +47,20 @@ describe('derivedImages', () => {
 describe('derivedImages with missing dimensions', () => {
   it('returns no candidates rather than dividing by zero', () => {
     expect(derivedImages({ width: 0, height: 0, thumbnailUrl: 't', webUrl: 'w' })).toEqual([]);
+  });
+});
+
+describe('responsiveImage', () => {
+  it('gives the thumbnail as src, both sizes in the srcset, and the intrinsic size', () => {
+    expect(responsiveImage(photo(6000, 4000))).toEqual({
+      src: 'thumb.webp',
+      srcSet: 'thumb.webp 600w, web.webp 1920w',
+      width: 1920,
+      height: 1280,
+    });
+  });
+
+  it('falls back to the web URL with no size when dimensions are missing', () => {
+    expect(responsiveImage({ width: 0, height: 0, thumbnailUrl: 't', webUrl: 'w' })).toEqual({ src: 'w' });
   });
 });
