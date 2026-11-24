@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,7 +16,12 @@ vi.mock('../api/client', () => ({
 }));
 // The real grid needs layout measurements that jsdom cannot provide.
 vi.mock('../components/PhotoGrid/PhotoGrid', () => ({
-  default: ({ photos }: { photos: PublicPhoto[] }) => <p>{photos.length} photos shown</p>,
+  default: ({ photos }: { photos: PublicPhoto[] }) => (
+    <>
+      <p>{photos.length} photos shown</p>
+      <img alt="First photo" />
+    </>
+  ),
 }));
 
 const client = await import('../api/client');
@@ -117,6 +122,8 @@ describe('Gallery password screen', () => {
     const user = renderGallery();
 
     await user.type(await screen.findByPlaceholderText('Enter password'), 'secret{Enter}');
+    // The floating buttons wait for the first photo to load.
+    fireEvent.load(await screen.findByAltText('First photo'));
     await user.click(await screen.findByRole('button', { name: 'Download all photos as ZIP' }));
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/galleries/smith/download?ticket=t1'));
@@ -133,6 +140,7 @@ describe('Gallery password screen', () => {
     vi.mocked(client.getGalleryDownloadUrl).mockRejectedValue(new ApiError('Forbidden', 403));
     const user = renderGallery();
 
+    fireEvent.load(await screen.findByAltText('First photo'));
     await user.click(await screen.findByRole('button', { name: 'Download all photos as ZIP' }));
 
     await waitFor(() => expect(consoleError).toHaveBeenCalled());

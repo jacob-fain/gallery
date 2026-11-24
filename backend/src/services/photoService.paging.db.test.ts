@@ -94,6 +94,12 @@ describe.skipIf(!db)('paged photo lists (database)', () => {
     expect(firstTwo.next).toEqual({ uploadedAt: '2999-06-01T12:00:00.000002Z', id: loose });
     // The cursor column is internal to the query.
     expect(firstTwo.photos[0]).not.toHaveProperty('cursor_uploaded_at');
+    // Each photo names its gallery for the viewer; a loose photo names none.
+    const { rows: [pubRow] } = await query(`SELECT title, slug FROM galleries WHERE id = $1`, [pub]);
+    expect(firstTwo.photos.map((p) => [p.gallery_title, p.gallery_slug])).toEqual([
+      [pubRow.title, pubRow.slug],
+      [null, null],
+    ]);
   });
 
   it('returns no next cursor on the last page', async () => {

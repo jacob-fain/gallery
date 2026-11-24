@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { Gallery } from '../../types';
 import { derivedImages } from '../../utils/imageSizes';
+import { IMAGE_FADE_PROPS } from '../../utils/imageFade';
 import styles from './GalleryCard.module.css';
 
 interface GalleryCardProps {
@@ -34,6 +35,7 @@ export default function GalleryCard({ gallery }: GalleryCardProps) {
             className={styles.image}
             loading="lazy"
             decoding="async"
+            {...IMAGE_FADE_PROPS}
           />
         ) : (
           <div className={styles.placeholder} aria-hidden="true" />

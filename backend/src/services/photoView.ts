@@ -1,7 +1,7 @@
 import type { ExifData, Photo } from '../types';
 import { getSignedUrl } from './s3Service';
 
-/** A photo row, with the gallery columns the featured query joins in. */
+/** A photo row, with the gallery columns the featured and All Photos queries join in. */
 export type PhotoRow = Photo & { gallery_title?: string | null; gallery_slug?: string | null };
 
 /**
