@@ -6,11 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { ThemeContext } from '../../contexts/theme';
 import Navbar from './Navbar';
 
-function renderNavbar() {
+function renderNavbar(path = '/') {
   const user = userEvent.setup();
   render(
     <ThemeContext.Provider value={{ theme: 'light', toggleTheme: () => {} }}>
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter initialEntries={[path]}>
         <Navbar />
         <Routes>
           <Route path="/" element={<p>Home page</p>} />
@@ -87,5 +87,38 @@ describe('Navbar phone menu', () => {
     expect(screen.getByText('Photos page')).toBeTruthy();
     expect(menu.hidden).toBe(true);
     expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('Navbar links', () => {
+  it('lists Galleries, then Photos, in the bar and in the phone menu', () => {
+    const { menu } = renderNavbar();
+    const links = screen.getAllByRole('link', { hidden: true }).filter((a) => a.textContent !== 'Jacob Fain');
+
+    expect(links.filter((a) => !menu.contains(a)).map((a) => a.textContent)).toEqual(['Galleries', 'Photos']);
+    expect(links.filter((a) => menu.contains(a)).map((a) => a.textContent)).toEqual(['Galleries', 'Photos']);
+  });
+
+  it('marks the current page in the bar and in the menu, and only that page', () => {
+    renderNavbar('/photos');
+
+    const current = screen
+      .getAllByRole('link', { hidden: true })
+      .filter((a) => a.getAttribute('aria-current') === 'page')
+      .map((a) => a.textContent);
+    expect(current).toEqual(['Photos', 'Photos']);
+  });
+
+  it('marks no page on the home page', () => {
+    renderNavbar('/');
+    const links = screen.getAllByRole('link', { hidden: true });
+    expect(links.some((a) => a.hasAttribute('aria-current'))).toBe(false);
+  });
+
+  it('has no Buy me a coffee link, which lives in the footer', () => {
+    renderNavbar();
+    const nav = screen.getByRole('navigation');
+    expect(nav.querySelector('a[href*="buymeacoffee"]')).toBeNull();
+    expect(nav.textContent?.toLowerCase()).not.toContain('coffee');
   });
 });

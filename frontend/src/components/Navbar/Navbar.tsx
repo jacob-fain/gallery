@@ -10,18 +10,7 @@ import styles from './Navbar.module.css';
 // the backend.
 const CONTACT_ENABLED = false;
 
-const COFFEE_URL = 'https://buymeacoffee.com/jacobfain';
 const MENU_ID = 'site-menu';
-
-const coffeeIcon = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
-    <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
-    <line x1="6" y1="2" x2="6" y2="4" />
-    <line x1="10" y1="2" x2="10" y2="4" />
-    <line x1="14" y1="2" x2="14" y2="4" />
-  </svg>
-);
 
 const contactIcon = (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -84,22 +73,12 @@ export default function Navbar() {
             Jacob Fain
           </Link>
           <div className={styles.links}>
-            <NavLink to="/photos" className={linkClass}>
-              Photos
-            </NavLink>
             <NavLink to="/galleries" className={linkClass}>
               Galleries
             </NavLink>
-            <a
-              href={COFFEE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.iconLink}
-              title="Buy me a coffee"
-              aria-label="Buy me a coffee"
-            >
-              {coffeeIcon}
-            </a>
+            <NavLink to="/photos" className={linkClass}>
+              Photos
+            </NavLink>
             {CONTACT_ENABLED && (
               <button
                 onClick={() => setContactOpen(true)}
@@ -135,16 +114,6 @@ export default function Navbar() {
           <NavLink to="/photos" className={menuLinkClass} onClick={closeMenu}>
             Photos
           </NavLink>
-          <a
-            href={COFFEE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.menuItem}
-            onClick={closeMenu}
-          >
-            Buy me a coffee
-            {coffeeIcon}
-          </a>
           {CONTACT_ENABLED && (
             <button
               type="button"
