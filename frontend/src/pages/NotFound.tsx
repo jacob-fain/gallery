@@ -1,4 +1,5 @@
 import StatusMessage from '../components/StatusMessage/StatusMessage';
+import PageTitle from '../components/PageTitle';
 
 interface NotFoundProps {
   title?: string;
@@ -15,6 +16,7 @@ export default function NotFound({
 }: NotFoundProps) {
   return (
     <>
+      <PageTitle page={title} />
       {/* The server answers every path with 200, so this keeps unknown paths out of search results. */}
       <meta name="robots" content="noindex" />
       <StatusMessage title={title} message={message} action={{ label: linkLabel, to: linkTo }} />

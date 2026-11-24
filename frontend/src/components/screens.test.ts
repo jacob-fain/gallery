@@ -15,6 +15,7 @@ describe('NotFound', () => {
     expect(html).toContain('href="/"');
     expect(html).toContain('Back to home');
     expect(html).toContain('<meta name="robots" content="noindex"/>');
+    expect(html).toContain('<title>Page not found | Jacob Fain Photography</title>');
   });
 
   it('takes a gallery-specific message and link', () => {
@@ -24,6 +25,7 @@ describe('NotFound', () => {
       linkLabel: 'View all galleries',
     });
     expect(html).toContain('Gallery not found');
+    expect(html).toContain('<title>Gallery not found | Jacob Fain Photography</title>');
     expect(html).toContain('href="/galleries"');
   });
 });
