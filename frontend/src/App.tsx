@@ -7,6 +7,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import Navbar from './components/Navbar/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 import './styles/globals.css';
 
 // Public pages - keep eager (small, always needed)
@@ -14,6 +15,7 @@ import Home from './pages/Home';
 import Galleries from './pages/Galleries';
 import Gallery from './pages/Gallery';
 import AllPhotos from './pages/AllPhotos';
+import NotFound from './pages/NotFound';
 
 // Admin pages - lazy load (reduces initial bundle for public visitors)
 const Login = lazyWithReload(() => import('./pages/admin/Login'));
@@ -35,6 +37,7 @@ function PublicApp() {
           <Route path="/galleries" element={<Galleries />} />
           <Route path="/photos" element={<AllPhotos />} />
           <Route path="/g/:slug" element={<Gallery />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
     </>
@@ -59,6 +62,7 @@ function AdminApp() {
                     <Route path="homepage" element={<Homepage />} />
                     <Route path="unassigned" element={<Unassigned />} />
                     <Route path="settings" element={<Settings />} />
+                    <Route path="*" element={<NotFound linkLabel="Back to dashboard" />} />
                   </Routes>
                 </AdminLayout>
               </ProtectedRoute>
@@ -104,9 +108,11 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <BrowserRouter>
-        {isAdmin ? <AdminApp /> : <PublicApp />}
-      </BrowserRouter>
+      <ErrorBoundary>
+        <BrowserRouter>
+          {isAdmin ? <AdminApp /> : <PublicApp />}
+        </BrowserRouter>
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }
