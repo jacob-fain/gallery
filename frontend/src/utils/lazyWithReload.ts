@@ -1,4 +1,5 @@
 import { lazy, type ComponentType } from 'react';
+import { reportClientError } from './clientErrors';
 
 const RELOAD_KEY = 'chunk-reload-at';
 // A reload that happened this recently and still fails to load the chunk
@@ -31,6 +32,7 @@ export async function loadWithReload<T>(importer: () => Promise<T>): Promise<T> 
     const now = Date.now();
     // Without storage there is no loop guard, so no reload either.
     if (now - readReloadAt() < RELOAD_WINDOW_MS || !writeReloadAt(now)) {
+      reportClientError('chunk', error);
       throw error;
     }
     window.location.reload();

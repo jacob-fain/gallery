@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
 import routes from './routes';
+import clientErrorsRouter from './routes/clientErrors';
 import { JSON_BODY_LIMIT } from './middleware/validateIds';
 import { noStoreByDefault } from './middleware/cacheControl';
 import { createErrorHandler } from './middleware/errorHandler';
@@ -33,6 +34,9 @@ app.use(compression({
     return compression.filter(req, res);
   },
 }));
+// Ahead of the app-wide parser, so its own much smaller body limit applies.
+app.use('/api/client-errors', clientErrorsRouter);
+
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 // Handlers that return public data mark their success responses cacheable;

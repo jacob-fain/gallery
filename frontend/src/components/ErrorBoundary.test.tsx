@@ -6,6 +6,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ErrorBoundary from './ErrorBoundary';
 
+const { reportClientError } = vi.hoisted(() => ({ reportClientError: vi.fn() }));
+vi.mock('../utils/clientErrors', () => ({ reportClientError }));
+
 function Broken(): never {
   throw new Error('render failed');
 }
@@ -20,12 +23,14 @@ const renderInBoundary = (child: ReactNode) =>
 describe('ErrorBoundary', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    reportClientError.mockReset();
   });
 
   it('renders its children when nothing throws', () => {
     renderInBoundary(<p>Page content</p>);
     expect(screen.getByText('Page content')).toBeTruthy();
     expect(screen.queryByText('Something went wrong')).toBeNull();
+    expect(reportClientError).not.toHaveBeenCalled();
   });
 
   it('replaces a child that throws with a reload screen', async () => {
@@ -40,5 +45,11 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('Reloading the page usually fixes this.')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
     expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('reports the caught error', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderInBoundary(<Broken />);
+    expect(reportClientError).toHaveBeenCalledWith('boundary', expect.objectContaining({ message: 'render failed' }));
   });
 });

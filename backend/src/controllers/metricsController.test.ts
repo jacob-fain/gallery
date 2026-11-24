@@ -11,6 +11,7 @@ vi.mock('../services/authService', async (importOriginal) => {
 import app from '../app';
 import { generateToken } from '../services/authService';
 import { createRequestMetrics } from '../services/requestMetrics';
+import { createEventCounter } from '../services/clientErrorMetrics';
 import { latestMigration, metricsSnapshot } from './metricsController';
 import { listMigrations } from '../migrate';
 import type { ApiResponse } from '../types';
@@ -21,13 +22,16 @@ type MetricsBody = ReturnType<typeof metricsSnapshot> & { migration: string | nu
 const user = { id: 'user-1', email: 'admin@example.com', password_hash: 'x', token_version: 0 };
 
 describe('metricsSnapshot', () => {
-  it('reports build, uptime, pool, upload queue and request summary', () => {
+  it('reports build, uptime, pool, upload queue, request summary and client errors', () => {
     const requests = createRequestMetrics();
     requests.record({ method: 'GET', route: '/api/featured', status: 200, durationMs: 12 });
+    const clientErrors = createEventCounter();
+    clientErrors.record();
     const snap = metricsSnapshot({
       db: { totalCount: 4, idleCount: 3, waitingCount: 1 },
       uploads: { running: 2, queued: 5, limit: 2 },
       requests,
+      clientErrors,
       env: { GIT_SHA: 'abc123', APP_VERSION: 'v1.2.3' },
       uptimeSeconds: 61.4,
       memory: { rss: 100, heapUsed: 50, heapTotal: 0, external: 0, arrayBuffers: 0 },
@@ -39,6 +43,7 @@ describe('metricsSnapshot', () => {
       db: { total: 4, idle: 3, waiting: 1 },
       uploads: { running: 2, queued: 5, limit: 2 },
       requests: expect.objectContaining({ total: 1, serverErrors: 0 }),
+      clientErrors: { windowSeconds: 3600, count: 1 },
     });
     expect(snap.requests.routes[0]).toMatchObject({ route: 'GET /api/featured', p50Ms: 12, p95Ms: 12 });
   });
@@ -79,7 +84,7 @@ describe('GET /api/admin/metrics', () => {
     const body = await readJson<ApiResponse<MetricsBody>>(res);
     expect(body.success).toBe(true);
     expect(Object.keys(body.data!).sort()).toEqual([
-      'build', 'db', 'memory', 'migration', 'requests', 'uploads', 'uptimeSeconds',
+      'build', 'clientErrors', 'db', 'memory', 'migration', 'requests', 'uploads', 'uptimeSeconds',
     ]);
     expect(body.data?.uploads).toMatchObject({ limit: 2 });
     // Unit runs have no database, which reads as an unknown schema, not a failure.
