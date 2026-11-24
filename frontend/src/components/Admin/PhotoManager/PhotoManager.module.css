@@ -547,6 +547,12 @@
   }
 
   .toolbarLeft,
+  .toolbarRight,
+  .bulkActions {
+    flex-wrap: wrap;
+  }
+
+  .toolbarLeft,
   .toolbarRight {
     justify-content: space-between;
   }

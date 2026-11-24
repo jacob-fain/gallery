@@ -24,10 +24,12 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
 .links {
   display: flex;
+  align-items: center;
   gap: 32px;
 }
 
@@ -38,6 +40,10 @@
   transition: color 0.15s ease;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  /* Full-height tap target without moving the text. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }
 
 .link:hover {
@@ -55,7 +61,12 @@
   color: var(--color-text-light);
   background: none;
   border: none;
-  padding: 0;
+  /* 44x44 hit area around the 18px icon; the negative margin keeps its
+     layout footprint at the icon's size so neighbours do not move. Two
+     adjacent icons need a gap of at least 26px for their areas not to
+     overlap. */
+  padding: 13px;
+  margin: -13px;
   cursor: pointer;
   transition: color 0.15s ease;
 }
@@ -75,5 +86,84 @@
 
   .link {
     font-size: 0.8rem;
+  }
+
+  /* The 20px gap is too narrow for two full hit areas, so each icon gives
+     up 3px of the gap on either side. */
+  .iconLink {
+    margin: -13px -10px;
+  }
+}
+
+/* The menu button and panel exist only below the breakpoint. */
+.menuButton,
+.menu {
+  display: none;
+}
+
+/* Below this width the logo, both links and two 44px icons no longer fit on
+   one line with room to spare, so the links move into a menu. Keep in sync
+   with MOBILE_NAV_QUERY in menu.ts. */
+@media (max-width: 480px) {
+  .links {
+    display: none;
+  }
+
+  .menuButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-light);
+    background: none;
+    border: none;
+    /* Same 44x44 hit area as the icon links, flush with the right edge of
+       the content box. */
+    padding: 13px;
+    margin: -13px;
+    cursor: pointer;
+  }
+
+  .menuButton:hover,
+  .menuButton[aria-expanded='true'] {
+    color: var(--color-text);
+  }
+
+  .menu:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    padding: 4px 0;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .menuItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: 0 16px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-light);
+    background: none;
+    border: none;
+    text-align: left;
+    transition: color 0.15s ease;
+  }
+
+  .menuItem:hover,
+  .menuItem.active {
+    color: var(--color-text);
+  }
+
+  /* Drawn inside the row so it stays clear of the screen edges. */
+  .menuItem:focus-visible {
+    outline-offset: -2px;
   }
 }
