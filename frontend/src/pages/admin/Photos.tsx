@@ -1,61 +1,66 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/auth';
-import { getAllGalleries, getPhotosByGallery } from '../../api/client';
+import { getAllGalleries, getGalleryPhotosPage } from '../../api/client';
 import PhotoUpload from '../../components/Admin/PhotoUpload/PhotoUpload';
 import PhotoManager from '../../components/Admin/PhotoManager/PhotoManager';
+import { usePhotoList } from '../../components/Admin/PhotoManager/usePhotoList';
+import { addUploaded } from '../../utils/photoList';
 import type { Photo, Gallery } from '../../types';
 import styles from './Photos.module.css';
 
 export default function Photos() {
   const { id } = useParams<{ id: string }>();
+  // Keyed so that moving to another gallery starts from an empty list.
+  return id ? <GalleryPhotos key={id} id={id} /> : null;
+}
+
+function GalleryPhotos({ id }: { id: string }) {
   const { token } = useAuth();
   const [gallery, setGallery] = useState<Gallery | null>(null);
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [galleryLoading, setGalleryLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchData = useCallback(async () => {
-    if (!token || !id) return;
+  const loadPage = useCallback(
+    (offset: number, limit: number) => getGalleryPhotosPage(token ?? '', id, offset, limit),
+    [token, id]
+  );
+  const photos = usePhotoList(loadPage);
+  const { update } = photos;
 
+  // The gallery itself (title, cover). Photo changes are applied to the list
+  // in place, so this is all a change needs to reload.
+  const fetchGallery = useCallback(async () => {
+    if (!token) return;
     try {
-      // Get gallery info
       const galleries = await getAllGalleries(token);
       const foundGallery = galleries.find((g) => g.id === id);
-      if (!foundGallery) {
-        setError('Gallery not found');
-        setLoading(false);
-        return;
-      }
-      setGallery(foundGallery);
-
-      // Get photos
-      const photosData = await getPhotosByGallery(token, id);
-      setPhotos(photosData);
+      if (foundGallery) setGallery(foundGallery);
+      else setError('Gallery not found');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
-      setLoading(false);
+      setGalleryLoading(false);
     }
   }, [token, id]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchGallery();
+  }, [fetchGallery]);
 
-  const handleUploadComplete = (photo: Photo) => {
-    // A reload that started before the upload finished may already list it.
-    setPhotos((prev) => (prev.some((p) => p.id === photo.id) ? prev : [...prev, photo]));
-  };
+  const handleUploadComplete = useCallback(
+    (photo: Photo) => update((list) => addUploaded(list, photo, 'end')),
+    [update]
+  );
 
-  if (loading) {
+  if (galleryLoading || (photos.status === 'loading' && !error)) {
     return <div className={styles.loading}>Loading...</div>;
   }
 
-  if (error || !gallery) {
+  if (error || photos.status === 'error' || !gallery) {
     return (
       <div className={styles.container}>
-        <div className={styles.error}>{error || 'Gallery not found'}</div>
+        <div className={styles.error}>{error || photos.error || 'Gallery not found'}</div>
         <Link to="/galleries" className={styles.backLink}>
           Back to galleries
         </Link>
@@ -71,7 +76,7 @@ export default function Photos() {
             &larr; Back to galleries
           </Link>
           <h1 className={styles.title}>{gallery.title}</h1>
-          <p className={styles.subtitle}>{photos.length} photos</p>
+          <p className={styles.subtitle}>{photos.list.total} photos</p>
         </div>
         <a
           href={`${window.location.origin.replace('manage.', '')}/g/${gallery.slug}`}
@@ -88,7 +93,7 @@ export default function Photos() {
       <PhotoManager
         photos={photos}
         gallery={gallery}
-        onPhotosChange={fetchData}
+        onPhotosChange={fetchGallery}
       />
     </div>
   );

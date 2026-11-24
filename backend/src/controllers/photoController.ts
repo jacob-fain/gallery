@@ -8,6 +8,7 @@ import { recordPhotoDownload, recordPhotoView } from '../services/eventTracking'
 import { canViewPhoto } from '../services/photoAccess';
 import { toPublicPhoto, toPublicPhotos } from '../services/photoView';
 import { cachePublicly } from '../middleware/cacheControl';
+import { encodeCursor, nextOffset, parseAdminPage, parsePublicPage } from '../services/photoPaging';
 import { storedFilename } from '../config/upload';
 import { photoDownloadName } from '../services/downloadNames';
 import type { Photo } from '../types';
@@ -41,20 +42,22 @@ export const getPhoto = async (req: Request, res: Response) => {
 };
 
 /**
- * List every publicly visible photo (public galleries and unassigned)
- * Supports an optional ?limit= query param
+ * List the publicly visible photos (public galleries and unassigned), newest
+ * first, one page at a time: ?limit= (at most PUBLIC_PAGE_MAX, the default)
+ * and ?cursor=, the nextCursor of the previous page. nextCursor is null on
+ * the last page.
  */
 export const listAllPhotos = async (req: Request, res: Response) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-      return res.status(400).json({ success: false, error: 'limit must be a positive integer' });
+    const parsed = parsePublicPage(req.query);
+    if (!parsed.ok) {
+      return res.status(400).json({ success: false, error: parsed.error });
     }
 
-    const photos = await photoService.getAllPublicPhotos(limit);
+    const { photos, next } = await photoService.getPublicPhotosPage(parsed.value.limit, parsed.value.after);
     const data = await toPublicPhotos(photos);
     cachePublicly(res);
-    res.json({ success: true, data });
+    res.json({ success: true, data, nextCursor: next ? encodeCursor(next) : null });
   } catch (err) {
     console.error('Error fetching all photos:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch photos' });
@@ -62,13 +65,25 @@ export const listAllPhotos = async (req: Request, res: Response) => {
 };
 
 /**
- * List photos not assigned to any gallery (admin)
+ * List photos not assigned to any gallery (admin), newest first. With
+ * ?limit= (and ?offset=) it sends one page; total is the whole list's length
+ * and nextOffset is null on the last page.
  */
-export const listUnassignedPhotos = async (_req: Request, res: Response) => {
+export const listUnassignedPhotos = async (req: Request, res: Response) => {
   try {
-    const photos = await photoService.getUnassignedPhotos();
+    const parsed = parseAdminPage(req.query);
+    if (!parsed.ok) {
+      return res.status(400).json({ success: false, error: parsed.error });
+    }
+    const page = parsed.value;
+    const { photos, total } = await photoService.getUnassignedPhotos(page);
     const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
-    res.json({ success: true, data: photosWithUrls });
+    res.json({
+      success: true,
+      data: photosWithUrls,
+      total,
+      nextOffset: page ? nextOffset(page.offset, photos.length, total) : null,
+    });
   } catch (err) {
     console.error('Error fetching unassigned photos:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch unassigned photos' });

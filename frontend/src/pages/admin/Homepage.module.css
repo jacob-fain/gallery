@@ -315,6 +315,10 @@
   max-height: 50vh;
 }
 
+.pickerLoadMore {
+  grid-column: 1 / -1;
+}
+
 .pickerPhoto {
   position: relative;
   width: 100%;

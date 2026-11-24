@@ -67,7 +67,14 @@ export interface FetchOptions {
   fresh?: boolean;
 }
 
+// The list endpoints put paging fields beside data.
+type ApiBody<T> = ApiResponse<T> & { nextCursor?: string | null; total?: number };
+
 async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
+  return (await fetchApiBody<T>(endpoint, options)).data;
+}
+
+async function fetchApiBody<T>(endpoint: string, options: FetchOptions = {}): Promise<ApiBody<T> & { data: T }> {
   const response = await fetch(
     `${API_BASE}${endpoint}`,
     options.fresh ? { cache: 'no-cache' } : undefined
@@ -77,13 +84,13 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
     throw new ApiError(`API request failed: ${response.status} ${response.statusText}`, response.status);
   }
 
-  const data: ApiResponse<T> = await response.json();
+  const data: ApiBody<T> = await response.json();
 
   if (!data.success || !data.data) {
     throw new Error(data.error || 'API request failed');
   }
 
-  return data.data;
+  return data as ApiBody<T> & { data: T };
 }
 
 export async function getFeaturedPhotos(): Promise<PublicPhoto[]> {
@@ -101,7 +108,23 @@ export async function getAllPhotos(limit?: number, options: FetchOptions = {}): 
   const cached = options.fresh ? null : getCached<PublicPhoto[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await fetchApi<PublicPhoto[]>(limit ? `/photos?limit=${limit}` : '/photos', options);
+  let data: PublicPhoto[];
+  if (limit) {
+    data = await fetchApi<PublicPhoto[]>(`/photos?limit=${limit}`, options);
+  } else {
+    // The API sends the list in pages. All Photos shuffles the whole set and
+    // its lightbox walks all of it, so every page is fetched.
+    data = [];
+    let cursor: string | null = null;
+    do {
+      const page: ApiBody<PublicPhoto[]> & { data: PublicPhoto[] } = await fetchApiBody<PublicPhoto[]>(
+        cursor ? `/photos?cursor=${encodeURIComponent(cursor)}` : '/photos',
+        options
+      );
+      data.push(...page.data);
+      cursor = page.nextCursor ?? null;
+    } while (cursor);
+  }
   setCache(cacheKey, data);
   return data;
 }
@@ -236,6 +259,14 @@ async function fetchApiAuth<T>(
   token: string,
   options: RequestInit = {}
 ): Promise<T> {
+  return (await fetchApiAuthBody<T>(endpoint, token, options)).data as T;
+}
+
+async function fetchApiAuthBody<T>(
+  endpoint: string,
+  token: string,
+  options: RequestInit = {}
+): Promise<ApiBody<T>> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
@@ -245,13 +276,13 @@ async function fetchApiAuth<T>(
   });
   checkSession(response.status);
 
-  const data: ApiResponse<T> = await response.json();
+  const data: ApiBody<T> = await response.json();
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || 'API request failed');
   }
 
-  return data.data as T;
+  return data;
 }
 
 // Admin Stats
@@ -333,12 +364,25 @@ export async function setCoverImage(
 }
 
 // Photo Management
-export async function getPhotosByGallery(token: string, galleryId: string): Promise<Photo[]> {
-  return fetchApiAuth<Photo[]>(`/galleries/${galleryId}/photos/admin`, token);
+
+/** A page of an admin photo list, and the length of the whole list. */
+export interface PhotoPage {
+  photos: Photo[];
+  total: number;
 }
 
-export async function getUnassignedPhotos(token: string): Promise<Photo[]> {
-  return fetchApiAuth<Photo[]>('/photos/admin/unassigned', token);
+async function fetchPhotoPage(token: string, endpoint: string, offset: number, limit: number): Promise<PhotoPage> {
+  const body = await fetchApiAuthBody<Photo[]>(`${endpoint}?limit=${limit}&offset=${offset}`, token);
+  const photos = body.data ?? [];
+  return { photos, total: body.total ?? photos.length };
+}
+
+export function getGalleryPhotosPage(token: string, galleryId: string, offset: number, limit: number) {
+  return fetchPhotoPage(token, `/galleries/${galleryId}/photos/admin`, offset, limit);
+}
+
+export function getUnassignedPhotosPage(token: string, offset: number, limit: number) {
+  return fetchPhotoPage(token, '/photos/admin/unassigned', offset, limit);
 }
 
 // Duplicate detection
