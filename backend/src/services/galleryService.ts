@@ -309,7 +309,7 @@ export const getStats = async (): Promise<{
     query(`
       SELECT
         COUNT(*) as total,
-        COUNT(*) FILTER (WHERE is_featured = true) as featured
+        COUNT(*) FILTER (WHERE featured_order IS NOT NULL) as featured
       FROM photos
     `),
     query(`SELECT COALESCE(SUM(view_count), 0) as total FROM galleries`),
