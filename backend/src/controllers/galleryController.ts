@@ -15,6 +15,8 @@ import { nextOffset, parseAdminPage } from '../services/photoPaging';
 import { attachmentDisposition, zipEntryNames } from '../services/downloadNames';
 import { writeZip } from '../services/zipStream';
 import { logger } from '../utils/logger';
+import { galleryAccessToken } from '../utils/galleryAccessHeader';
+import { issueDownloadTicket, redeemDownloadTicket } from '../services/downloadTickets';
 import { isGallerySlug } from '../middleware/validateIds';
 
 const PRIVATE_NEEDS_PASSWORD = 'A private gallery needs a password';
@@ -71,8 +73,8 @@ export const getGallery = async (req: Request, res: Response) => {
  * way, so tracking cannot be used to learn which slugs exist.
  */
 export const trackGalleryView = (req: Request, res: Response) => {
-  const { access } = req.query;
-  const token = typeof access === 'string' ? verifyGalleryAccessToken(access) : null;
+  const access = galleryAccessToken(req);
+  const token = access ? verifyGalleryAccessToken(access) : null;
   recordGalleryView(req.params.slug, token);
   // No body: the client never reads one, and Chrome reports a response
   // whose body is never read as still loading, for as long as the page lives.
@@ -82,7 +84,7 @@ export const trackGalleryView = (req: Request, res: Response) => {
 export const getGalleryPhotos = async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
-    const { access } = req.query; // Signed JWT access token from password verification
+    const access = galleryAccessToken(req);
 
     const gallery = await galleryService.getGalleryBySlug(slug);
 
@@ -92,7 +94,7 @@ export const getGalleryPhotos = async (req: Request, res: Response) => {
 
     // For private galleries, require a valid signed access token
     if (!gallery.is_public) {
-      if (!access || typeof access !== 'string') {
+      if (!access) {
         return res.status(403).json({
           success: false,
           error: 'Password required to view this gallery',
@@ -111,7 +113,8 @@ export const getGalleryPhotos = async (req: Request, res: Response) => {
     const photos = await galleryService.getGalleryPhotos(gallery.id);
     const data = await toPublicPhotos(photos);
     // A private gallery's photos stay no-store: they are for one visitor's
-    // unlock token, not for any cache.
+    // unlock token, not for any cache. A public gallery's answer is the same
+    // with or without the access header, so it needs no Vary.
     if (gallery.is_public) cachePublicly(res);
     res.json({ success: true, data });
   } catch (err) {
@@ -409,8 +412,8 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
     // This token is cryptographically signed and time-limited (24 hours)
     const accessToken = generateGalleryAccessToken(gallery.id, gallery.slug, gallery.access_version);
 
-    // Return gallery data with signed access token
-    // The frontend should include this token in ?access= query param when fetching photos
+    // The frontend sends this token back in the X-Gallery-Access header,
+    // never in a URL (utils/galleryAccessHeader.ts).
     res.json({
       success: true,
       data: {
@@ -429,32 +432,71 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
 };
 
 /**
+ * A one-time ticket for a private gallery's ZIP, in exchange for the access
+ * token in the X-Gallery-Access header. The ZIP is a navigation, which cannot
+ * send that header, so its URL carries the ticket instead of the token. A
+ * public gallery's ZIP needs no ticket: the answer is null.
+ */
+export const createDownloadTicket = async (req: Request, res: Response) => {
+  try {
+    const gallery = await galleryService.getGalleryBySlug(req.params.slug);
+    if (!gallery) {
+      return res.status(404).json({ success: false, error: 'Gallery not found' });
+    }
+
+    if (gallery.is_public) {
+      return res.json({ success: true, data: { ticket: null } });
+    }
+
+    const access = galleryAccessToken(req);
+    if (!access) {
+      return res.status(403).json({
+        success: false,
+        error: 'Password required to download this gallery',
+      });
+    }
+    if (!galleryAccessTokenUnlocks(access, gallery)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Invalid or expired access token. Please verify the password again.',
+      });
+    }
+
+    const ticket = issueDownloadTicket({ galleryId: gallery.id, accessVersion: gallery.access_version });
+    res.json({ success: true, data: { ticket } });
+  } catch (err) {
+    logger.error('Error issuing download ticket', { err });
+    res.status(500).json({ success: false, error: 'Failed to start the download' });
+  }
+};
+
+/**
  * Download all photos in a gallery as a ZIP file
  * Streams original (full-res) photos from S3 to the client, one at a time
  */
 export const downloadGalleryZip = async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
-    const { access } = req.query;
+    const { ticket } = req.query;
 
     const gallery = await galleryService.getGalleryBySlug(slug);
     if (!gallery) {
       return res.status(404).json({ success: false, error: 'Gallery not found' });
     }
 
-    // For private galleries, require valid access token
+    // A private gallery's ZIP needs a ticket from POST /:slug/download-ticket.
     if (!gallery.is_public) {
-      if (!access || typeof access !== 'string') {
+      if (!ticket) {
         return res.status(403).json({
           success: false,
           error: 'Password required to download this gallery',
         });
       }
 
-      if (!galleryAccessTokenUnlocks(access, gallery)) {
+      if (!redeemDownloadTicket(ticket, gallery)) {
         return res.status(403).json({
           success: false,
-          error: 'Invalid or expired access token. Please verify the password again.',
+          error: 'This download link has expired. Please try the download again.',
         });
       }
     }

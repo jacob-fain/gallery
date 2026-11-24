@@ -36,8 +36,8 @@ describe.skipIf(!db)('POST /galleries/:slug/view (database)', () => {
   };
 
   const view = async (slug: string, access?: string) => {
-    const qs = access ? `?access=${encodeURIComponent(access)}` : '';
-    const res = await fetch(`${base}/galleries/${slug}/view${qs}`, { method: 'POST' });
+    const headers: Record<string, string> = access ? { 'X-Gallery-Access': access } : {};
+    const res = await fetch(`${base}/galleries/${slug}/view`, { method: 'POST', headers });
     await drainTracking();
     return { status: res.status, cache: res.headers.get('cache-control'), body: await res.text() };
   };

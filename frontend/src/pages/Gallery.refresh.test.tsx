@@ -7,7 +7,7 @@ import type { PublicPhoto } from '../types';
 vi.mock('../api/client', () => ({
   getGallery: vi.fn(),
   getGalleryPhotos: vi.fn(),
-  getGalleryDownloadUrl: vi.fn(() => '/download'),
+  getGalleryDownloadUrl: vi.fn(async () => '/download'),
   isKnownPrivateGallery: vi.fn(() => false),
   verifyGalleryPassword: vi.fn(),
   trackGalleryView: vi.fn(),

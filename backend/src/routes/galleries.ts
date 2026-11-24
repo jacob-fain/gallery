@@ -59,6 +59,9 @@ router.post('/:slug/view', trackingRateLimit, galleryController.trackGalleryView
 // GET /api/galleries/:slug/photos - Get photos in gallery
 router.get('/:slug/photos', galleryController.getGalleryPhotos);
 
+// POST /api/galleries/:slug/download-ticket - One-time ticket for a private gallery's ZIP
+router.post('/:slug/download-ticket', galleryController.createDownloadTicket);
+
 // GET /api/galleries/:slug/download - Download gallery as ZIP
 router.get('/:slug/download', galleryController.downloadGalleryZip);
 

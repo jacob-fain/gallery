@@ -64,6 +64,7 @@ describe('malformed ids through the app', () => {
         ['GET', '/photos'],
         ['POST', '/verify'],
         ['POST', '/view'],
+        ['POST', '/download-ticket'],
         ['GET', '/download'],
       ])('%s /galleries/:slug%s answers 404', async (method, path) => {
         const res = await fetch(`${base}/galleries/${slug}${path}`, {
