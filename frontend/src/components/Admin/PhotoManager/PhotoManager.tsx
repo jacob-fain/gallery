@@ -425,37 +425,35 @@ export default function PhotoManager({
     }
   };
 
-  // Toggle hidden for selected photos
-  const handleBulkToggleHidden = async () => {
+  // Show or hide the selected photos. Only photos not already in that state
+  // are sent, so a mixed selection can be published without deselecting the
+  // public ones first.
+  const handleBulkSetHidden = async (hide: boolean) => {
     if (!token || selectedIds.size === 0) return;
+    const ids = localPhotos
+      .filter((p) => selectedIds.has(p.id) && p.is_hidden !== hide)
+      .map((p) => p.id);
+    if (ids.length === 0) return;
+    const changing = new Set(ids);
 
     setBulkActionLoading(true);
-
-    // Determine if we should hide or show - if any are visible, hide all; otherwise show all
-    const selectedPhotos = localPhotos.filter((p) => selectedIds.has(p.id));
-    const shouldHide = selectedPhotos.some((p) => !p.is_hidden);
-
-    // Optimistic update
     setLocalPhotos((prev) =>
-      prev.map((p) =>
-        selectedIds.has(p.id) ? { ...p, is_hidden: shouldHide } : p
-      )
+      prev.map((p) => (changing.has(p.id) ? { ...p, is_hidden: hide } : p))
     );
 
     setActionError(null);
-    const ids = Array.from(selectedIds);
     try {
       const results = await Promise.allSettled(
-        ids.map((id) => updatePhoto(token, id, { is_hidden: shouldHide }))
+        ids.map((id) => updatePhoto(token, id, { is_hidden: hide }))
       );
       const outcome = settleBulk(ids, results);
       // Put back the ones that did not change, keep the rest.
       const failed = new Set(outcome.failed.map((f) => f.id));
       setLocalPhotos((prev) =>
-        prev.map((p) => (failed.has(p.id) ? { ...p, is_hidden: !shouldHide } : p))
+        prev.map((p) => (failed.has(p.id) ? { ...p, is_hidden: !hide } : p))
       );
       setActionError(
-        shouldHide
+        hide
           ? describeFailures('Hid', 'hidden', outcome)
           : describeFailures('Showed', 'shown', outcome)
       );
@@ -464,6 +462,9 @@ export default function PhotoManager({
       setBulkActionLoading(false);
     }
   };
+
+  const selectedHidden = localPhotos.some((p) => selectedIds.has(p.id) && p.is_hidden);
+  const selectedVisible = localPhotos.some((p) => selectedIds.has(p.id) && !p.is_hidden);
 
   if (photos.length === 0) {
     return (
@@ -532,10 +533,17 @@ export default function PhotoManager({
                   </span>
                   <button
                     className={styles.bulkBtn}
-                    onClick={handleBulkToggleHidden}
-                    disabled={bulkActionLoading}
+                    onClick={() => handleBulkSetHidden(false)}
+                    disabled={bulkActionLoading || !selectedHidden}
                   >
-                    {localPhotos.filter((p) => selectedIds.has(p.id)).some((p) => !p.is_hidden) ? 'Hide' : 'Show'}
+                    Show
+                  </button>
+                  <button
+                    className={styles.bulkBtn}
+                    onClick={() => handleBulkSetHidden(true)}
+                    disabled={bulkActionLoading || !selectedVisible}
+                  >
+                    Hide
                   </button>
                   <button
                     className={styles.bulkBtn}
