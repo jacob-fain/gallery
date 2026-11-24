@@ -99,24 +99,54 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       expect(ids).not.toContain(priv.id);
       // A visitor's card carries only what the page renders.
       expect(Object.keys(visitor.body.data.find((g: { id: string }) => g.id === pub.id)).sort()).toEqual(
-        ['coverHeight', 'coverUrl', 'coverWebUrl', 'coverWidth', 'id', 'slug', 'title']
+        ['coverHeight', 'coverUrl', 'coverWebUrl', 'coverWidth', 'id', 'photoCount', 'slug', 'title']
       );
+    });
+
+    it('counts each gallery\'s visible photos on the list, as its own page does', async () => {
+      const g = await fixtures.gallery();
+      await fixtures.photo(g.id);
+      await fixtures.photo(g.id);
+      await fixtures.photo(g.id, { hidden: true });
+      const empty = await fixtures.gallery();
+
+      const list = await request('GET', '/galleries', { admin: false });
+      expect(list.headers.get('cache-control')).toContain('public');
+      const card = (id: string) => list.body.data.find((row: { id: string }) => row.id === id);
+      expect(card(g.id).photoCount).toBe(2);
+      expect(card(empty.id).photoCount).toBe(0);
+
+      const page = await request('GET', `/galleries/${g.slug}`, { admin: false });
+      expect(page.body.data.photoCount).toBe(card(g.id).photoCount);
     });
   });
 
   describe('GET /galleries/:slug', () => {
-    it('answers a public gallery with its id, title and slug, cacheable', async () => {
+    it('answers a public gallery with its id, title, slug, description and visible photo count, cacheable', async () => {
       const g = await fixtures.gallery();
+      await query(`UPDATE galleries SET description = 'Ring Road' WHERE id = $1`, [g.id]);
+      await fixtures.photo(g.id);
+      await fixtures.photo(g.id);
+      await fixtures.photo(g.id, { hidden: true });
       const res = await request('GET', `/galleries/${g.slug}`, { admin: false });
       expect(res.status).toBe(200);
-      expect(res.body.data).toEqual({ id: g.id, title: g.title, slug: g.slug });
+      expect(res.body.data).toEqual({ id: g.id, title: g.title, slug: g.slug, description: 'Ring Road', photoCount: 2 });
       expect(res.headers.get('cache-control')).toContain('public');
+    });
+
+    it('answers a public gallery without photos or a description with a zero count and null', async () => {
+      const g = await fixtures.gallery();
+      const res = await request('GET', `/galleries/${g.slug}`, { admin: false });
+      expect(res.body.data).toMatchObject({ description: null, photoCount: 0 });
     });
 
     it('answers a private gallery with only its title and a password prompt', async () => {
       const g = await fixtures.gallery({ isPublic: false, password: 'pw' });
+      await query(`UPDATE galleries SET description = 'Secret words' WHERE id = $1`, [g.id]);
+      await fixtures.photo(g.id);
       const res = await request('GET', `/galleries/${g.slug}`, { admin: false });
       expect(res.body.data).toEqual({ title: g.title, slug: g.slug, is_public: false, requires_password: true });
+      expect(JSON.stringify(res.body)).not.toContain('Secret words');
     });
 
     it('answers 404 for an unknown slug', async () => {
@@ -167,12 +197,15 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       const locked = await request('GET', `/galleries/${g.slug}/photos`, { admin: false });
       expect(locked.status).toBe(403);
 
+      await fixtures.photo(g.id, { hidden: true });
+
       const wrong = await request('POST', `/galleries/${g.slug}/verify`, { admin: false, body: { password: 'guess' } });
       expect(wrong.status).toBe(401);
+      expect(wrong.body.data).toBeUndefined();
 
       const right = await request('POST', `/galleries/${g.slug}/verify`, { admin: false, body: { password: 'secret' } });
       expect(right.status).toBe(200);
-      expect(right.body.data).toMatchObject({ title: g.title, slug: g.slug, verified: true });
+      expect(right.body.data).toMatchObject({ title: g.title, slug: g.slug, verified: true, photoCount: 1 });
 
       const open = await request('GET', `/galleries/${g.slug}/photos`, visitor(right.body.data.accessToken));
       expect(open.status).toBe(200);

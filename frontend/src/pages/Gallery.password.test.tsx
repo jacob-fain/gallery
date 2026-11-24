@@ -27,6 +27,7 @@ const access = {
   title: 'Smith Wedding',
   slug: 'smith',
   description: null,
+  photoCount: 2,
   is_public: false,
   verified: true,
   accessToken: 'token-1',

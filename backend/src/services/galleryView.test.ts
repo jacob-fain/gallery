@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Gallery } from '../types';
-import { adminGallery, publicGallery, publicGalleryCard } from './galleryView';
+import { adminGallery, publicGallery, publicGalleryCard, publicGalleryDetail } from './galleryView';
 
 const gallery = (password_hash: string | null): Gallery => ({
   id: 'g1',
@@ -21,6 +21,7 @@ const cover = {
   coverWebUrl: 'web.webp',
   coverWidth: 1200,
   coverHeight: 800,
+  photoCount: 84,
 };
 
 describe('gallery views', () => {
@@ -28,7 +29,21 @@ describe('gallery views', () => {
     expect(publicGallery(gallery('$2b$10$hash'))).toEqual({ id: 'g1', title: 'Wedding', slug: 'wedding' });
   });
 
-  it('public card adds only the cover photo', () => {
+  it('gallery page view adds only the description and the visible photo count', () => {
+    expect(publicGalleryDetail(gallery('$2b$10$hash'), 12)).toEqual({
+      id: 'g1',
+      title: 'Wedding',
+      slug: 'wedding',
+      description: 'Saturday',
+      photoCount: 12,
+    });
+    expect(publicGalleryDetail({ ...gallery(null), description: null }, 0)).toMatchObject({
+      description: null,
+      photoCount: 0,
+    });
+  });
+
+  it('public card adds only the cover photo and the visible photo count', () => {
     expect(publicGalleryCard({ ...gallery(null), ...cover })).toEqual({
       id: 'g1',
       title: 'Wedding',

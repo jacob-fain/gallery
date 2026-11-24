@@ -5,6 +5,7 @@ import type { PublicPhoto } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import { photoAlt } from '../utils/photoAlt';
 import { FeaturedImage, HeroImage } from './HomeImages';
+import { startsGalleryRun } from './HomeFeatured';
 import styles from './Home.module.css';
 
 export default function Home() {
@@ -77,28 +78,47 @@ export default function Home() {
           </header>
 
           <div className={styles.featuredGrid}>
-            {gridPhotos.map((photo, index) => (
-              <article
-                key={photo.id}
-                className={styles.featuredItem}
-                style={{ '--delay': `${index * 0.1}s` } as React.CSSProperties}
-              >
+            {gridPhotos.map((photo, index) => {
+              const image = (
                 <div className={styles.featuredImageWrapper}>
                   <FeaturedImage
                     photo={photo}
                     alt={photoAlt(index, gridPhotos.length, photo.gallery_title)}
                   />
                 </div>
-                {photo.gallery_slug && (
-                  <Link
-                    to={`/g/${photo.gallery_slug}`}
-                    className={styles.featuredCaption}
-                  >
-                    {photo.gallery_title}
-                  </Link>
-                )}
-              </article>
-            ))}
+              );
+              return (
+                <article
+                  key={photo.id}
+                  className={styles.featuredItem}
+                  style={{ '--delay': `${index * 0.1}s` } as React.CSSProperties}
+                >
+                  {/* Photos from a private gallery link too: the gallery asks
+                      for its password, as the caption link always did. */}
+                  {photo.gallery_slug ? (
+                    <Link
+                      to={`/g/${photo.gallery_slug}`}
+                      className={styles.featuredLink}
+                      aria-label={
+                        photo.gallery_title ? `Open the ${photo.gallery_title} gallery` : 'Open the gallery'
+                      }
+                    >
+                      {image}
+                      {startsGalleryRun(gridPhotos, index) && (
+                        <span className={styles.featuredCaption}>
+                          {photo.gallery_title}{' '}
+                          <span className={styles.captionArrow} aria-hidden="true">
+                            &#8594;
+                          </span>
+                        </span>
+                      )}
+                    </Link>
+                  ) : (
+                    image
+                  )}
+                </article>
+              );
+            })}
           </div>
 
           <footer className={styles.featuredFooter}>

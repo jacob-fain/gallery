@@ -1,24 +1,28 @@
-/* Edge-to-edge cover mosaic - large covers sized for a small gallery
-   count (two per row on desktop), photo-grid gap spacing */
+/* Large covers sized for a small gallery count, with the same side margin
+   as the gallery photo grids (PhotoGrid.module.css). */
 .container {
   width: 100%;
-  padding: var(--grid-gap);
+  padding: 0 48px 48px;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
-  gap: var(--grid-gap);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
 }
 
-@media (max-width: 1200px) {
+@media (min-width: 600px) {
   .grid {
-    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 640px) {
+  .container {
+    padding: 0 16px 16px;
+  }
+
   .grid {
-    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
