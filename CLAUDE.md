@@ -58,12 +58,14 @@ A photography portfolio with private client galleries.
 - `backend/`: Express 5 + TypeScript API. Routes, controllers, services
   (`src/routes`, `src/controllers`, `src/services`). Only the backend talks to
   Postgres and S3.
-- `db/init/`: SQL migrations, applied in filename order.
+- `backend/migrations/`: SQL migrations, applied in order by `backend/src/migrate.ts`
+  and recorded in `_migrations`. Add new ones as `NNN_description.sql`; never
+  edit one that has shipped.
 - Photos live in a private S3 bucket and are served through presigned URLs, in
   three sizes per photo (original, web, thumbnail).
 
-Local dev: `docker compose up -d` for Postgres, then `npm run dev` in
-`backend/` and `frontend/`. The admin UI runs at `http://localhost:5173/?admin=true`.
+Local dev: `docker compose up -d` for Postgres, `npm run migrate` in `backend/`,
+then `npm run dev` in `backend/` and `frontend/`. The admin UI runs at `http://localhost:5173/?admin=true`.
 
 The audit backlog is indexed in issue #114. Security-sensitive findings are
 tracked as private security advisories, not public issues.

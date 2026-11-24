@@ -265,7 +265,7 @@ jobs:
           
           # Apply new migrations
           new_migrations=0
-          for f in db/init/*.sql; do
+          for f in backend/migrations/*.sql; do
             if [ -f "$f" ]; then
               filename=$(basename "$f")
               applied=$(docker exec gallery-db-1 psql -U gallery -d gallery -tAc \
