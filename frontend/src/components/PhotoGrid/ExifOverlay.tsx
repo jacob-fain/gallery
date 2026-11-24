@@ -4,6 +4,7 @@ import styles from './ExifOverlay.module.css';
 
 interface ExifOverlayProps {
   exif?: ExifData;
+  className?: string;
 }
 
 function formatLens(lens: string): string {
@@ -30,7 +31,7 @@ function formatCamera(exif: ExifData): string {
   return `${make} ${model}`;
 }
 
-export default function ExifOverlay({ exif }: ExifOverlayProps) {
+export default function ExifOverlay({ exif, className }: ExifOverlayProps) {
   if (!exif) return null;
 
   const camera = formatCamera(exif);
@@ -48,7 +49,7 @@ export default function ExifOverlay({ exif }: ExifOverlayProps) {
   if (!camera && !lens && settings.length === 0) return null;
 
   return (
-    <div className={styles.overlay}>
+    <div className={className ? `${styles.overlay} ${className}` : styles.overlay}>
       {(camera || lens) && (
         <div className={styles.equipment}>
           {camera}

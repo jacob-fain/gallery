@@ -26,8 +26,6 @@
   .overlay {
     padding: 8px 12px;
     font-size: 0.7rem;
-    /* Move up to avoid overlap with counter */
-    bottom: 32px;
   }
 
   .equipment {

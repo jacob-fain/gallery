@@ -3,13 +3,15 @@ import { MasonryPhotoAlbum } from 'react-photo-album';
 import 'react-photo-album/masonry.css';
 import Lightbox, { type ControllerRef } from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
-import Counter from 'yet-another-react-lightbox/plugins/counter';
 import Download from 'yet-another-react-lightbox/plugins/download';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
-import 'yet-another-react-lightbox/plugins/counter.css';
 import type { PublicPhoto } from '../../types';
 import { trackPhotoView, getPhotoDownloadUrl } from '../../api/client';
 import ExifOverlay from './ExifOverlay';
+import { ViewerLabel, ZoomButtons } from './ViewerChrome';
+import { useViewerIdle } from './viewerIdle';
+import viewerStyles from './Viewer.module.css';
+import { IMAGE_FADE_PROPS } from '../../utils/imageFade';
 import { createRefreshGuard } from '../../utils/expiredImages';
 import {
   GRID_SIZES,
@@ -37,7 +39,8 @@ interface PhotoGridProps {
 
 const REFRESH_INTERVAL_MS = 60 * 1000;
 const LIGHTBOX_CLASS = 'photo-grid-lightbox';
-const LIGHTBOX_PLUGINS = [Counter, Download, Zoom];
+const LIGHTBOX_PLUGINS = [Download, Zoom];
+const TILE_PROPS = { ...TILE_KEYBOARD_PROPS, image: IMAGE_FADE_PROPS };
 
 // The signed URL answers with Content-Disposition: attachment, so navigating
 // to it saves the file and leaves the page in place. Navigation, unlike
@@ -65,7 +68,7 @@ const PhotoTiles = memo(function PhotoTiles({ photos, onOpen }: PhotoTilesProps)
       columns={gridColumns}
       spacing={12}
       sizes={GRID_SIZES}
-      componentsProps={TILE_KEYBOARD_PROPS}
+      componentsProps={TILE_PROPS}
       onClick={({ index }) => onOpen(index)}
     />
   );
@@ -79,6 +82,7 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
   const lightboxController = useRef<ControllerRef>(null);
   useLightboxFocusTrap(lightboxIndex >= 0, LIGHTBOX_CLASS, lightboxController);
   useLightboxHistory(lightboxIndex >= 0, lightboxController);
+  const viewerIdle = useViewerIdle(lightboxIndex >= 0, LIGHTBOX_CLASS);
 
   // Image error events do not bubble, so they are caught in the capture
   // phase. The lightbox renders in a portal outside the grid and does not
@@ -113,7 +117,7 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
       <PhotoTiles photos={albumPhotos} onOpen={setLightboxIndex} />
 
       <Lightbox
-        className={LIGHTBOX_CLASS}
+        className={`${LIGHTBOX_CLASS} ${viewerStyles.viewer}${viewerIdle ? ` ${viewerStyles.idle}` : ''}`}
         slides={lightboxSlides}
         open={lightboxIndex >= 0}
         index={lightboxIndex}
@@ -136,10 +140,11 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
           doubleTapDelay: 300,
           doubleClickDelay: 300,
         }}
-        counter={{ container: { style: { top: 'unset', bottom: 0, left: 'unset', right: 0 } } }}
         render={{
+          controls: () => <ViewerLabel />,
+          buttonZoom: (zoom) => <ZoomButtons {...zoom} />,
           slideFooter: ({ slide }) => (
-            <ExifOverlay exif={(slide as SlideWithExif).exif} />
+            <ExifOverlay exif={(slide as SlideWithExif).exif} className={viewerStyles.chrome} />
           ),
         }}
       />

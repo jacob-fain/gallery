@@ -67,7 +67,7 @@ describe('PhotoGrid lightbox', () => {
     await user.click(tiles()[1]);
 
     expect(currentSlide()).toBe('2 of 3');
-    expect(within(lightbox()).getByText('2 / 3')).toBeTruthy();
+    expect(within(lightbox()).getByText('Smith Wedding · 2 / 3')).toBeTruthy();
     expect(client.trackPhotoView).toHaveBeenCalledTimes(1);
     expect(client.trackPhotoView).toHaveBeenCalledWith('b');
   });

@@ -1,0 +1,29 @@
+/* Holds the page's place while the placeholders wait out their delay, so
+   the footer does not jump up and back. */
+.root {
+  min-height: 50vh;
+}
+
+.block {
+  background: var(--color-placeholder);
+}
+
+/* The heading's text lines: 24px type at 1.5 line height, and 13px. */
+.title {
+  width: min(240px, 60%);
+  height: 28px;
+  margin: 4px auto;
+}
+
+.count {
+  width: 80px;
+  height: 14px;
+  margin: 14px auto 2px;
+}
+
+@media (max-width: 640px) {
+  .title {
+    height: 24px;
+    margin: 3px auto;
+  }
+}

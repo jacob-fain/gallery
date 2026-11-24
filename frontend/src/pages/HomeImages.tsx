@@ -1,5 +1,6 @@
 import type { PublicPhoto } from '../types';
 import { responsiveImage } from '../utils/imageSizes';
+import { IMAGE_FADE_PROPS } from '../utils/imageFade';
 import styles from './Home.module.css';
 
 // The hero fills the viewport width at every breakpoint (Home.module.css).
@@ -22,6 +23,7 @@ export function HeroImage({ photo }: { photo: PublicPhoto }) {
       alt=""
       className={styles.heroImage}
       fetchPriority="high"
+      {...IMAGE_FADE_PROPS}
     />
   );
 }
@@ -36,6 +38,7 @@ export function FeaturedImage({ photo, alt }: { photo: PublicPhoto; alt: string 
       className={styles.featuredImage}
       loading="lazy"
       decoding="async"
+      {...IMAGE_FADE_PROPS}
     />
   );
 }

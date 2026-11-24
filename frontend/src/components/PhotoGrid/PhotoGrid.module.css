@@ -3,13 +3,38 @@
   padding: 0 48px;
 }
 
+/* The tile keeps the photo's shape while it loads (utils/imageFade.ts). */
+.grid :global(.react-photo-album--photo) {
+  background: var(--color-placeholder);
+}
+
 .grid img {
   cursor: pointer;
   transition: opacity 0.2s ease;
 }
 
+.grid img:not([data-loaded]) {
+  opacity: 0;
+}
+
+.grid img[data-loaded='fade'] {
+  animation: fadeIn 300ms ease-out;
+}
+
 .grid img:hover {
   opacity: 0.9;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grid img[data-loaded='fade'] {
+    animation: none;
+  }
 }
 
 @media (max-width: 640px) {

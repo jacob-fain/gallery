@@ -11,6 +11,11 @@
   gap: var(--grid-gap);
 }
 
+/* A gallery cover's shape (GalleryCard.module.css) */
+.coverSkeleton {
+  aspect-ratio: 3 / 2;
+}
+
 @media (max-width: 1200px) {
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));

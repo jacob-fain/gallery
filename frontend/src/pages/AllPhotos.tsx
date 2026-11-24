@@ -6,6 +6,8 @@ import { withFreshUrls } from '../utils/expiredImages';
 import type { PublicPhoto } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import PageHeading from '../components/PageHeading/PageHeading';
+import { DelayedSkeleton, HeadingSkeleton } from '../components/Skeleton/Skeleton';
+import PhotoGridSkeleton from '../components/PhotoGrid/PhotoGridSkeleton';
 import styles from './AllPhotos.module.css';
 
 export default function AllPhotos() {
@@ -36,7 +38,12 @@ export default function AllPhotos() {
   }, [attempt]);
 
   if (loading) {
-    return <div className="loading">Loading...</div>;
+    return (
+      <DelayedSkeleton>
+        <HeadingSkeleton />
+        <PhotoGridSkeleton />
+      </DelayedSkeleton>
+    );
   }
 
   if (failed) {

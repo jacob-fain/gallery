@@ -81,7 +81,7 @@ export interface PublicPhoto {
   exif_data: ExifData | null;
   webUrl: string;
   thumbnailUrl: string;
-  // Set on featured photos only.
+  // Set on featured photos and on All Photos; null for a photo in no gallery.
   gallery_title?: string | null;
   gallery_slug?: string | null;
 }

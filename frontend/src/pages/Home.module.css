@@ -26,6 +26,7 @@
 .heroImageWrapper {
   position: absolute;
   inset: 0;
+  background: var(--color-placeholder);
 }
 
 .heroImage {
@@ -35,6 +36,34 @@
   object-position: center;
   /* Subtle Ken Burns zoom effect */
   animation: heroZoom 20s ease-out forwards;
+}
+
+/* Hidden on the placeholder until loaded (utils/imageFade.ts). */
+.heroImage:not([data-loaded]),
+.featuredImage:not([data-loaded]) {
+  opacity: 0;
+}
+
+/* The zoom keeps running from mount: only the fade is added to it. */
+.heroImage[data-loaded='fade'] {
+  animation: heroZoom 20s ease-out forwards, imageFadeIn 300ms ease-out;
+}
+
+.featuredImage[data-loaded='fade'] {
+  animation: imageFadeIn 300ms ease-out;
+}
+
+@keyframes imageFadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroImage[data-loaded='fade'],
+  .featuredImage[data-loaded='fade'] {
+    animation: none;
+  }
 }
 
 @keyframes heroZoom {
@@ -186,6 +215,7 @@
 .featuredImageWrapper {
   position: relative;
   overflow: hidden;
+  background: var(--color-placeholder);
 }
 
 .featuredImage {
