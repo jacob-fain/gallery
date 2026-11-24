@@ -71,7 +71,7 @@ const PhotoTiles = memo(function PhotoTiles({ photos, onOpen }: PhotoTilesProps)
 
 export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesExpired }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState(-1);
-  const lastTrackedIndex = useRef(-1);
+  const trackedPhotoIds = useRef(new Set<string>());
   const gridRef = useRef<HTMLDivElement>(null);
   const [mayRefresh] = useState(() => createRefreshGuard(REFRESH_INTERVAL_MS));
 
@@ -90,18 +90,13 @@ export default function PhotoGrid({ photos, accessToken, galleryTitle, onImagesE
     return () => document.removeEventListener('error', handleError, true);
   }, [onImagesExpired, mayRefresh]);
 
-  // Track photo view when lightbox opens or navigates to a new photo
+  // A photo counts once per page view, however often the lightbox returns
+  // to it. Keyed by id, since a shuffle moves photos to new indexes.
   useEffect(() => {
-    if (lightboxIndex >= 0 && lightboxIndex !== lastTrackedIndex.current) {
-      const photo = photos[lightboxIndex];
-      if (photo) {
-        trackPhotoView(photo.id);
-        lastTrackedIndex.current = lightboxIndex;
-      }
-    }
-    // Reset tracking when lightbox closes
-    if (lightboxIndex < 0) {
-      lastTrackedIndex.current = -1;
+    const photo = lightboxIndex >= 0 ? photos[lightboxIndex] : undefined;
+    if (photo && !trackedPhotoIds.current.has(photo.id)) {
+      trackedPhotoIds.current.add(photo.id);
+      trackPhotoView(photo.id);
     }
   }, [lightboxIndex, photos]);
 

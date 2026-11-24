@@ -163,8 +163,12 @@ export function getGalleries(): Promise<Gallery[]> {
 // costs only a photos request after the metadata instead of alongside it.
 const privateSlugs = new Set<string>();
 
+// React Router hands the page a decoded slug, so a slug from the address bar
+// can hold "/", "?" or "..". Encoded, it stays one path segment.
+const galleryPath = (slug: string) => `/galleries/${encodeURIComponent(slug)}`;
+
 export async function getGallery(slug: string): Promise<Gallery | PrivateGalleryResponse> {
-  const data = await fetchCached<Gallery | PrivateGalleryResponse>(`gallery:${slug}`, `/galleries/${slug}`);
+  const data = await fetchCached<Gallery | PrivateGalleryResponse>(`gallery:${slug}`, galleryPath(slug));
   if ('requires_password' in data && data.requires_password === true) {
     privateSlugs.add(slug);
   } else {
@@ -188,8 +192,8 @@ export function getGalleryPhotos(
 ): Promise<PublicPhoto[]> {
   const cacheKey = accessToken ? `photos:${slug}:${accessToken}` : `photos:${slug}`;
   const url = accessToken
-    ? `/galleries/${slug}/photos?access=${encodeURIComponent(accessToken)}`
-    : `/galleries/${slug}/photos`;
+    ? `${galleryPath(slug)}/photos?access=${encodeURIComponent(accessToken)}`
+    : `${galleryPath(slug)}/photos`;
   return fetchCached<PublicPhoto[]>(cacheKey, url, options);
 }
 
@@ -197,7 +201,7 @@ export async function verifyGalleryPassword(
   slug: string,
   password: string
 ): Promise<GalleryAccessResponse> {
-  const response = await fetch(`${API_BASE}/galleries/${slug}/verify`, {
+  const response = await fetch(`${API_BASE}${galleryPath(slug)}/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
@@ -520,7 +524,7 @@ export async function movePhotos(
  * For private galleries, include the access token
  */
 export function getGalleryDownloadUrl(slug: string, accessToken?: string): string {
-  const url = `${API_BASE}/galleries/${slug}/download`;
+  const url = `${API_BASE}${galleryPath(slug)}/download`;
   if (accessToken) {
     return `${url}?access=${encodeURIComponent(accessToken)}`;
   }
@@ -533,7 +537,7 @@ export function getGalleryDownloadUrl(slug: string, accessToken?: string): strin
  * Track a photo view - call when user opens/navigates to a photo in lightbox
  */
 export function trackPhotoView(photoId: string): void {
-  fetch(`${API_BASE}/photos/${photoId}/view`, { method: 'POST' }).catch(() => {
+  fetch(`${API_BASE}/photos/${encodeURIComponent(photoId)}/view`, { method: 'POST' }).catch(() => {
     // Silently ignore errors - tracking should not affect UX
   });
 }
@@ -545,7 +549,7 @@ export function trackPhotoView(photoId: string): void {
  */
 export function trackGalleryView(slug: string, accessToken?: string): void {
   const query = accessToken ? `?access=${encodeURIComponent(accessToken)}` : '';
-  fetch(`${API_BASE}/galleries/${slug}/view${query}`, { method: 'POST' }).catch(() => {
+  fetch(`${API_BASE}${galleryPath(slug)}/view${query}`, { method: 'POST' }).catch(() => {
     // Tracking never affects the page.
   });
 }
@@ -558,7 +562,7 @@ export function trackGalleryView(slug: string, accessToken?: string): void {
  */
 export async function getPhotoDownloadUrl(photoId: string, accessToken?: string): Promise<string> {
   const query = accessToken ? `?access=${encodeURIComponent(accessToken)}` : '';
-  const data = await fetchApi<{ downloadUrl: string }>(`/photos/${photoId}/download${query}`);
+  const data = await fetchApi<{ downloadUrl: string }>(`/photos/${encodeURIComponent(photoId)}/download${query}`);
   return data.downloadUrl;
 }
 

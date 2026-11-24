@@ -20,6 +20,13 @@ describe('gallery view tracking', () => {
     ]);
   });
 
+  it('keeps a slug with path characters in one segment', () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    trackGalleryView('a/b?c');
+    expect(fetchMock).toHaveBeenCalledWith('/api/galleries/a%2Fb%3Fc/view', { method: 'POST' });
+  });
+
   it('never throws when the request fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     expect(() => trackGalleryView('iceland')).not.toThrow();
