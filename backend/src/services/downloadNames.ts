@@ -1,3 +1,5 @@
+import { formatForContentType, withFormatExtension } from './imageFormats';
+
 // Characters Windows refuses in a filename, plus control characters. Extract
 // tools on every platform write entries to disk, so a name has to be valid on
 // the strictest one.
@@ -61,15 +63,31 @@ export const createNameDeduper = (): ((name: string) => string) => {
   };
 };
 
+interface DownloadablePhoto {
+  id: string;
+  original_filename: string | null;
+  original_content_type?: string | null;
+}
+
 /**
- * ZIP entry names for a gallery's photos, in order: the sanitized original
- * filename, made unique within the archive.
+ * The name a photo's original downloads under: the sanitized uploaded
+ * filename, with an extension that matches the stored bytes. Photos uploaded
+ * before the format was recorded have no content type; their original is the
+ * uploaded file unchanged, so the uploaded name is the best guess there is.
  */
-export const zipEntryNames = (
-  photos: { id: string; original_filename: string | null }[]
-): string[] => {
+export const photoDownloadName = (photo: DownloadablePhoto): string => {
+  const format = formatForContentType(photo.original_content_type);
+  if (!format) return sanitizeFilename(photo.original_filename, `${photo.id}.jpg`);
+  return withFormatExtension(sanitizeFilename(photo.original_filename, photo.id), format);
+};
+
+/**
+ * ZIP entry names for a gallery's photos, in order: each photo's download
+ * name, made unique within the archive.
+ */
+export const zipEntryNames = (photos: DownloadablePhoto[]): string[] => {
   const unique = createNameDeduper();
-  return photos.map((photo) => unique(sanitizeFilename(photo.original_filename, `${photo.id}.jpg`)));
+  return photos.map((photo) => unique(photoDownloadName(photo)));
 };
 
 /**

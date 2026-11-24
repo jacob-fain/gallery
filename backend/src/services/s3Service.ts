@@ -198,20 +198,25 @@ export const getFileStream = async (key: string): Promise<Readable> => {
 /**
  * Generate S3 keys for a photo's three versions
  * Structure: galleries/{galleryId}/{photoId}/{version}.{ext}
- * - Original: .jpg (preserved as uploaded)
+ * - Original: the uploaded bytes, under the extension of their real format
  * - Web/Thumbnail: .webp (optimized format)
+ *
+ * Photos uploaded before the format was recorded all have "original.jpg";
+ * their keys are stored on the row, so they keep working.
  *
  * @param galleryId - Gallery UUID, or null for unassigned photos
  * @param photoId - Photo UUID
+ * @param originalExtension - Extension of the original's format, no dot
  * @returns Object with keys for original, web, and thumbnail versions
  */
 export const generatePhotoKeys = (
   galleryId: string | null,
-  photoId: string
+  photoId: string,
+  originalExtension: string
 ): { original: string; web: string; thumbnail: string } => {
   const basePath = `galleries/${galleryId ?? 'unassigned'}/${photoId}`;
   return {
-    original: `${basePath}/original.jpg`,
+    original: `${basePath}/original.${originalExtension}`,
     web: `${basePath}/web.webp`,
     thumbnail: `${basePath}/thumb.webp`,
   };

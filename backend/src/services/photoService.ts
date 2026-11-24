@@ -2,7 +2,7 @@ import { PoolClient } from 'pg';
 import { query, withTransaction } from '../config/db';
 import { Photo, PhotoWithUrls, CreatePhotoInput, UpdatePhotoInput } from '../types';
 import { getSignedUrl } from './s3Service';
-import { sanitizeFilename } from './downloadNames';
+import { photoDownloadName } from './downloadNames';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
   const result = await query(
@@ -135,7 +135,7 @@ export const reorderFeaturedPhotos = async (photoIds: string[]): Promise<void> =
  * photo's uploaded filename.
  */
 export const getDownloadUrl = (photo: Photo): Promise<string> =>
-  getSignedUrl(photo.s3_key, undefined, sanitizeFilename(photo.original_filename, `${photo.id}.jpg`));
+  getSignedUrl(photo.s3_key, undefined, photoDownloadName(photo));
 
 /**
  * Enrich a photo with signed S3 URLs
@@ -194,11 +194,12 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> =>
       `INSERT INTO photos (
         gallery_id, filename, original_filename,
         s3_key, s3_thumbnail_key, s3_web_key,
-        width, height, file_size, exif_data, content_hash, sort_order, is_hidden
+        width, height, file_size, exif_data, content_hash, sort_order, is_hidden,
+        original_content_type
       )
       -- New uploads start hidden so nothing is public before it is reviewed;
       -- the admin publishes them with Show.
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, $13)
       RETURNING *`,
       [
         data.gallery_id,
@@ -213,6 +214,7 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> =>
         data.exif_data ? JSON.stringify(data.exif_data) : null,
         data.content_hash || null,
         sortOrder,
+        data.original_content_type ?? null,
       ]
     );
     return result.rows[0];
