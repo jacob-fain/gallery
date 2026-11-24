@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
-import { getGallery, getGalleryPhotos, verifyGalleryPassword, getGalleryDownloadUrl } from '../api/client';
+import {
+  getGallery,
+  getGalleryPhotos,
+  getGalleryDownloadUrl,
+  isKnownPrivateGallery,
+  verifyGalleryPassword,
+} from '../api/client';
 import { isNotFound, visitorMessage } from '../api/errors';
 import LoadError from '../components/StatusMessage/LoadError';
 import NotFound from './NotFound';
@@ -51,17 +57,16 @@ export default function Gallery() {
       try {
         setLoading(true);
 
-        // Start both requests in parallel for speed
-        // Photos request will fail for private galleries without token, which is fine
+        // Photos load alongside the metadata, except for a gallery already
+        // seen as private, whose photos the API refuses without a token.
         const galleryPromise = getGallery(slug);
-        const photosPromise = getGalleryPhotos(slug).catch(() => null);
+        const photosPromise = isKnownPrivateGallery(slug) ? null : getGalleryPhotos(slug).catch(() => null);
 
         const galleryData = await galleryPromise;
         setGallery(galleryData);
 
-        // If public gallery, use the photos we already started fetching
         if (!isPrivateGallery(galleryData)) {
-          const photosData = await photosPromise;
+          const photosData = await (photosPromise ?? getGalleryPhotos(slug).catch(() => null));
           if (photosData) {
             setPhotos(photosData);
           }

@@ -7,6 +7,7 @@ const {
   getGallery,
   getGalleryPhotos,
   getPhotoDownloadUrl,
+  isKnownPrivateGallery,
   onSessionExpired,
   uploadPhoto,
   verifyGalleryPassword,
@@ -125,6 +126,88 @@ describe('fresh photo fetches', () => {
     // The fresh response replaces the cached one.
     expect(await getGalleryPhotos('g')).toEqual([{ id: 'new' }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('concurrent public fetches', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  const deferred = () => {
+    let resolve!: (data: unknown) => void;
+    const response = new Promise((r) => {
+      resolve = (data) => r({ status: 200, ok: true, json: async () => ({ success: true, data }) });
+    });
+    return { response, resolve };
+  };
+
+  it('share one request while it is in flight', async () => {
+    const pending = deferred();
+    const fetchMock = vi.fn().mockReturnValue(pending.response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = getGallery('g');
+    const second = getGallery('g');
+    pending.resolve({ id: 'g' });
+    expect(await first).toEqual({ id: 'g' });
+    expect(await second).toEqual({ id: 'g' });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('retry after a failed request instead of sharing or caching the failure', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 500, ok: false, statusText: 'Server Error' })
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ success: true, data: { id: 'g' } }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getGallery('g')).rejects.toMatchObject({ status: 500 });
+    expect(await getGallery('g')).toEqual({ id: 'g' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('let a fresh request bypass one in flight and keep its newer data cached', async () => {
+    const stale = deferred();
+    const fresh = deferred();
+    const fetchMock = vi.fn().mockReturnValueOnce(stale.response).mockReturnValueOnce(fresh.response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = getGalleryPhotos('g');
+    const refresh = getGalleryPhotos('g', undefined, { fresh: true });
+    fresh.resolve([{ id: 'new' }]);
+    expect(await refresh).toEqual([{ id: 'new' }]);
+    stale.resolve([{ id: 'old' }]);
+    expect(await first).toEqual([{ id: 'old' }]);
+
+    // The older response arrived last but does not replace the fresh one.
+    expect(await getGalleryPhotos('g')).toEqual([{ id: 'new' }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('known private galleries', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it('remembers the latest metadata response, past the cache', async () => {
+    const privateGallery = { title: 'P', slug: 'p', is_public: false, requires_password: true };
+    vi.stubGlobal('fetch', respond(200, { success: true, data: privateGallery }));
+    expect(isKnownPrivateGallery('p')).toBe(false);
+    await getGallery('p');
+    expect(isKnownPrivateGallery('p')).toBe(true);
+
+    clearCache();
+    expect(isKnownPrivateGallery('p')).toBe(true);
+
+    vi.stubGlobal('fetch', respond(200, { success: true, data: { title: 'P', slug: 'p', is_public: true } }));
+    await getGallery('p');
+    expect(isKnownPrivateGallery('p')).toBe(false);
   });
 });
 
