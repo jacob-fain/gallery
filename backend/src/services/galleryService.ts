@@ -60,7 +60,8 @@ export interface GalleryCoverRow extends Gallery {
 const visiblePhotoCount = (galleryId: string) =>
   `(SELECT COUNT(*)::int FROM photos WHERE gallery_id = ${galleryId} AND is_hidden = false)`;
 
-export const getPublicGalleryCoverKeys = async (): Promise<GalleryCoverRow[]> => {
+/** Every public gallery, or with `slug` only that one (if it is public). */
+export const getPublicGalleryCoverKeys = async (slug?: string): Promise<GalleryCoverRow[]> => {
   // Every cover field comes from the same photo: the chosen cover when it
   // qualifies, otherwise the first visible one.
   const result = await query(
@@ -82,8 +83,9 @@ export const getPublicGalleryCoverKeys = async (): Promise<GalleryCoverRow[]> =>
        ORDER BY sort_order ASC, uploaded_at ASC
        LIMIT 1
      ) first_photo ON cover.id IS NULL
-     WHERE g.is_public = true
-     ORDER BY g.sort_order ASC, g.created_at DESC`
+     WHERE g.is_public = true${slug === undefined ? '' : ' AND g.slug = $1'}
+     ORDER BY g.sort_order ASC, g.created_at DESC`,
+    slug === undefined ? [] : [slug]
   );
   return result.rows;
 };
