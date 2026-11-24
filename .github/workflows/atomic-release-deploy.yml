@@ -248,7 +248,8 @@ jobs:
           # /api/health/ready: an opaque hash of version and commit, the same
           # 16 hex characters images.yml produces, so the public route
           # reveals no version. Commit and version are shown only to the
-          # admin. Other images ignore these arguments.
+          # admin. The frontend bakes BUILD_ID into its bundle for browser
+          # error reports and ignores the others.
           build_id=$(printf '%s:%s' "$VERSION" "$COMMIT_SHA" | sha256sum | cut -c1-16)
           echo "Backend build id: $build_id"
           docker compose -f $COMPOSE_FILE --env-file $ENV_FILE build --no-cache \

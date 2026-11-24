@@ -6,7 +6,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN npm run build
+# The same opaque id the backend reports, so a browser error report names the
+# bundle that raised it (a stale tab can run an older one than the server).
+ARG BUILD_ID=
+RUN VITE_BUILD_ID="$BUILD_ID" npm run build
 
 # Production stage
 FROM nginx:1.31.0-alpine@sha256:2f07d83bf561b506400dc183b1b2003803e39efbd22451f848adaba14d28c7c7
