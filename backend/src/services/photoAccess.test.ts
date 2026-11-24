@@ -41,7 +41,7 @@ describe('canViewPhoto', () => {
   });
 
   it('refuses an admin token as an unlock token', () => {
-    expect(canViewPhoto(photo(), privateGallery, generateToken('u1', 'a@example.com'))).toBe(false);
+    expect(canViewPhoto(photo(), privateGallery, generateToken('u1', 'a@example.com', 0))).toBe(false);
   });
 
   it('shows a homepage photo from a private gallery, as the homepage does', () => {
