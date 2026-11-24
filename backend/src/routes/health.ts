@@ -12,8 +12,8 @@ type Probe = () => Promise<unknown>;
 type ReadyResult = { ok: true } | { ok: false; reason: string };
 
 /**
- * Database readiness with a timeout, cached briefly and shared by concurrent
- * callers, so a hung database holds at most one pool connection however
+ * Database readiness with a timeout, cached briefly. At most one probe runs
+ * at a time, so a hung database holds at most one pool connection however
  * often the route is polled.
  */
 export const createReadiness = ({
@@ -26,22 +26,35 @@ export const createReadiness = ({
   cacheMs?: number;
 }) => {
   let cached: { at: number; result: ReadyResult } | null = null;
-  let inFlight: Promise<ReadyResult> | null = null;
+  // The probe still running, if any. A timeout only stops waiting: a hung
+  // query keeps its pool connection until it settles, so no new probe starts
+  // while one is unsettled, and later checks wait on the same one.
+  let probing: Promise<ReadyResult> | null = null;
 
-  const run = async (): Promise<ReadyResult> => {
+  const startProbe = (): Promise<ReadyResult> => {
+    if (!probing) {
+      probing = probe()
+        .then(
+          (): ReadyResult => ({ ok: true }),
+          (err): ReadyResult => {
+            console.error('Readiness probe failed:', err);
+            return { ok: false, reason: 'database unreachable' };
+          }
+        )
+        .finally(() => {
+          probing = null;
+        });
+    }
+    return probing;
+  };
+
+  const check = async (): Promise<ReadyResult> => {
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<ReadyResult>((resolve) => {
       timer = setTimeout(() => resolve({ ok: false, reason: 'database timed out' }), timeoutMs);
     });
-    const attempt = probe().then(
-      (): ReadyResult => ({ ok: true }),
-      (err): ReadyResult => {
-        console.error('Readiness probe failed:', err);
-        return { ok: false, reason: 'database unreachable' };
-      }
-    );
     try {
-      return await Promise.race([attempt, timeout]);
+      return await Promise.race([startProbe(), timeout]);
     } finally {
       clearTimeout(timer);
     }
@@ -49,14 +62,9 @@ export const createReadiness = ({
 
   return async (): Promise<ReadyResult> => {
     if (cached && Date.now() - cached.at < cacheMs) return cached.result;
-    if (!inFlight) {
-      inFlight = run().then((result) => {
-        cached = { at: Date.now(), result };
-        inFlight = null;
-        return result;
-      });
-    }
-    return inFlight;
+    const result = await check();
+    cached = { at: Date.now(), result };
+    return result;
   };
 };
 

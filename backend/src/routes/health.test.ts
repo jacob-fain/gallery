@@ -33,6 +33,25 @@ describe('createReadiness', () => {
     expect(probe).toHaveBeenCalledTimes(1);
   });
 
+  it('never starts a second probe while a hung one is unsettled', async () => {
+    // A timed-out query still holds its connection; polling must not stack more.
+    let release: (v: unknown) => void = () => {};
+    let hung = true;
+    const probe = vi.fn(() =>
+      hung ? new Promise((resolve) => (release = resolve)) : Promise.resolve(1)
+    );
+    const ready = createReadiness({ probe, timeoutMs: 10, cacheMs: 0 });
+    for (let i = 0; i < 5; i++) {
+      expect(await ready()).toEqual({ ok: false, reason: 'database timed out' });
+    }
+    expect(probe).toHaveBeenCalledTimes(1);
+    hung = false;
+    release(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await ready()).toEqual({ ok: true });
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
   it('probes again once the cache expires', async () => {
     const probe = vi.fn(async () => 1);
     const ready = createReadiness({ probe, cacheMs: 0 });
