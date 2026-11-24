@@ -53,6 +53,9 @@ export interface Photo {
   uploaded_at: Date;
   exif_data?: ExifData;
   content_hash?: string | null;
+  // MIME type of the stored original, from its bytes. Null for photos
+  // uploaded before it was recorded (#87).
+  original_content_type?: string | null;
 }
 
 // Photo with signed S3 URLs for frontend consumption
@@ -111,6 +114,7 @@ export interface CreatePhotoInput {
   file_size: number;
   exif_data?: ExifData;
   content_hash?: string;
+  original_content_type?: string;
 }
 
 // Input type for creating a gallery

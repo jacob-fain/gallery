@@ -1,5 +1,7 @@
-import sharp from 'sharp';
+import sharp, { type Metadata, type OutputInfo } from 'sharp';
 import exifReader from 'exif-reader';
+import { originalFormatFor, type OriginalFormat } from './imageFormats';
+import { Semaphore } from '../utils/semaphore';
 
 // Image size configurations optimized for photography portfolio
 // Using WebP for ~30% smaller files at equivalent visual quality
@@ -19,6 +21,80 @@ const WEBP_OPTIONS = {
   effort: 4,  // Compression effort 0-6 (4 is good balance of speed/size)
 } as const;
 
+// libvips threads per image. Uploads are also limited to UPLOAD_SLOTS at a
+// time, so sharp work never holds more than UPLOAD_SLOTS * this many cores.
+sharp.concurrency(Math.min(2, sharp.concurrency()));
+// Every upload is a different image, so libvips' operation cache only holds
+// memory that is never reused.
+sharp.cache(false);
+
+/**
+ * Uploads being decoded and encoded at once, process wide. More wait their
+ * turn. Each one peaks at a few hundred MB for a large original, and the
+ * server runs Postgres alongside (#79).
+ */
+export const UPLOAD_SLOTS = 2;
+export const uploadSlots = new Semaphore(UPLOAD_SLOTS);
+
+/**
+ * Largest original accepted, in pixels, well below sharp's default of 268 MP.
+ * A 100 MP medium format file fits. A PNG or TIFF gets no shrink on decode,
+ * so this bounds the memory one upload can take; an image within the 50 MB
+ * upload limit with more pixels than this is almost certainly crafted to
+ * exhaust memory.
+ */
+export const MAX_INPUT_PIXELS = 120_000_000;
+
+const SHARP_INPUT = { limitInputPixels: MAX_INPUT_PIXELS } as const;
+
+/** The bytes are not an image in a format uploads accept. */
+export class UnsupportedImageError extends Error {}
+
+/** The image has more pixels than MAX_INPUT_PIXELS. */
+export class ImageTooLargeError extends Error {}
+
+export interface ImageInfo {
+  format: OriginalFormat;
+  /** As displayed, after EXIF orientation. */
+  width: number;
+  height: number;
+  metadata: Metadata;
+}
+
+/**
+ * Reads the image header once: the format, the displayed size, and the EXIF
+ * block, for everything later steps need. Throws UnsupportedImageError or
+ * ImageTooLargeError instead of decoding anything it should not.
+ */
+export const readImageInfo = async (buffer: Buffer): Promise<ImageInfo> => {
+  let metadata: Metadata;
+  try {
+    // Reading the header decodes no pixels. With the limit on, sharp would
+    // refuse an oversized image here with an error that reads as corruption,
+    // so the size is checked below instead.
+    metadata = await sharp(buffer, { limitInputPixels: false }).metadata();
+  } catch {
+    throw new UnsupportedImageError('Not a readable image');
+  }
+  const format = originalFormatFor(metadata.format, metadata.compression);
+  if (!format || !metadata.width || !metadata.height) {
+    throw new UnsupportedImageError(`Unsupported image format: ${metadata.format ?? 'unknown'}`);
+  }
+  if (metadata.width * metadata.height > MAX_INPUT_PIXELS) {
+    throw new ImageTooLargeError(`Image is larger than ${MAX_INPUT_PIXELS / 1_000_000} megapixels`);
+  }
+  // EXIF orientations 5 to 8 rotate the picture a quarter turn, so the
+  // displayed width is the stored height. Dimensions are recorded as
+  // displayed, because the grid lays photos out from them.
+  const quarterTurn = (metadata.orientation ?? 1) >= 5;
+  return {
+    format,
+    width: quarterTurn ? metadata.height : metadata.width,
+    height: quarterTurn ? metadata.width : metadata.height,
+    metadata,
+  };
+};
+
 export interface ProcessedImage {
   buffer: Buffer;
   width: number;
@@ -27,7 +103,7 @@ export interface ProcessedImage {
 }
 
 export interface ProcessedImageSet {
-  original: ProcessedImage;
+  original: ProcessedImage & { format: OriginalFormat };
   web: ProcessedImage;
   thumbnail: ProcessedImage;
 }
@@ -44,100 +120,75 @@ export interface ExifData {
   dateTaken?: string;
 }
 
+const toProcessed = ({ data, info }: { data: Buffer; info: OutputInfo }): ProcessedImage => ({
+  buffer: data,
+  width: info.width,
+  height: info.height,
+  size: info.size,
+});
+
 /**
  * Process an uploaded image into three sizes:
- * - Original: Preserved EXACTLY as uploaded (no re-encoding, no quality loss)
- * - Web: Max 1920px wide, 92% quality with 4:4:4 chroma (for lightbox viewing)
- * - Thumbnail: Max 600px wide, 85% quality (for grid display)
+ * - Original: the uploaded bytes, unchanged (no re-encoding, no quality loss)
+ * - Web: at most 1920px wide, WebP (for lightbox viewing)
+ * - Thumbnail: at most 600px wide, WebP (for grid display)
  *
- * Web and thumbnail versions use high-quality JPEG encoding optimized for
- * photography with no chroma subsampling.
+ * Runs in an upload slot, so at most UPLOAD_SLOTS of these decode at once.
  *
  * @param buffer - Raw image buffer from upload
- * @returns Object containing all three processed versions with metadata
+ * @param info - The buffer's readImageInfo, when the caller already has it
  */
-export const processImage = async (buffer: Buffer): Promise<ProcessedImageSet> => {
-  const metadata = await sharp(buffer).metadata();
-  // EXIF orientations 5 to 8 rotate the picture a quarter turn, so the
-  // displayed width is the stored height. Dimensions are recorded as
-  // displayed, because the grid lays photos out from them.
-  const quarterTurn = (metadata.orientation ?? 1) >= 5;
-  const originalWidth = (quarterTurn ? metadata.height : metadata.width) || 0;
-  const originalHeight = (quarterTurn ? metadata.width : metadata.height) || 0;
+export const processImage = async (buffer: Buffer, info?: ImageInfo): Promise<ProcessedImageSet> => {
+  const image = info ?? (await readImageInfo(buffer));
+  return uploadSlots.run(async () => {
+    // The full-size image is decoded once, straight down to the web size
+    // (JPEG shrinks while decoding), into uncompressed 8-bit sRGB. Both
+    // derivatives are cut from that copy, so the thumbnail is neither a
+    // second full decode nor a resize of an already lossy WebP.
+    // rotate() with no angle turns the pixels upright from the EXIF
+    // orientation. WebP output drops EXIF, so without it phone and camera
+    // portraits came out sideways.
+    const decoded = await sharp(buffer, SHARP_INPUT)
+      .rotate()
+      .resize({
+        width: IMAGE_SIZES.web.maxWidth,
+        withoutEnlargement: true, // Don't upscale small images
+        fit: 'inside',
+      })
+      .raw({ depth: 'uchar' })
+      .toBuffer({ resolveWithObject: true });
 
-  // IMPORTANT: Keep original EXACTLY as uploaded - no re-encoding!
-  // This preserves full quality for downloads and future use.
-  // We just need the metadata, the buffer stays unchanged.
+    const { width, height, channels } = decoded.info;
+    const webSized = sharp(decoded.data, { raw: { width, height, channels } });
 
-  // Process web version - resize if larger than max width
-  // rotate() with no angle turns the pixels upright from the EXIF
-  // orientation. WebP output drops EXIF, so without it phone and camera
-  // portraits came out sideways.
-  const webProcessed = await sharp(buffer)
-    .rotate()
-    .resize({
-      width: IMAGE_SIZES.web.maxWidth,
-      withoutEnlargement: true, // Don't upscale small images
-      fit: 'inside',
-    })
-    .webp({
-      quality: IMAGE_SIZES.web.quality,
-      ...WEBP_OPTIONS,
-    })
-    .toBuffer({ resolveWithObject: true });
+    const [web, thumbnail] = await Promise.all([
+      webSized
+        .clone()
+        .webp({ quality: IMAGE_SIZES.web.quality, ...WEBP_OPTIONS })
+        .toBuffer({ resolveWithObject: true }),
+      webSized
+        .clone()
+        .resize({
+          width: IMAGE_SIZES.thumbnail.maxWidth,
+          withoutEnlargement: true,
+          fit: 'inside',
+        })
+        .webp({ quality: IMAGE_SIZES.thumbnail.quality, ...WEBP_OPTIONS })
+        .toBuffer({ resolveWithObject: true }),
+    ]);
 
-  // Process thumbnail
-  const thumbnailProcessed = await sharp(buffer)
-    .rotate()
-    .resize({
-      width: IMAGE_SIZES.thumbnail.maxWidth,
-      withoutEnlargement: true,
-      fit: 'inside',
-    })
-    .webp({
-      quality: IMAGE_SIZES.thumbnail.quality,
-      ...WEBP_OPTIONS,
-    })
-    .toBuffer({ resolveWithObject: true });
-
-  return {
-    original: {
-      buffer: buffer, // Keep original unchanged - no quality loss!
-      width: originalWidth,
-      height: originalHeight,
-      size: buffer.length,
-    },
-    web: {
-      buffer: webProcessed.data,
-      width: webProcessed.info.width,
-      height: webProcessed.info.height,
-      size: webProcessed.info.size,
-    },
-    thumbnail: {
-      buffer: thumbnailProcessed.data,
-      width: thumbnailProcessed.info.width,
-      height: thumbnailProcessed.info.height,
-      size: thumbnailProcessed.info.size,
-    },
-  };
-};
-
-/**
- * Extract just the metadata from an image without processing
- * Useful for validation before full processing
- *
- * @param buffer - Raw image buffer
- * @returns Image dimensions and format info
- */
-export const getImageMetadata = async (
-  buffer: Buffer
-): Promise<{ width: number; height: number; format: string }> => {
-  const metadata = await sharp(buffer).metadata();
-  return {
-    width: metadata.width || 0,
-    height: metadata.height || 0,
-    format: metadata.format || 'unknown',
-  };
+    return {
+      original: {
+        buffer, // Keep original unchanged - no quality loss!
+        width: image.width,
+        height: image.height,
+        size: buffer.length,
+        format: image.format,
+      },
+      web: toProcessed(web),
+      thumbnail: toProcessed(thumbnail),
+    };
+  });
 };
 
 /**
@@ -147,9 +198,8 @@ export const getImageMetadata = async (
  */
 export const isValidImage = async (buffer: Buffer): Promise<boolean> => {
   try {
-    const metadata = await sharp(buffer).metadata();
-    const supportedFormats = ['jpeg', 'png', 'webp', 'tiff', 'heif'];
-    return supportedFormats.includes(metadata.format || '');
+    await readImageInfo(buffer);
+    return true;
   } catch {
     return false;
   }
@@ -186,8 +236,15 @@ export const formatDateTaken = (date: unknown, offset: unknown): string | undefi
  */
 export const extractExifData = async (buffer: Buffer): Promise<ExifData | null> => {
   try {
-    const metadata = await sharp(buffer).metadata();
+    return exifFromMetadata(await sharp(buffer).metadata());
+  } catch {
+    return null;
+  }
+};
 
+/** extractExifData for metadata already read, such as ImageInfo.metadata. */
+export const exifFromMetadata = (metadata: Metadata): ExifData | null => {
+  try {
     if (!metadata.exif) {
       return null;
     }

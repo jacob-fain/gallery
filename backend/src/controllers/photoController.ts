@@ -9,6 +9,7 @@ import { canViewPhoto } from '../services/photoAccess';
 import { toPublicPhoto, toPublicPhotos } from '../services/photoView';
 import { cachePublicly } from '../middleware/cacheControl';
 import { storedFilename } from '../config/upload';
+import { photoDownloadName } from '../services/downloadNames';
 import type { Photo } from '../types';
 
 const NOT_FOUND = { success: false, error: 'Photo not found' } as const;
@@ -100,7 +101,7 @@ export const downloadPhoto = async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: {
-        filename: photo.original_filename,
+        filename: photoDownloadName(photo),
         downloadUrl: await photoService.getDownloadUrl(photo),
       },
     });
@@ -151,13 +152,22 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       }
     }
 
-    // Validate image format
-    const isValid = await imageService.isValidImage(req.file.buffer);
-    if (!isValid) {
-      return res.status(415).json({
-        success: false,
-        error: 'Unsupported image format. Allowed: JPEG, PNG, WebP, TIFF, HEIF',
-      });
+    // One header read decides the format and size and carries the EXIF, so
+    // nothing below parses the file again.
+    let info: imageService.ImageInfo;
+    try {
+      info = await imageService.readImageInfo(req.file.buffer);
+    } catch (err) {
+      if (err instanceof imageService.ImageTooLargeError) {
+        return res.status(413).json({ success: false, error: err.message });
+      }
+      if (err instanceof imageService.UnsupportedImageError) {
+        return res.status(415).json({
+          success: false,
+          error: 'Unsupported image format. Allowed: JPEG, PNG, WebP, TIFF, HEIF',
+        });
+      }
+      throw err;
     }
 
     // Reject exact duplicates (hash of the raw upload bytes)
@@ -170,18 +180,18 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       return res.status(409).json(alreadyUploaded(duplicate));
     }
 
-    // Process image into 3 sizes and extract EXIF in parallel
-    const [processed, exifData] = await Promise.all([
-      imageService.processImage(req.file.buffer),
-      imageService.extractExifData(req.file.buffer),
-    ]);
+    const processed = await imageService.processImage(req.file.buffer, info);
+    const exifData = imageService.exifFromMetadata(info.metadata);
+    // The stored type and extension come from the bytes, never from the
+    // client's MIME type or filename (#87).
+    const { format } = processed.original;
 
     // Generate unique ID and S3 keys
     const photoId = crypto.randomUUID();
-    const keys = s3Service.generatePhotoKeys(galleryId, photoId);
+    const keys = s3Service.generatePhotoKeys(galleryId, photoId, format.extension);
 
     const uploads = [
-      { buffer: processed.original.buffer, key: keys.original, type: 'image/jpeg' },
+      { buffer: processed.original.buffer, key: keys.original, type: format.contentType },
       { buffer: processed.web.buffer, key: keys.web, type: 'image/webp' },
       { buffer: processed.thumbnail.buffer, key: keys.thumbnail, type: 'image/webp' },
     ];
@@ -198,7 +208,7 @@ export const uploadPhoto = async (req: Request, res: Response) => {
 
       photo = await photoService.createPhoto({
         gallery_id: galleryId,
-        filename: `${photoId}.jpg`,
+        filename: `${photoId}.${format.extension}`,
         original_filename: storedFilename(req.file.originalname),
         s3_key: keys.original,
         s3_thumbnail_key: keys.thumbnail,
@@ -208,6 +218,7 @@ export const uploadPhoto = async (req: Request, res: Response) => {
         file_size: processed.original.size,
         exif_data: exifData || undefined,
         content_hash: contentHash,
+        original_content_type: format.contentType,
       });
     } catch (err) {
       // No row points at these keys, so they would be orphaned (#58).
