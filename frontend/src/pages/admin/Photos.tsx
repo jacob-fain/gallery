@@ -44,7 +44,8 @@ export default function Photos() {
   }, [fetchData]);
 
   const handleUploadComplete = (photo: Photo) => {
-    setPhotos((prev) => [...prev, photo]);
+    // A reload that started before the upload finished may already list it.
+    setPhotos((prev) => (prev.some((p) => p.id === photo.id) ? prev : [...prev, photo]));
   };
 
   if (loading) {
