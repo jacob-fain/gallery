@@ -204,12 +204,13 @@ describe('public gallery objects carry no internal fields', () => {
 describe('gallery view tracking', () => {
   const post = async (path: string) => {
     const res = await fetch(`${base}${path}`, { method: 'POST' });
-    return { status: res.status, cache: res.headers.get('cache-control'), body: await res.json() };
+    return { status: res.status, cache: res.headers.get('cache-control'), body: await res.text() };
   };
 
   it('passes the slug, with no gallery when there is no valid token', async () => {
     vi.mocked(eventTracking.recordGalleryView).mockClear();
-    expect(await post('/galleries/iceland/view')).toEqual({ status: 200, cache: 'no-store', body: { success: true } });
+    // No body: the client never reads it (galleryController.trackGalleryView).
+    expect(await post('/galleries/iceland/view')).toEqual({ status: 204, cache: 'no-store', body: '' });
     await post('/galleries/iceland/view?access=forged');
     expect(vi.mocked(eventTracking.recordGalleryView).mock.calls).toEqual([
       ['iceland', null],
@@ -222,6 +223,22 @@ describe('gallery view tracking', () => {
     const token = generateGalleryAccessToken(GALLERY_ID, 'iceland');
     await post(`/galleries/iceland/view?access=${encodeURIComponent(token)}`);
     expect(eventTracking.recordGalleryView).toHaveBeenCalledWith('iceland', GALLERY_ID);
+  });
+});
+
+describe('photo tracking', () => {
+  it.each([
+    ['/view', 'recordPhotoView'],
+    ['/download-track', 'recordPhotoDownload'],
+  ] as const)('POST /photos/:id%s answers 204 with no body and records the event', async (path, recorder) => {
+    vi.mocked(eventTracking[recorder]).mockClear();
+    const res = await fetch(`${base}/photos/${PHOTO_ID}${path}`, { method: 'POST' });
+    expect({ status: res.status, cache: res.headers.get('cache-control'), body: await res.text() }).toEqual({
+      status: 204,
+      cache: 'no-store',
+      body: '',
+    });
+    expect(eventTracking[recorder]).toHaveBeenCalledWith(PHOTO_ID);
   });
 });
 

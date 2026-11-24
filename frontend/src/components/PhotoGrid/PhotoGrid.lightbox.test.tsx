@@ -72,7 +72,7 @@ describe('PhotoGrid lightbox', () => {
     expect(client.trackPhotoView).toHaveBeenCalledWith('b');
   });
 
-  it('moves to the next and previous photo with the arrow keys and records each new view', async () => {
+  it('moves to the next and previous photo with the arrow keys and records each photo once', async () => {
     const user = userEvent.setup();
     render(<PhotoGrid photos={photos} />);
 
@@ -89,7 +89,8 @@ describe('PhotoGrid lightbox', () => {
     await user.keyboard('{ArrowLeft}');
     await waitFor(() => expect(currentSlide()).toBe('2 of 3'));
 
-    expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['a'], ['b'], ['c'], ['b']]);
+    // Back on b, already counted on this page.
+    expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['a'], ['b'], ['c']]);
   });
 
   it('moves with the Next and Previous buttons', async () => {
@@ -116,9 +117,32 @@ describe('PhotoGrid lightbox', () => {
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    // Reopening the same photo counts as a new view.
+    // Reopening a photo already counted on this page counts nothing.
     await user.click(tiles()[2]);
-    expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['a'], ['c'], ['c']]);
+    expect(currentSlide()).toBe('3 of 3');
+    expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['a'], ['c']]);
+  });
+
+  it('counts a photo once after a shuffle moves it, and again on the next page view', async () => {
+    const user = userEvent.setup();
+    const { rerender, unmount } = render(<PhotoGrid photos={photos} />);
+
+    await user.click(tiles()[0]);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    // Shuffled: a is now last, and c takes its old place.
+    rerender(<PhotoGrid photos={[photos[2], photos[1], photos[0]]} />);
+    await user.click(tiles()[2]);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await user.click(tiles()[0]);
+    expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['a'], ['c']]);
+
+    unmount();
+    render(<PhotoGrid photos={photos} />);
+    await user.click(tiles()[0]);
+    expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['a'], ['c'], ['a']]);
   });
 
   it("downloads the current photo's original with the gallery's access token", async () => {

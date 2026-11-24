@@ -11,21 +11,37 @@ export const JSON_BODY_LIMIT = '256kb';
 export const isUuid = (value: unknown): value is string =>
   typeof value === 'string' && UUID.test(value);
 
+/** Lowercase letters and digits, with single hyphens between words. */
+export const GALLERY_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+export const isGallerySlug = (value: unknown): value is string =>
+  typeof value === 'string' && GALLERY_SLUG.test(value);
+
+const formatParam =
+  (isValid: (value: string) => boolean) =>
+  (notFoundMessage: string) =>
+  (_req: Request, res: Response, next: NextFunction, value: string): void => {
+    if (!isValid(value)) {
+      res.status(404).json({ success: false, error: notFoundMessage });
+      return;
+    }
+    next();
+  };
+
 /**
  * router.param handler factory: a path id that is not a UUID can name no
  * record, so it answers with the router's own missing-record body instead
  * of reaching Postgres, which rejects it with an error that surfaced as a
  * 500.
  */
-export const uuidParam =
-  (notFoundMessage: string) =>
-  (_req: Request, res: Response, next: NextFunction, value: string): void => {
-    if (!isUuid(value)) {
-      res.status(404).json({ success: false, error: notFoundMessage });
-      return;
-    }
-    next();
-  };
+export const uuidParam = formatParam(isUuid);
+
+/**
+ * router.param handler factory for gallery slugs. Express decodes the path,
+ * so a slug can arrive holding "/", "?" or "..": one that no gallery could
+ * have answers as missing before any handler or query sees it.
+ */
+export const slugParam = formatParam(isGallerySlug);
 
 type IdRule = 'uuid' | 'uuid?' | 'uuid[]';
 
