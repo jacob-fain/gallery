@@ -5,6 +5,7 @@ useDefault = true
 [allowlist]
 description = "Database column names that the generic-api-key rule reads as values"
 regexes = [
-  # "s3_web_key, s3_thumbnail_key" in SQL selects: column names, not secrets.
-  '''^s3_(web|thumbnail)_key$''',
+  # "s3_web_key, s3_thumbnail_key" in SQL selects and "p.s3_thumbnail_key"
+  # property reads: column names, not secrets.
+  '''^(\w+\.)?s3_(web|thumbnail)_key$''',
 ]
