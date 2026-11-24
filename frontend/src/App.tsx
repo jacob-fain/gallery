@@ -9,6 +9,7 @@ import Navbar from './components/Navbar/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import PageTitle from './components/PageTitle';
+import ScrollRestorer from './components/ScrollRestorer';
 import { DEFAULT_SITE_TITLE, SiteTitleContext } from './contexts/siteTitle';
 import './styles/globals.css';
 
@@ -35,6 +36,7 @@ const AdminLayout = lazyWithReload(() => import('./components/Admin/AdminLayout/
 export function PublicApp() {
   return (
     <>
+      <ScrollRestorer />
       <Navbar />
       <main className="main-content">
         <Suspense fallback={<div className="loading">Loading...</div>}>

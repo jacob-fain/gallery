@@ -69,38 +69,3 @@ export function useLightboxFocusTrap(
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, lightboxClass, controller]);
 }
-
-const HISTORY_MARKER = 'photoLightbox';
-
-function hasMarker(state: unknown): boolean {
-  return typeof state === 'object' && state !== null && HISTORY_MARKER in state;
-}
-
-// An open lightbox owns a history entry at the same URL, so Back (the phone's
-// usual way out of a full-screen view) closes it instead of leaving the page.
-// The router's own state is copied into the entry, so the router sees the same
-// location on either side of it.
-export function useLightboxHistory(open: boolean, controller: RefObject<ControllerRef | null>) {
-  useEffect(() => {
-    // A reload keeps the entry's state but starts with the lightbox closed,
-    // so the entry becomes the gallery's own again.
-    if (hasMarker(window.history.state)) {
-      const state = { ...window.history.state };
-      delete state[HISTORY_MARKER];
-      window.history.replaceState(state, '');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    window.history.pushState({ ...window.history.state, [HISTORY_MARKER]: true }, '');
-    const onPopState = () => controller.current?.close();
-    window.addEventListener('popstate', onPopState);
-    return () => {
-      window.removeEventListener('popstate', onPopState);
-      // Closed some other way than Back: drop the entry so the next Back
-      // leaves the page as it would have without the lightbox.
-      if (hasMarker(window.history.state)) window.history.back();
-    };
-  }, [open, controller]);
-}
