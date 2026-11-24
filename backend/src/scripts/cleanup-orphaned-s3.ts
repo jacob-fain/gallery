@@ -17,8 +17,8 @@
  * run with admin credentials.
  *
  * Usage:
- *   npx ts-node scripts/cleanup-orphaned-s3.ts            # dry run
- *   npx ts-node scripts/cleanup-orphaned-s3.ts --delete   # delete orphans
+ *   node dist/scripts/cleanup-orphaned-s3.js            # dry run
+ *   node dist/scripts/cleanup-orphaned-s3.js --delete   # delete orphans
  */
 
 import dotenv from 'dotenv';
@@ -31,7 +31,7 @@ import {
 } from '@aws-sdk/client-s3';
 
 // Load environment variables from root .env
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 const PREFIX = 'galleries/';
