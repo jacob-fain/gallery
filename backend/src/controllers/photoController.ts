@@ -4,25 +4,25 @@ import * as photoService from '../services/photoService';
 import * as galleryService from '../services/galleryService';
 import * as imageService from '../services/imageService';
 import * as s3Service from '../services/s3Service';
+import { canViewPhoto } from '../services/photoAccess';
+
+const NOT_FOUND = { success: false, error: 'Photo not found' } as const;
+
+// A photo the visitor may not see answers exactly like one that does not
+// exist, so ids cannot be probed.
+const loadViewablePhoto = async (id: string, accessToken: unknown) => {
+  const photo = await photoService.getPhotoById(id);
+  if (!photo) return null;
+  const gallery = photo.gallery_id ? await galleryService.getGalleryById(photo.gallery_id) : null;
+  return canViewPhoto(photo, gallery, accessToken) ? photo : null;
+};
 
 export const getPhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const photo = await photoService.getPhotoById(id);
-
+    const photo = await loadViewablePhoto(id, req.query.access);
     if (!photo) {
-      return res.status(404).json({ success: false, error: 'Photo not found' });
-    }
-
-    // Check if photo's gallery is public (unassigned photos are public)
-    const gallery = photo.gallery_id
-      ? await galleryService.getGalleryById(photo.gallery_id)
-      : null;
-    if (gallery && !gallery.is_public) {
-      return res.status(403).json({
-        success: false,
-        error: 'Password required to view this photo',
-      });
+      return res.status(404).json(NOT_FOUND);
     }
 
     await photoService.incrementPhotoViews(id);
@@ -82,10 +82,9 @@ export const getFeatured = async (_req: Request, res: Response) => {
 export const downloadPhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const photo = await photoService.getPhotoById(id);
-
+    const photo = await loadViewablePhoto(id, req.query.access);
     if (!photo) {
-      return res.status(404).json({ success: false, error: 'Photo not found' });
+      return res.status(404).json(NOT_FOUND);
     }
 
     await photoService.incrementPhotoDownloads(id);
@@ -110,7 +109,12 @@ export const downloadPhoto = async (req: Request, res: Response) => {
 export const trackView = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    await photoService.incrementPhotoViews(id);
+    // Counted only for visible photos. The answer is the same either way,
+    // so tracking cannot be used to learn which ids exist.
+    const photo = await photoService.getPhotoById(id);
+    if (photo && !photo.is_hidden) {
+      await photoService.incrementPhotoViews(id);
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('Error tracking view:', err);
@@ -124,7 +128,10 @@ export const trackView = async (req: Request, res: Response) => {
 export const trackDownload = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    await photoService.incrementPhotoDownloads(id);
+    const photo = await photoService.getPhotoById(id);
+    if (photo && !photo.is_hidden) {
+      await photoService.incrementPhotoDownloads(id);
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('Error tracking download:', err);
