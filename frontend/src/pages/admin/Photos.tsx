@@ -27,19 +27,25 @@ function GalleryPhotos({ id }: { id: string }) {
   const { update } = photos;
 
   // The gallery itself (title, cover). Photo changes are applied to the list
-  // in place, so this is all a change needs to reload.
-  const fetchGallery = useCallback(async () => {
-    try {
-      const galleries = await getAllGalleries();
-      const foundGallery = galleries.find((g) => g.id === id);
-      if (foundGallery) setGallery(foundGallery);
-      else setError('Gallery not found');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
-    } finally {
-      setGalleryLoading(false);
-    }
-  }, [id]);
+  // in place, so this is all a change needs to reload. A promise chain rather
+  // than an async function: react-hooks/set-state-in-effect counts a setState
+  // after an await as synchronous, but not one in a .then callback.
+  const fetchGallery = useCallback(
+    () =>
+      getAllGalleries()
+        .then((galleries) => {
+          const foundGallery = galleries.find((g) => g.id === id);
+          if (foundGallery) setGallery(foundGallery);
+          else setError('Gallery not found');
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : 'Failed to load data');
+        })
+        .finally(() => {
+          setGalleryLoading(false);
+        }),
+    [id]
+  );
 
   useEffect(() => {
     fetchGallery();
