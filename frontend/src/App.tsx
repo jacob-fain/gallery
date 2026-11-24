@@ -32,7 +32,7 @@ const Unassigned = lazyWithReload(() => import('./pages/admin/Unassigned'));
 const Settings = lazyWithReload(() => import('./pages/admin/Settings'));
 const AdminLayout = lazyWithReload(() => import('./components/Admin/AdminLayout/AdminLayout'));
 
-function PublicApp() {
+export function PublicApp() {
   return (
     <>
       <Navbar />

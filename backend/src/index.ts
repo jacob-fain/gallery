@@ -1,6 +1,12 @@
-import dotenv from 'dotenv';
-import path from 'path';
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+import { envProblems, loadDotenv } from './config/env';
+
+// Runs before the imports below, which read the environment as they load.
+loadDotenv();
+const problems = envProblems();
+if (problems.length > 0) {
+  for (const problem of problems) console.error(`Configuration error: ${problem}`);
+  process.exit(1);
+}
 
 import app from './app';
 import pool, { testConnection } from './config/db';

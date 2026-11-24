@@ -1,4 +1,4 @@
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { Readable, Writable } from 'stream';
 
 export interface ZipSource {
@@ -28,7 +28,7 @@ export const writeZip = async (
   out: Writable,
   openStream: (key: string) => Promise<Readable>
 ): Promise<ZipResult> => {
-  const archive = archiver('zip', { store: true });
+  const archive = new ZipArchive({ store: true });
   let current: Readable | null = null;
   let stopped: ZipResult | null = null;
   let onStop: () => void = () => {};
