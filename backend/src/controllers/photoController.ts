@@ -379,13 +379,16 @@ export const movePhotos = async (req: Request, res: Response) => {
       });
     }
 
-    if (req.body.target_gallery_id === undefined) {
+    // Unassigning must be explicit: only null means Unassigned, so a missing
+    // or empty field can never move photos out of their gallery.
+    const target = req.body.target_gallery_id;
+    if (target === undefined || target === '') {
       return res.status(400).json({
         success: false,
         error: 'target_gallery_id is required (null for Unassigned)',
       });
     }
-    const targetGalleryId: string | null = req.body.target_gallery_id || null;
+    const targetGalleryId: string | null = target;
 
     if (targetGalleryId) {
       const targetGallery = await galleryService.getGalleryById(targetGalleryId);
