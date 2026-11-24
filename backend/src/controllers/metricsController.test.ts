@@ -13,6 +13,10 @@ import { generateToken } from '../services/authService';
 import { createRequestMetrics } from '../services/requestMetrics';
 import { latestMigration, metricsSnapshot } from './metricsController';
 import { listMigrations } from '../migrate';
+import type { ApiResponse } from '../types';
+import { readJson } from '../../test/json';
+
+type MetricsBody = ReturnType<typeof metricsSnapshot> & { migration: string | null };
 
 const user = { id: 'user-1', email: 'admin@example.com', password_hash: 'x', token_version: 0 };
 
@@ -72,14 +76,14 @@ describe('GET /api/admin/metrics', () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toMatch(/no-store/);
-    const body = await res.json();
+    const body = await readJson<ApiResponse<MetricsBody>>(res);
     expect(body.success).toBe(true);
-    expect(Object.keys(body.data).sort()).toEqual([
+    expect(Object.keys(body.data!).sort()).toEqual([
       'build', 'db', 'memory', 'migration', 'requests', 'uploads', 'uptimeSeconds',
     ]);
-    expect(body.data.uploads).toMatchObject({ limit: 2 });
+    expect(body.data?.uploads).toMatchObject({ limit: 2 });
     // Unit runs have no database, which reads as an unknown schema, not a failure.
-    expect(body.data.migration).toBe(
+    expect(body.data?.migration).toBe(
       process.env.TEST_DATABASE_URL ? listMigrations().at(-1) : null
     );
   });

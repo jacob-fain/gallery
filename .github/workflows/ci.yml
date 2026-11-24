@@ -54,6 +54,9 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
+      # The build config excludes tests; this checks them, and test/, under the
+      # ESM settings vitest runs them with.
+      - run: npm run typecheck:tests
       # Coverage is reported, not enforced: no threshold fails the job yet.
       - run: npm run test:coverage
       - name: Coverage summary

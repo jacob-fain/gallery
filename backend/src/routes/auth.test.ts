@@ -20,6 +20,7 @@ vi.mock('../services/authService', async (importOriginal) => {
 
 import app from '../app';
 import { generateToken } from '../services/authService';
+import { readJson } from '../../test/json';
 
 const ADMIN = 'https://manage.example.com';
 const user = { id: 'user-1', email: 'admin@example.com', password_hash: 'x', token_version: 0 };
@@ -65,7 +66,7 @@ describe('admin session cookie through the app', () => {
       expect.arrayContaining(['Max-Age=86400', 'Path=/api', 'HttpOnly', 'Secure', 'SameSite=Strict'])
     );
     expect(setCookie).not.toMatch(/Domain=/i);
-    const body = await res.json();
+    const body = await readJson(res);
     expect(body.data).toEqual({ user: { id: user.id, email: user.email } });
   });
 
@@ -112,6 +113,6 @@ describe('admin session cookie through the app', () => {
   it('a valid cookie authenticates a read', async () => {
     const res = await fetch(`${base}/auth/me`, { headers: { Cookie: cookie() } });
     expect(res.status).toBe(200);
-    expect((await res.json()).data).toEqual({ id: user.id, email: user.email });
+    expect((await readJson(res)).data).toEqual({ id: user.id, email: user.email });
   });
 });
