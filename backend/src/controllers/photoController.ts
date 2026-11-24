@@ -4,6 +4,7 @@ import * as photoService from '../services/photoService';
 import * as galleryService from '../services/galleryService';
 import * as imageService from '../services/imageService';
 import * as s3Service from '../services/s3Service';
+import { recordPhotoDownload, recordPhotoView } from '../services/eventTracking';
 import { canViewPhoto } from '../services/photoAccess';
 import { storedFilename } from '../config/upload';
 import type { Photo } from '../types';
@@ -27,7 +28,8 @@ export const getPhoto = async (req: Request, res: Response) => {
       return res.status(404).json(NOT_FOUND);
     }
 
-    await photoService.incrementPhotoViews(id);
+    // Not counted as a view: views are counted only by POST /:id/view, which
+    // the lightbox sends when a photo is actually shown.
     const photoWithUrls = await photoService.enrichPhotoWithUrls(photo);
     res.json({ success: true, data: photoWithUrls });
   } catch (err) {
@@ -89,7 +91,7 @@ export const downloadPhoto = async (req: Request, res: Response) => {
       return res.status(404).json(NOT_FOUND);
     }
 
-    await photoService.incrementPhotoDownloads(id);
+    recordPhotoDownload(id);
 
     const photoWithUrls = await photoService.enrichPhotoWithUrls(photo);
     res.json({
@@ -108,37 +110,19 @@ export const downloadPhoto = async (req: Request, res: Response) => {
 /**
  * Track a photo view (lightweight endpoint for analytics)
  */
-export const trackView = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    // Counted only for visible photos. The answer is the same either way,
-    // so tracking cannot be used to learn which ids exist.
-    const photo = await photoService.getPhotoById(id);
-    if (photo && !photo.is_hidden) {
-      await photoService.incrementPhotoViews(id);
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error tracking view:', err);
-    res.status(500).json({ success: false, error: 'Failed to track view' });
-  }
+export const trackView = (req: Request, res: Response) => {
+  // Counted only for visible photos (the write checks). The answer is the
+  // same either way, so tracking cannot be used to learn which ids exist.
+  recordPhotoView(req.params.id);
+  res.json({ success: true });
 };
 
 /**
  * Track a photo download (lightweight endpoint for analytics)
  */
-export const trackDownload = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const photo = await photoService.getPhotoById(id);
-    if (photo && !photo.is_hidden) {
-      await photoService.incrementPhotoDownloads(id);
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error tracking download:', err);
-    res.status(500).json({ success: false, error: 'Failed to track download' });
-  }
+export const trackDownload = (req: Request, res: Response) => {
+  recordPhotoDownload(req.params.id);
+  res.json({ success: true });
 };
 
 const alreadyUploaded = (existing: Photo | null) => ({

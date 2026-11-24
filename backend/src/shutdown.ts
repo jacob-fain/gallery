@@ -10,6 +10,9 @@ export interface ClosableServer {
 export interface ShutdownDeps {
   server: ClosableServer;
   closePool: () => Promise<void>;
+  // Work that outlives requests and still needs the pool, such as analytics
+  // writes started after a response was sent. Awaited before closePool.
+  drain?: () => Promise<void>;
   exit: (code: number) => void;
   // Must stay below the container's stop grace period (30 s in the compose
   // files), or Docker kills the process before it can exit on its own.
@@ -19,13 +22,14 @@ export interface ShutdownDeps {
 
 /**
  * Builds the SIGTERM/SIGINT handler: stop taking requests, let in-flight ones
- * finish, then close the database pool, so an upload that has written to S3
- * still gets its row inserted. If draining outlasts timeoutMs the process
+ * finish, let background work drain, then close the database pool, so an
+ * upload that has written to S3 still gets its row inserted. If draining outlasts timeoutMs the process
  * exits non-zero anyway. Repeated signals do not start a second shutdown.
  */
 export const createShutdown = ({
   server,
   closePool,
+  drain = async () => {},
   exit,
   timeoutMs = 25000,
   log = console.log,
@@ -47,6 +51,7 @@ export const createShutdown = ({
       await new Promise<void>((resolve, reject) =>
         server.close((err) => (err ? reject(err) : resolve()))
       );
+      await drain();
       await closePool();
       clearTimeout(timer);
       exit(0);
