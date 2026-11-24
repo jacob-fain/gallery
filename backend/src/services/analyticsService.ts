@@ -188,22 +188,26 @@ export const getTopPhotos = async (limit: number = 5): Promise<TopPhoto[]> => {
 const STORAGE_MULTIPLIER = 1.17;
 
 export const getStorageStats = async (): Promise<StorageStats> => {
-  const [totalResult, breakdownResult] = await Promise.all([
-    query(`SELECT COALESCE(SUM(file_size), 0) as total_bytes FROM photos`),
-    query(
-      `SELECT g.id, g.title, COALESCE(SUM(p.file_size), 0) as bytes
-      FROM galleries g
-      LEFT JOIN photos p ON p.gallery_id = g.id
-      GROUP BY g.id, g.title
-      UNION ALL
-      SELECT NULL, 'Unassigned', COALESCE(SUM(file_size), 0)
-      FROM photos
-      WHERE gallery_id IS NULL
-      ORDER BY bytes DESC`
-    ),
-  ]);
+  // One statement, so the total and the rows come from the same snapshot and
+  // always add up. Every photo is in exactly one row (a gallery, or the
+  // Unassigned row, which the ungrouped aggregate always returns).
+  const breakdownResult = await query(
+    `WITH per_row AS (
+       SELECT g.id, g.title, COALESCE(SUM(p.file_size), 0) AS bytes
+       FROM galleries g
+       LEFT JOIN photos p ON p.gallery_id = g.id
+       GROUP BY g.id, g.title
+       UNION ALL
+       SELECT NULL, 'Unassigned', COALESCE(SUM(file_size), 0)
+       FROM photos
+       WHERE gallery_id IS NULL
+     )
+     SELECT id, title, bytes, SUM(bytes) OVER () AS total_bytes
+     FROM per_row
+     ORDER BY bytes DESC`
+  );
 
-  const originalTotal = parseInt(totalResult.rows[0].total_bytes, 10);
+  const originalTotal = parseInt(breakdownResult.rows[0].total_bytes, 10);
 
   return {
     total_bytes: Math.round(originalTotal * STORAGE_MULTIPLIER),
