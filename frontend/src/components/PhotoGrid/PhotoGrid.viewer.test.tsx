@@ -10,6 +10,7 @@ vi.mock('../../api/client', () => ({
   getPhotoDownloadUrl: vi.fn(),
 }));
 
+const client = await import('../../api/client');
 const { default: PhotoGrid } = await import('./PhotoGrid');
 const { ZoomButtons } = await import('./ViewerChrome');
 const { VIEWER_IDLE_MS } = await import('./viewerIdle');
@@ -224,6 +225,76 @@ describe('viewer idle fade', () => {
 
     wait(VIEWER_IDLE_MS * 2);
     expect(isIdle()).toBe(false);
+  });
+
+  // A tap: the pointer goes down, the controls wake, and the click lands on
+  // whatever is under the finger once it lifts.
+  // jsdom has no PointerEvent, so the pointer type is set by hand.
+  function pointer(target: Element, type: 'pointerdown' | 'pointerup', pointerType: string) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'pointerType', { value: pointerType });
+    fireEvent(target, event);
+  }
+
+  function tap(target: Element, pointerType = 'touch') {
+    pointer(target, 'pointerdown', pointerType);
+    pointer(target, 'pointerup', pointerType);
+    fireEvent.click(target);
+  }
+
+  const control = (name: string) => within(lightbox()).getByRole('button', { name });
+
+  it('only shows the controls when a tap lands on a hidden Close, and closes on the next tap', () => {
+    openViewer();
+    wait(VIEWER_IDLE_MS);
+    expect(isIdle()).toBe(true);
+
+    tap(control('Close'));
+    wait(1000);
+    expect(screen.queryByRole('dialog')).not.toBeNull();
+    expect(isIdle()).toBe(false);
+
+    tap(control('Close'));
+    wait(1000);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('only shows the controls when a tap lands on a hidden Download, and downloads on the next tap', () => {
+    vi.mocked(client.getPhotoDownloadUrl).mockReturnValue(new Promise(() => {}));
+    openViewer();
+    wait(VIEWER_IDLE_MS);
+
+    tap(control('Download'));
+    expect(client.getPhotoDownloadUrl).not.toHaveBeenCalled();
+    expect(isIdle()).toBe(false);
+
+    tap(control('Download'));
+    expect(client.getPhotoDownloadUrl).toHaveBeenCalledWith('a', undefined);
+  });
+
+  it('drops only the waking tap: a swipe that wakes the controls leaves the next tap working', () => {
+    openViewer();
+    wait(VIEWER_IDLE_MS);
+
+    // A swipe: down and up with no click.
+    pointer(lightbox(), 'pointerdown', 'touch');
+    pointer(lightbox(), 'pointerup', 'touch');
+    expect(isIdle()).toBe(false);
+
+    tap(control('Close'));
+    wait(1000);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // In a browser a mouse press never reaches a control with pointer events
+  // off; here it checks only that a mouse gesture's click is not dropped.
+  it('leaves a mouse click as it was', () => {
+    openViewer();
+    wait(VIEWER_IDLE_MS);
+
+    tap(control('Close'), 'mouse');
+    wait(1000);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('starts shown each time the viewer opens', () => {

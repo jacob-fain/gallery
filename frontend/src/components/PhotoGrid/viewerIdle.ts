@@ -28,13 +28,42 @@ export function useViewerIdle(open: boolean, rootClass: string): boolean {
   useEffect(() => {
     if (!open) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let hidden = false;
+    let swallowing = false;
     const arm = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (!controlHasVisibleFocus(rootClass)) setIdle(true);
+        if (controlHasVisibleFocus(rootClass)) return;
+        hidden = true;
+        setIdle(true);
       }, VIEWER_IDLE_MS);
     };
-    const wake = () => {
+    // A touch tap's click is targeted after the finger lifts, by which time
+    // the woken controls take pointer events again, so a tap meant only to
+    // reveal them would press the hidden one under it. The click of a tap
+    // that wakes them is dropped. A mouse needs none of this: its press is
+    // already aimed at whatever was under the hidden control.
+    const swallowClick = (event: MouseEvent) => {
+      stopSwallowing();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const stopSwallowing = () => {
+      if (!swallowing) return;
+      swallowing = false;
+      window.removeEventListener('click', swallowClick, true);
+    };
+    const wake = (event: Event) => {
+      if (event.type === 'pointerdown') {
+        // A gesture that ended without a click (a swipe) leaves nothing to drop.
+        stopSwallowing();
+        const { pointerType } = event as PointerEvent;
+        if (hidden && (pointerType === 'touch' || pointerType === 'pen')) {
+          swallowing = true;
+          window.addEventListener('click', swallowClick, true);
+        }
+      }
+      hidden = false;
       setIdle(false);
       arm();
     };
@@ -42,6 +71,7 @@ export function useViewerIdle(open: boolean, rootClass: string): boolean {
     for (const type of ACTIVITY_EVENTS) document.addEventListener(type, wake, true);
     return () => {
       clearTimeout(timer);
+      stopSwallowing();
       for (const type of ACTIVITY_EVENTS) document.removeEventListener(type, wake, true);
       setIdle(false);
     };
