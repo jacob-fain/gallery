@@ -129,87 +129,88 @@ describe.skipIf(!db)('analytics (database)', () => {
     expect(Math.abs(sum - stats.total_bytes)).toBeLessThanOrEqual(stats.galleries.length);
   });
 
-  // The rollup tests live in 2019, before every window the tests above read,
-  // and only ever move the watermark up to late 2019, so the 2020 tests keep
-  // reading raw events whichever order they run in.
+  // The rollup tests start in 2017 and only ever move the watermark up to
+  // August 2019, before every window the tests above read, so the 2020 tests
+  // keep reading raw events whichever order they run in. Each test's events
+  // fall after the watermark the previous test left.
   describe('rollup and retention', () => {
-    const NOW_2019 = new Date('2019-06-15T15:00:00Z');
+    const NOW_2017 = new Date('2017-06-15T15:00:00Z');
 
     it('reports the same views before the rollup, after it, and after retention deletes the raw events', async () => {
       const g = await gallery();
       const p = await photo(g);
       const ids = [
         // 23:30 EDT on Jun 13 and 00:30 EDT on Jun 14: either side of New York midnight.
-        await event('gallery_view', '2019-06-14T03:30:00Z', g),
-        await event('gallery_view', '2019-06-14T04:30:00Z', g),
-        await event('gallery_view', '2019-06-10T12:00:00Z', g),
-        await event('gallery_view', '2019-06-10T13:00:00Z', g),
-        await event('gallery_view', '2019-06-10T14:00:00Z', g),
+        await event('gallery_view', '2017-06-14T03:30:00Z', g),
+        await event('gallery_view', '2017-06-14T04:30:00Z', g),
+        await event('gallery_view', '2017-06-10T12:00:00Z', g),
+        await event('gallery_view', '2017-06-10T13:00:00Z', g),
+        await event('gallery_view', '2017-06-10T14:00:00Z', g),
         // The window's first day, and a day before the window.
-        await event('gallery_view', '2019-05-17T05:00:00Z', g),
-        await event('gallery_view', '2019-05-01T12:00:00Z', g),
+        await event('gallery_view', '2017-05-17T05:00:00Z', g),
+        await event('gallery_view', '2017-05-01T12:00:00Z', g),
         // Other event types are rolled up too, but are not views.
-        await event('photo_view', '2019-06-10T12:00:00Z', g, p),
-        await event('photo_download', '2019-06-10T12:00:00Z', g, p),
-        await event('gallery_download', '2019-06-10T12:00:00Z', g),
+        await event('photo_view', '2017-06-10T12:00:00Z', g, p),
+        await event('photo_download', '2017-06-10T12:00:00Z', g, p),
+        await event('gallery_download', '2017-06-10T12:00:00Z', g),
       ];
       // Today is not complete, so it stays raw until a later run.
-      const today = await event('gallery_view', '2019-06-15T14:00:00Z', g);
+      const today = await event('gallery_view', '2017-06-15T14:00:00Z', g);
 
-      const before = await getViewsOverTime(30, NOW_2019);
-      expect(before[0]).toEqual({ date: '2019-05-17', views: 1 });
-      expect(before.find((d) => d.date === '2019-06-10')).toEqual({ date: '2019-06-10', views: 3 });
-      expect(before.find((d) => d.date === '2019-06-13')).toEqual({ date: '2019-06-13', views: 1 });
-      expect(before.find((d) => d.date === '2019-06-14')).toEqual({ date: '2019-06-14', views: 1 });
-      expect(before.at(-1)).toEqual({ date: '2019-06-15', views: 1 });
+      const before = await getViewsOverTime(30, NOW_2017);
+      expect(before[0]).toEqual({ date: '2017-05-17', views: 1 });
+      expect(before.find((d) => d.date === '2017-06-10')).toEqual({ date: '2017-06-10', views: 3 });
+      expect(before.find((d) => d.date === '2017-06-13')).toEqual({ date: '2017-06-13', views: 1 });
+      expect(before.find((d) => d.date === '2017-06-14')).toEqual({ date: '2017-06-14', views: 1 });
+      expect(before.at(-1)).toEqual({ date: '2017-06-15', views: 1 });
 
-      const first = await runAnalyticsRollup(NOW_2019);
-      expect(first).toEqual({ ran: true, rolledThrough: '2019-06-15', deleted: 0 });
-      expect(await getViewsOverTime(30, NOW_2019)).toEqual(before);
+      const first = await runAnalyticsRollup(NOW_2017);
+      expect(first).toEqual({ ran: true, rolledThrough: '2017-06-15', deleted: 0 });
+      expect(await getViewsOverTime(30, NOW_2017)).toEqual(before);
       expect(await rolledUp(g)).toEqual([
-        { event_type: 'gallery_download', day: '2019-06-10', photo_id: null, count: 1 },
-        { event_type: 'gallery_view', day: '2019-05-01', photo_id: null, count: 1 },
-        { event_type: 'gallery_view', day: '2019-05-17', photo_id: null, count: 1 },
-        { event_type: 'gallery_view', day: '2019-06-10', photo_id: null, count: 3 },
-        { event_type: 'gallery_view', day: '2019-06-13', photo_id: null, count: 1 },
-        { event_type: 'gallery_view', day: '2019-06-14', photo_id: null, count: 1 },
-        { event_type: 'photo_download', day: '2019-06-10', photo_id: p, count: 1 },
-        { event_type: 'photo_view', day: '2019-06-10', photo_id: p, count: 1 },
+        { event_type: 'gallery_download', day: '2017-06-10', photo_id: null, count: 1 },
+        { event_type: 'gallery_view', day: '2017-05-01', photo_id: null, count: 1 },
+        { event_type: 'gallery_view', day: '2017-05-17', photo_id: null, count: 1 },
+        { event_type: 'gallery_view', day: '2017-06-10', photo_id: null, count: 3 },
+        { event_type: 'gallery_view', day: '2017-06-13', photo_id: null, count: 1 },
+        { event_type: 'gallery_view', day: '2017-06-14', photo_id: null, count: 1 },
+        { event_type: 'photo_download', day: '2017-06-10', photo_id: p, count: 1 },
+        { event_type: 'photo_view', day: '2017-06-10', photo_id: p, count: 1 },
       ]);
 
       // A second run in the same day changes nothing.
-      expect(await runAnalyticsRollup(NOW_2019)).toEqual(first);
-      expect(await getViewsOverTime(30, NOW_2019)).toEqual(before);
+      expect(await runAnalyticsRollup(NOW_2017)).toEqual(first);
+      expect(await getViewsOverTime(30, NOW_2017)).toEqual(before);
 
-      // Four months later, in several chunks: Jun 15 is rolled up and every
-      // raw event above is past retention.
-      const later = new Date('2019-10-13T15:00:00Z');
+      // A year later, in several chunks: Jun 15 is rolled up and every raw
+      // event above is past retention.
+      const later = new Date('2018-06-20T15:00:00Z');
       const second = await runAnalyticsRollup(later);
-      expect(second.rolledThrough).toBe('2019-10-13');
+      expect(second.rolledThrough).toBe('2018-06-20');
       expect(second.deleted).toBeGreaterThanOrEqual(ids.length + 1);
       expect(await rawLeft([...ids, today])).toBe(0);
-      expect(await getViewsOverTime(30, NOW_2019)).toEqual(before);
+      expect(await getViewsOverTime(30, NOW_2017)).toEqual(before);
     });
 
     it('keeps raw events inside the retention period', async () => {
       const g = await gallery();
-      const recent = await event('gallery_view', '2019-10-20T12:00:00Z', g);
-      const now = new Date(Date.parse('2019-10-20T12:00:00Z') + (RETENTION_DAYS - 1) * 86_400_000);
+      const recent = await event('gallery_view', '2018-07-01T12:00:00Z', g);
+      const now = new Date(Date.parse('2018-07-01T12:00:00Z') + (RETENTION_DAYS - 1) * 86_400_000);
 
       await runAnalyticsRollup(now);
       expect(await rawLeft([recent])).toBe(1);
       expect(await rolledUp(g)).toEqual([
-        { event_type: 'gallery_view', day: '2019-10-20', photo_id: null, count: 1 },
+        { event_type: 'gallery_view', day: '2018-07-01', photo_id: null, count: 1 },
       ]);
     });
 
     it('does nothing while another instance holds the lock, and never double-counts concurrent runs', async () => {
       const g = await gallery();
       const fresh = [
-        await event('gallery_view', '2020-01-25T12:00:00Z', g),
-        await event('gallery_view', '2020-01-25T13:00:00Z', g),
+        await event('gallery_view', '2019-07-25T12:00:00Z', g),
+        await event('gallery_view', '2019-07-25T13:00:00Z', g),
       ];
-      const now = new Date('2020-02-01T15:00:00Z');
+      const now = new Date('2019-08-01T15:00:00Z');
 
       await withTransaction(async (client) => {
         await client.query(`SELECT pg_advisory_xact_lock($1)`, [ROLLUP_LOCK_KEY]);
@@ -219,15 +220,15 @@ describe.skipIf(!db)('analytics (database)', () => {
 
       await Promise.all([runAnalyticsRollup(now), runAnalyticsRollup(now), runAnalyticsRollup(now)]);
       expect(await rolledUp(g)).toEqual([
-        { event_type: 'gallery_view', day: '2020-01-25', photo_id: null, count: 2 },
+        { event_type: 'gallery_view', day: '2019-07-25', photo_id: null, count: 2 },
       ]);
       expect(await rawLeft(fresh)).toBe(2);
     });
 
     it('drops a deleted gallery from the rollup, as from the raw events', async () => {
       const g = await gallery();
-      await event('gallery_view', '2020-02-10T12:00:00Z', g);
-      await runAnalyticsRollup(new Date('2020-02-12T15:00:00Z'));
+      await event('gallery_view', '2019-08-10T12:00:00Z', g);
+      await runAnalyticsRollup(new Date('2019-08-12T15:00:00Z'));
       expect(await rolledUp(g)).toHaveLength(1);
 
       await query(`DELETE FROM galleries WHERE id = $1`, [g]);

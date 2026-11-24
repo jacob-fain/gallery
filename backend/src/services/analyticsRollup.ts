@@ -6,7 +6,7 @@ import { DASHBOARD_TIMEZONE } from './analyticsService';
  * deleted day has already been counted into analytics_daily, so the
  * dashboard reads the same numbers from the rollup.
  */
-export const RETENTION_DAYS = 90;
+export const RETENTION_DAYS = 365;
 
 /**
  * A day is rolled up only once it ended this long ago. Events are stamped
