@@ -14,6 +14,7 @@ import { attachmentDisposition, zipEntryNames } from '../services/downloadNames'
 import { writeZip } from '../services/zipStream';
 
 const PRIVATE_NEEDS_PASSWORD = 'A private gallery needs a password';
+const SLUG_TAKEN = 'A gallery with this slug already exists';
 
 export const listGalleries = async (_req: Request, res: Response) => {
   try {
@@ -167,7 +168,7 @@ export const createGallery = async (req: Request, res: Response) => {
     if (await galleryService.isSlugTaken(slug)) {
       return res.status(409).json({
         success: false,
-        error: 'A gallery with this slug already exists',
+        error: SLUG_TAKEN,
       });
     }
 
@@ -181,6 +182,9 @@ export const createGallery = async (req: Request, res: Response) => {
 
     res.status(201).json({ success: true, data: adminGallery(gallery) });
   } catch (err) {
+    if (galleryService.isSlugConflictError(err)) {
+      return res.status(409).json({ success: false, error: SLUG_TAKEN });
+    }
     console.error('Error creating gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to create gallery' });
   }
@@ -211,19 +215,9 @@ export const updateGallery = async (req: Request, res: Response) => {
       if (await galleryService.isSlugTaken(slug, id)) {
         return res.status(409).json({
           success: false,
-          error: 'A gallery with this slug already exists',
+          error: SLUG_TAKEN,
         });
       }
-    }
-
-    if (
-      !galleryService.privateGalleryHasPassword({
-        isPublic: is_public ?? existing.is_public,
-        hasStoredPassword: Boolean(existing.password_hash),
-        password,
-      })
-    ) {
-      return res.status(400).json({ success: false, error: PRIVATE_NEEDS_PASSWORD });
     }
 
     const gallery = await galleryService.updateGallery(id, {
@@ -233,9 +227,18 @@ export const updateGallery = async (req: Request, res: Response) => {
       is_public,
       password,
     });
+    if (!gallery) {
+      return res.status(404).json({ success: false, error: 'Gallery not found' });
+    }
 
-    res.json({ success: true, data: gallery ? adminGallery(gallery) : null });
+    res.json({ success: true, data: adminGallery(gallery) });
   } catch (err) {
+    if (err instanceof galleryService.PrivateGalleryNeedsPasswordError) {
+      return res.status(400).json({ success: false, error: PRIVATE_NEEDS_PASSWORD });
+    }
+    if (galleryService.isSlugConflictError(err)) {
+      return res.status(409).json({ success: false, error: SLUG_TAKEN });
+    }
     console.error('Error updating gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to update gallery' });
   }
@@ -248,23 +251,15 @@ export const deleteGallery = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // Check if gallery exists
-    const gallery = await galleryService.getGalleryById(id);
-    if (!gallery) {
+    const deleted = await galleryService.deleteGallery(id);
+    if (!deleted) {
       return res.status(404).json({ success: false, error: 'Gallery not found' });
     }
 
-    // Get all photos to delete from S3
-    const photos = await photoService.getPhotosByGalleryId(id);
-
-    // Best effort: deleteFiles logs failures and never throws, so S3 trouble
-    // leaves orphans for the cleanup script instead of blocking the delete.
-    await s3Service.deleteFiles(
-      photos.flatMap((photo) => [photo.s3_key, photo.s3_web_key, photo.s3_thumbnail_key])
-    );
-
-    // Delete gallery from DB (CASCADE will delete photo records)
-    await galleryService.deleteGallery(id);
+    // After the commit, so a failed delete never leaves rows pointing at
+    // removed objects. Best effort: deleteFiles logs failures and never
+    // throws, so S3 trouble leaves orphans for the cleanup script.
+    await s3Service.deleteFiles(deleted.s3Keys);
 
     res.json({ success: true, data: { deleted: true } });
   } catch (err) {
