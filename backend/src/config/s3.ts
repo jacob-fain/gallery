@@ -17,10 +17,16 @@ if (missingVars.length > 0) {
   logger.warn('S3 is not configured; S3 operations will fail until it is', { missing: missingVars });
 }
 
+// Points the client at an S3-compatible server instead of AWS (the e2e stack
+// uses one). Such servers serve buckets by path, not by subdomain. Unset in
+// production, where the SDK picks the AWS endpoint for the region.
+const endpoint = process.env.AWS_S3_ENDPOINT || undefined;
+
 // Create S3 client
 // Will fail on actual operations if credentials are missing
 export const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'us-east-1',
+  ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
   credentials: process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
     ? {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
