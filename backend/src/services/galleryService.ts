@@ -3,6 +3,28 @@ import { Gallery, Photo, GalleryWithCoverUrl, CreateGalleryInput, UpdateGalleryI
 import { hashPassword, verifyPassword } from './authService';
 import { getSignedUrl } from './s3Service';
 
+/**
+ * Whether a gallery would be reachable after a create or update: a private
+ * gallery with no password can never be opened, because verification fails
+ * when no hash is stored.
+ *
+ * password follows the update API: undefined keeps the stored password,
+ * null or an empty string removes it, any other string replaces it.
+ */
+export const privateGalleryHasPassword = ({
+  isPublic,
+  hasStoredPassword,
+  password,
+}: {
+  isPublic: boolean;
+  hasStoredPassword: boolean;
+  password: string | null | undefined;
+}): boolean => {
+  if (isPublic) return true;
+  if (password === undefined) return hasStoredPassword;
+  return typeof password === 'string' && password.length > 0;
+};
+
 export const getPublicGalleries = async (): Promise<Gallery[]> => {
   const result = await query(
     `SELECT * FROM galleries
