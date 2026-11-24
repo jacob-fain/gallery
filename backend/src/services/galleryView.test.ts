@@ -21,6 +21,7 @@ const cover = {
   coverWebUrl: 'web.webp',
   coverWidth: 1200,
   coverHeight: 800,
+  photoCount: 84,
 };
 
 describe('gallery views', () => {
@@ -42,7 +43,7 @@ describe('gallery views', () => {
     });
   });
 
-  it('public card adds only the cover photo', () => {
+  it('public card adds only the cover photo and the visible photo count', () => {
     expect(publicGalleryCard({ ...gallery(null), ...cover })).toEqual({
       id: 'g1',
       title: 'Wedding',
