@@ -101,15 +101,8 @@
   color: var(--color-text);
   font-size: 0.875rem;
   transition: background 0.2s;
-  position: relative;
+  min-height: 44px;
   white-space: nowrap;
-}
-
-/* Extends the tap target to 44px tall without changing the button's look. */
-.logoutBtn::before {
-  content: '';
-  position: absolute;
-  inset: -5px 0;
 }
 
 .logoutBtn:hover {

@@ -86,13 +86,6 @@ button {
   cursor: pointer;
 }
 
-/* The public navbar wraps to two rows here (Navbar.module.css). */
-@media (max-width: 440px) {
-  :root {
-    --navbar-height: 92px;
-  }
-}
-
 /* Main content area - account for fixed navbar */
 .main-content {
   padding-top: var(--navbar-height);
