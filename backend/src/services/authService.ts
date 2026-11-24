@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../config/db';
-import type { User, JwtPayload, GalleryAccessPayload } from '../types';
+import type { User, JwtPayload, Gallery, GalleryAccessPayload } from '../types';
 
 const BCRYPT_ROUNDS = 10;
 // A day, down from seven: a leaked token is useful for less time.
@@ -119,9 +119,10 @@ export const revokeTokens = async (userId: string): Promise<void> => {
  */
 export const generateGalleryAccessToken = (
   galleryId: string,
-  slug: string
+  slug: string,
+  accessVersion: number
 ): string => {
-  const payload: GalleryAccessPayload = { galleryId, slug };
+  const payload: GalleryAccessPayload = { galleryId, slug, accessVersion };
   return jwt.sign(payload, getJwtSecret(), {
     expiresIn: GALLERY_ACCESS_EXPIRY,
     algorithm: ALGORITHM,
@@ -146,12 +147,27 @@ export const verifyGalleryAccessToken = (
     if (
       typeof decoded !== 'object' ||
       typeof decoded.galleryId !== 'string' ||
-      typeof decoded.slug !== 'string'
+      typeof decoded.slug !== 'string' ||
+      !Number.isInteger(decoded.accessVersion)
     ) {
       return null;
     }
-    return { galleryId: decoded.galleryId, slug: decoded.slug };
+    return { galleryId: decoded.galleryId, slug: decoded.slug, accessVersion: decoded.accessVersion };
   } catch {
     return null;
   }
+};
+
+/**
+ * Whether an access token unlocks this gallery as it is now: signed for it,
+ * and issued since its access_version last moved (a password or visibility
+ * change revokes every token handed out before).
+ */
+export const galleryAccessTokenUnlocks = (
+  token: unknown,
+  gallery: Pick<Gallery, 'id' | 'access_version'>
+): boolean => {
+  if (typeof token !== 'string') return false;
+  const payload = verifyGalleryAccessToken(token);
+  return payload?.galleryId === gallery.id && payload.accessVersion === gallery.access_version;
 };

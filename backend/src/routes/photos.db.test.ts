@@ -48,7 +48,7 @@ describe.skipIf(!db)('photo routes (database)', () => {
       const g = await fixtures.gallery({ isPublic: false, password: 'pw' });
       const p = await fixtures.photo(g.id);
       expect((await request('GET', `/photos/${p.id}`, { admin: false })).status).toBe(404);
-      const token = encodeURIComponent(generateGalleryAccessToken(g.id, g.slug));
+      const token = encodeURIComponent(generateGalleryAccessToken(g.id, g.slug, 0));
       expect((await request('GET', `/photos/${p.id}?access=${token}`, { admin: false })).status).toBe(200);
     });
   });

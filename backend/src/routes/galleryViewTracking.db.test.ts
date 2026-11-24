@@ -63,10 +63,10 @@ describe.skipIf(!db)('POST /galleries/:slug/view (database)', () => {
 
     expect((await view(g.slug)).body).toEqual({ success: true });
     await view(g.slug, 'not-a-token');
-    await view(g.slug, generateGalleryAccessToken(other.id, other.slug));
+    await view(g.slug, generateGalleryAccessToken(other.id, other.slug, 0));
     expect(await viewCount(g.id)).toBe(0);
 
-    await view(g.slug, generateGalleryAccessToken(g.id, g.slug));
+    await view(g.slug, generateGalleryAccessToken(g.id, g.slug, 0));
     expect(await viewCount(g.id)).toBe(1);
   });
 

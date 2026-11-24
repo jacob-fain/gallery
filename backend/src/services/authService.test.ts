@@ -6,6 +6,7 @@ import {
   verifyToken,
   generateGalleryAccessToken,
   verifyGalleryAccessToken,
+  galleryAccessTokenUnlocks,
 } from './authService';
 
 const secret = process.env.JWT_SECRET as string;
@@ -18,7 +19,7 @@ describe('admin tokens', () => {
 
   it('reject a gallery access token', () => {
     // A visitor who knows one private gallery's password must not become admin.
-    const galleryToken = generateGalleryAccessToken('gallery-1', 'wedding');
+    const galleryToken = generateGalleryAccessToken('gallery-1', 'wedding', 0);
     expect(verifyToken(galleryToken)).toBeNull();
   });
 
@@ -67,8 +68,26 @@ describe('admin tokens', () => {
 
 describe('gallery access tokens', () => {
   it('verify and carry only the gallery fields', () => {
-    const payload = verifyGalleryAccessToken(generateGalleryAccessToken('gallery-1', 'wedding'));
-    expect(payload).toEqual({ galleryId: 'gallery-1', slug: 'wedding' });
+    const payload = verifyGalleryAccessToken(generateGalleryAccessToken('gallery-1', 'wedding', 0));
+    expect(payload).toEqual({ galleryId: 'gallery-1', slug: 'wedding', accessVersion: 0 });
+  });
+
+  it('reject a token issued before they carried an access version', () => {
+    const unversioned = jwt.sign({ galleryId: 'gallery-1', slug: 'wedding' }, secret, {
+      expiresIn: '24h',
+      algorithm: 'HS256',
+      issuer: 'gallery-api',
+      audience: 'gallery-access',
+    });
+    expect(verifyGalleryAccessToken(unversioned)).toBeNull();
+  });
+
+  it('unlock only the gallery they name, at the access version they carry', () => {
+    const token = generateGalleryAccessToken('gallery-1', 'wedding', 2);
+    expect(galleryAccessTokenUnlocks(token, { id: 'gallery-1', access_version: 2 })).toBe(true);
+    expect(galleryAccessTokenUnlocks(token, { id: 'gallery-1', access_version: 3 })).toBe(false);
+    expect(galleryAccessTokenUnlocks(token, { id: 'gallery-2', access_version: 2 })).toBe(false);
+    expect(galleryAccessTokenUnlocks(undefined, { id: 'gallery-1', access_version: 2 })).toBe(false);
   });
 
   it('reject an admin token', () => {
