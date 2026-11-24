@@ -12,6 +12,10 @@ on:
           - patch
           - minor
           - major
+      title:
+        description: 'Release title after the version, two to four words (e.g. Contact Form Paused)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -79,62 +83,6 @@ jobs:
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
           echo "Next version will be: $new_version"
           echo "VERSION=$new_version" >> $GITHUB_ENV
-
-      - name: Generate changelog with Claude
-        id: changelog
-        run: |
-          current="${{ steps.version.outputs.current_version }}"
-          
-          echo "Generating changelog from $current to HEAD..."
-          
-          # Get commits since last tag
-          if [ "$current" != "v0.0.0" ]; then
-            commits=$(git log $current..HEAD --oneline --no-merges)
-          else
-            commits=$(git log --oneline --no-merges)
-          fi
-          
-          if [ -z "$commits" ]; then
-            echo "No new commits since last release"
-            changelog="## Changes\n\nNo new changes since last release."
-          else
-            # Generate changelog using Claude
-            echo "Sending $(echo "$commits" | wc -l) commits to Claude for analysis..."
-            
-            changelog=$(curl -s -X POST https://api.anthropic.com/v1/messages \
-              -H "Content-Type: application/json" \
-              -H "X-API-Key: ${{ secrets.ANTHROPIC_API_KEY }}" \
-              -H "anthropic-version: 2023-06-01" \
-              -d "{
-                \"model\": \"claude-3-sonnet-20240229\",
-                \"max_tokens\": 1000,
-                \"messages\": [{
-                  \"role\": \"user\", 
-                  \"content\": \"Generate a professional changelog from these git commits. Follow this exact format:\n\n## Changes\n\n### Features\n- [New features and improvements]\n\n### Bug Fixes\n- [Bug fixes and corrections]\n\n### Other Changes\n- [Other notable changes]\n\nMake descriptions clear and user-friendly, not raw commit messages. Group related changes together. If there are no changes in a category, omit that section entirely. Here are the commits:\n\n$commits\"
-                }]
-              }" | jq -r '.content[0].text' 2>/dev/null)
-            
-            if [ -z "$changelog" ] || [ "$changelog" = "null" ]; then
-              echo "Claude API failed, falling back to simple changelog"
-              changelog="## Changes\n\n### Recent Updates"
-              while IFS= read -r line; do
-                if [ -n "$line" ]; then
-                  changelog="$changelog\n- $line"
-                fi
-              done <<< "$commits"
-            fi
-          fi
-          
-          # Save changelog
-          echo -e "$changelog" > /tmp/changelog.md
-          {
-            echo 'changelog<<EOF'
-            cat /tmp/changelog.md
-            echo EOF
-          } >> $GITHUB_OUTPUT
-          
-          echo "Generated changelog:"
-          cat /tmp/changelog.md
 
       - name: Pre-deployment validation
         run: |
@@ -343,8 +291,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.version.outputs.new_version }}
-          release_name: Release ${{ steps.version.outputs.new_version }}
-          body: ${{ steps.changelog.outputs.changelog }}
+          release_name: ${{ steps.version.outputs.new_version }} - ${{ inputs.title }}
+          body: Release notes are added after the deploy is verified.
           draft: false
           prerelease: false
 
@@ -433,34 +381,3 @@ jobs:
           echo "Container Status:"
           docker ps --filter "name=gallery" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Could not get status"
           echo ""
-
-      - name: Send notification email
-        if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "Gallery Release ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Successful' || 'Failed' }}: ${{ env.VERSION }}"
-          to: jacobharryfain@gmail.com
-          from: "Gallery Deploy <noreply@jacobfain.gallery>"
-          body: |
-            Gallery Atomic Release and Deploy Report
-            
-            Status: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'SUCCESS' || 'FAILED' }}
-            Version: ${{ env.VERSION }}
-            Time: ${{ env.DEPLOY_TIME }}
-            
-            ${{ steps.changelog.outputs.changelog }}
-            
-            ## Technical Details
-            - Backup Created: ${{ env.BACKUP_FILE && 'Yes' || 'No' }}
-            - Health Checks: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Passed' || 'Failed' }}
-            - Release Created: ${{ env.DEPLOYMENT_SUCCESS == 'true' && 'Yes' || 'No (rolled back)' }}
-            
-            ## Links
-            - Site: https://jacobfain.gallery
-            - View Logs: https://github.com/jacob-fain/gallery/actions
-            
-            ${{ env.DEPLOYMENT_SUCCESS != 'true' && 'Deployment failed and was rolled back. No release artifacts were created.' || 'Release successfully created and deployed.' }}

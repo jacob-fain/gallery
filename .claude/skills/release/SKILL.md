@@ -22,7 +22,10 @@ A release is a production deploy. It needs Jacob's explicit word every time.
 - The `PULL_DEPLOY_ENABLED` repository variable is `true`. Until the pull deploy
   is installed, production still deploys through the old "Release and
   Deploy" workflow instead, which creates its own tag; do not tag by hand
-  then.
+  then. Run it with `gh workflow run atomic-release-deploy.yml -f
+  version_type=patch -f title="Two To Four Words"`. It publishes the release
+  with a placeholder body; once the deploy is verified (step 7), set the
+  approved notes with `gh release edit vX.Y.Z --notes-file <file>`.
 
 ## 2. Version
 
@@ -44,10 +47,16 @@ A release is a production deploy. It needs Jacob's explicit word every time.
 Full changelog: https://github.com/jacob-fain/gallery/compare/<lastTag>...<version>
 ```
 
+- Each bullet is one complete sentence in product voice, present tense,
+  describing what the site now does ("Admin sessions last a day instead of
+  a week"), never what was done to the code.
 - Bullets only: no lead paragraph, no headers, no category labels.
 - Most significant first. Only real changes, no filler.
 - No issue or PR numbers, no commit references, no internal plumbing a
-  visitor or admin cannot notice.
+  visitor or admin cannot notice (workflow files, secret names, migration
+  numbers). Real technical terms are fine when they name the change itself
+  (Content-Security-Policy, HSTS, rate limiting). Changes only to CI, docs
+  or agent procedures are left out.
 - Security fixes are always listed, stated specifically without exploit
   detail ("Private gallery photos can no longer be fetched without the
   gallery's password").
