@@ -5,7 +5,10 @@
   color: var(--color-text-light);
   background: none;
   border: none;
-  padding: 0;
+  /* 44x44 hit area around the 18px icon; the negative margin keeps its
+     layout footprint at the icon's size so neighbours do not move. */
+  padding: 13px;
+  margin: -13px;
   cursor: pointer;
   transition: color 0.15s ease;
 }

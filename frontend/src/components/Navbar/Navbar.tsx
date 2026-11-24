@@ -65,7 +65,7 @@ export default function Navbar() {
               </svg>
             </button>
             )}
-            <ThemeToggle />
+            <ThemeToggle className={styles.iconLink} />
           </div>
         </div>
       </nav>
