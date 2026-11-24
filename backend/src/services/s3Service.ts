@@ -24,7 +24,7 @@ setInterval(() => {
       urlCache.delete(key);
     }
   }
-}, 10 * 60 * 1000);
+}, 10 * 60 * 1000).unref();
 
 /**
  * Upload a file to S3
