@@ -53,6 +53,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       # Warnings fail the job too, so lint stays clean instead of drifting.
       - run: npx eslint . --max-warnings 0
+      - run: npm test
       - run: npm run build
 
   secret-scan:
