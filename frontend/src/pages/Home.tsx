@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getFeaturedPhotos } from '../api/client';
 import type { Photo } from '../types';
+import LoadError from '../components/StatusMessage/LoadError';
 import styles from './Home.module.css';
 
 export default function Home() {
   const [featuredPhotos, setFeaturedPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [heroLoaded, setHeroLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -17,13 +19,13 @@ export default function Home() {
         setFeaturedPhotos(photos);
       } catch (err) {
         console.error('Failed to load featured photos:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load');
+        setFailed(true);
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, []);
+  }, [attempt]);
 
   // First featured photo becomes hero, rest go in featured grid
   const heroPhoto = featuredPhotos[0];
@@ -33,12 +35,15 @@ export default function Home() {
     return <div className={styles.loadingScreen} />;
   }
 
-  if (error) {
+  if (failed) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <h2>Error loading page</h2>
-        <p>{error}</p>
-      </div>
+      <LoadError
+        onRetry={() => {
+          setFailed(false);
+          setLoading(true);
+          setAttempt((n) => n + 1);
+        }}
+      />
     );
   }
 

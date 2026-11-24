@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
 import { getGallery, getGalleryPhotos, verifyGalleryPassword, getGalleryDownloadUrl } from '../api/client';
+import { isNotFound, visitorMessage } from '../api/errors';
+import LoadError from '../components/StatusMessage/LoadError';
+import NotFound from './NotFound';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
 import type { Gallery as GalleryType, Photo, PrivateGalleryResponse } from '../types';
@@ -22,7 +25,8 @@ export default function Gallery() {
   const [gallery, setGallery] = useState<GalleryType | PrivateGalleryResponse | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<'missing' | 'failed' | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   // Password form state
   const [password, setPassword] = useState('');
@@ -82,13 +86,13 @@ export default function Gallery() {
           }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load gallery');
+        setLoadError(isNotFound(err) ? 'missing' : 'failed');
       } finally {
         setLoading(false);
       }
     }
     loadGallery();
-  }, [slug]);
+  }, [slug, attempt]);
 
   // Handle password verification
   const handlePasswordSubmit = async (e: FormEvent) => {
@@ -118,7 +122,7 @@ export default function Gallery() {
       const photosData = await getGalleryPhotos(slug, result.accessToken);
       setPhotos(photosData);
     } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Invalid password');
+      setPasswordError(visitorMessage(err, 'The password could not be checked. Please try again.'));
     } finally {
       setVerifying(false);
     }
@@ -128,12 +132,27 @@ export default function Gallery() {
     return <div className="loading">Loading...</div>;
   }
 
-  if (error) {
-    return <div className="error">{error}</div>;
+  if (loadError === 'failed') {
+    return (
+      <LoadError
+        onRetry={() => {
+          setLoadError(null);
+          setLoading(true);
+          setAttempt((n) => n + 1);
+        }}
+      />
+    );
   }
 
-  if (!gallery) {
-    return <div className="error">Gallery not found</div>;
+  if (loadError === 'missing' || !gallery) {
+    return (
+      <NotFound
+        title="Gallery not found"
+        message="This gallery does not exist or is no longer available."
+        linkTo="/galleries"
+        linkLabel="View all galleries"
+      />
+    );
   }
 
   // Show password form for private galleries that haven't been unlocked

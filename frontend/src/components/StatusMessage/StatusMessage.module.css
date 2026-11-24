@@ -1,0 +1,60 @@
+/* Mirrors the private gallery password screen (pages/Gallery.module.css)
+   and the homepage's outlined link (pages/Home.module.css). */
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.fullPage {
+  min-height: 100vh;
+}
+
+.title {
+  font-size: 1.5rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-light);
+}
+
+.message {
+  max-width: 400px;
+  margin-top: 12px;
+  color: var(--color-text-light);
+}
+
+.action {
+  margin-top: 32px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  background: transparent;
+  padding: 16px 32px;
+  border: 1px solid var(--color-border);
+  border-radius: 0;
+  transition: all 0.3s ease;
+}
+
+.action:hover {
+  color: var(--color-text);
+  border-color: var(--color-text);
+}
+
+@media (max-width: 640px) {
+  .title {
+    font-size: 1.25rem;
+  }
+
+  .action {
+    padding: 14px 24px;
+  }
+}
