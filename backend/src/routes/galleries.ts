@@ -6,7 +6,7 @@ import { uuidParam, validateBodyIds } from '../middleware/validateIds';
 
 const router = Router();
 
-router.param('id', uuidParam);
+router.param('id', uuidParam('Gallery not found'));
 
 // ============ Admin Routes (auth required) ============
 

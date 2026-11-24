@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import app from '../app';
-import { isUuid, validateBodyIds } from './validateIds';
+import { isUuid, validateBodyIds, MAX_IDS, JSON_BODY_LIMIT } from './validateIds';
 
 describe('isUuid', () => {
   it('accepts UUIDs and rejects everything else', () => {
@@ -39,7 +39,20 @@ describe('malformed ids through the app', () => {
   ])('%s %s answers 404, not 500', async (method, path) => {
     const res = await fetch(base + path, { method });
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ success: false, error: 'Not found' });
+    // Identical to a well-formed id that names no photo.
+    expect(await res.json()).toEqual({ success: false, error: 'Photo not found' });
+  });
+
+  it('admits a full list of ids past the body parser', async () => {
+    // Body parsing runs before auth: an oversized body would answer 413,
+    // an accepted one reaches auth and answers 401 without a token.
+    const ids = Array(MAX_IDS).fill('3f2b8c1e-9a4d-4e6f-8b2a-1c3d5e7f9a0b');
+    const res = await fetch(base + '/photos/reorder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gallery_id: ids[0], photo_ids: ids }),
+    });
+    expect(res.status).toBe(401);
   });
 });
 
@@ -82,10 +95,20 @@ describe('validateBodyIds', () => {
     expect(res.body).toEqual({ success: false, error: 'target_gallery_id must be a valid id' });
   });
 
+  it('accepts a whole large gallery, up to the cap', () => {
+    // Reorder and shuffle send every photo id in the gallery.
+    expect(run({ photo_ids: 'uuid[]' }, { photo_ids: Array(MAX_IDS).fill(id) }).passed).toBe(true);
+  });
+
+  it('fits a full list of ids inside the JSON body limit', () => {
+    const bytes = Buffer.byteLength(JSON.stringify({ gallery_id: id, photo_ids: Array(MAX_IDS).fill(id) }));
+    expect(bytes).toBeLessThan(parseInt(JSON_BODY_LIMIT, 10) * 1024);
+  });
+
   it('refuses empty, oversized or impure id lists', () => {
     expect(run({ photo_ids: 'uuid[]' }, { photo_ids: [] }).passed).toBe(false);
     expect(run({ photo_ids: 'uuid[]' }, { photo_ids: [id, 'x'] }).passed).toBe(false);
-    expect(run({ photo_ids: 'uuid[]' }, { photo_ids: Array(1001).fill(id) }).passed).toBe(false);
+    expect(run({ photo_ids: 'uuid[]' }, { photo_ids: Array(MAX_IDS + 1).fill(id) }).passed).toBe(false);
     expect(run({ photo_ids: 'uuid[]' }, { photo_ids: id }).passed).toBe(false);
   });
 });
