@@ -38,6 +38,12 @@ app.use(compression({
 app.use('/api/client-errors', clientErrorsRouter);
 
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
+// Express 5 leaves req.body undefined when a request has no body, and the
+// handlers destructure it; an empty object lets their own validation answer.
+app.use((req, _res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
 
 // Handlers that return public data mark their success responses cacheable;
 // everything else, errors included, is never stored.

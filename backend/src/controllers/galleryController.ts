@@ -382,7 +382,7 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
     const { slug } = req.params;
     const { password } = req.body;
 
-    if (!password) {
+    if (typeof password !== 'string' || !password) {
       return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
