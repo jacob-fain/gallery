@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '../../../contexts/auth';
 import ThemeToggle from '../../ThemeToggle/ThemeToggle';
 import styles from './AdminLayout.module.css';
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   DndContext,
@@ -17,7 +17,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/auth';
 import {
   getAllGalleries,
   createGallery,
@@ -154,7 +154,7 @@ export default function Galleries() {
     }
   };
 
-  const fetchGalleries = async () => {
+  const fetchGalleries = useCallback(async () => {
     if (!token) return;
 
     try {
@@ -165,11 +165,11 @@ export default function Galleries() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     fetchGalleries();
-  }, [token]);
+  }, [fetchGalleries]);
 
   const handleCreate = async (data: CreateGalleryInput | UpdateGalleryInput) => {
     if (!token) return;

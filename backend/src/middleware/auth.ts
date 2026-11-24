@@ -1,48 +1,51 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../services/authService';
+import { verifyToken, getUserById } from '../services/authService';
+
+const deny = (res: Response, error: string): void => {
+  res.status(401).json({ success: false, error });
+};
 
 /**
- * Middleware to require authentication
- * Extracts JWT from Authorization header and verifies it
- * Attaches decoded user to req.user
+ * Require an admin session: a valid admin token in "Authorization: Bearer
+ * <token>" whose user still exists. Attaches the user to req.user.
  */
-export const authMiddleware = (
+export const authMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
-): void => {
+): Promise<void> => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
-    res.status(401).json({
-      success: false,
-      error: 'Authentication required',
-    });
+    deny(res, 'Authentication required');
     return;
   }
 
-  // Expect "Bearer <token>"
   const parts = authHeader.split(' ');
   if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    res.status(401).json({
-      success: false,
-      error: 'Invalid authorization format. Use: Bearer <token>',
-    });
+    deny(res, 'Invalid authorization format. Use: Bearer <token>');
     return;
   }
 
-  const token = parts[1];
-  const payload = verifyToken(token);
-
+  const payload = verifyToken(parts[1]);
   if (!payload) {
-    res.status(401).json({
-      success: false,
-      error: 'Invalid or expired token',
-    });
+    deny(res, 'Invalid or expired token');
     return;
   }
 
-  // Attach user to request for use in route handlers
+  // Checked on every request so a deleted account loses access immediately,
+  // not when its token expires.
+  try {
+    const user = await getUserById(payload.userId);
+    if (!user) {
+      deny(res, 'Invalid or expired token');
+      return;
+    }
+  } catch (err) {
+    next(err);
+    return;
+  }
+
   req.user = payload;
   next();
 };
