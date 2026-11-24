@@ -6,7 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jacob Fain Photography</title>
     <!-- Crawlers and link unfurlers do not run the app, so these static tags
-         are the whole preview for every page. og:image must be absolute. -->
+         are the whole preview for every page but a public gallery's, whose
+         title, description, image and URL the backend fills in
+         (backend/src/services/sharePreview.ts finds the tags by these exact
+         attributes). og:image must be absolute. -->
     <meta name="description" content="Photography portfolio of Jacob Fain." />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Jacob Fain Photography" />
