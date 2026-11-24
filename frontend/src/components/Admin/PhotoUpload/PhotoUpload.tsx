@@ -166,7 +166,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
           <span className={styles.hint}>
             {checkOnly
               ? 'Nothing will be uploaded'
-              : 'JPEG, PNG, WebP, TIFF, HEIF up to 50MB. Already-uploaded photos are skipped.'}
+              : 'JPEG, PNG, WebP, TIFF up to 50MB. Already-uploaded photos are skipped.'}
           </span>
         </div>
       </div>
