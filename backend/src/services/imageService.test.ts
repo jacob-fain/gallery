@@ -40,6 +40,38 @@ describe('processImage', () => {
   });
 });
 
+describe('processImage orientation', () => {
+  // 300x200 pixels stored, tagged "rotate 90 degrees clockwise" (EXIF 6), so
+  // it displays as 200x300: how phones and many cameras save portraits.
+  const sideways = () =>
+    sharp({ create: { width: 300, height: 200, channels: 3, background: '#468' } })
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toBuffer();
+
+  it('records the displayed dimensions, not the stored ones', async () => {
+    const result = await processImage(await sideways());
+    expect(result.original).toMatchObject({ width: 200, height: 300 });
+  });
+
+  it('turns the derived files upright', async () => {
+    const result = await processImage(await sideways());
+    expect(result.web).toMatchObject({ width: 200, height: 300 });
+    expect(result.thumbnail).toMatchObject({ width: 200, height: 300 });
+    const web = await sharp(result.web.buffer).metadata();
+    expect(web).toMatchObject({ width: 200, height: 300 });
+    // WebP carries no orientation tag, so upright pixels are all a viewer has.
+    expect(web.orientation).toBeUndefined();
+  });
+
+  it('keeps the original byte for byte, tag included', async () => {
+    const input = await sideways();
+    const result = await processImage(input);
+    expect(result.original.buffer.equals(input)).toBe(true);
+    expect((await sharp(result.original.buffer).metadata()).orientation).toBe(6);
+  });
+});
+
 describe('isValidImage', () => {
   it('accepts the supported formats', async () => {
     expect(await isValidImage(await image(10, 10, 'jpeg'))).toBe(true);
