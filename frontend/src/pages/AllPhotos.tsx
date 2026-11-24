@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
 import { getAllPhotos } from '../api/client';
 import { shuffle } from '../utils/shuffle';
+import { withFreshUrls } from '../utils/expiredImages';
 import type { Photo } from '../types';
 import styles from './AllPhotos.module.css';
 
@@ -9,6 +10,13 @@ export default function AllPhotos() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const refreshPhotos = useCallback(() => {
+    getAllPhotos(undefined, { fresh: true })
+      .then((fresh) => setPhotos((current) => withFreshUrls(current, fresh)))
+      // The photos already shown stay; a failed refresh changes nothing.
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -62,7 +70,7 @@ export default function AllPhotos() {
       {photos.length === 0 ? (
         <div className="loading">No photos yet. Check back soon!</div>
       ) : (
-        <PhotoGrid photos={photos} />
+        <PhotoGrid photos={photos} onImagesExpired={refreshPhotos} />
       )}
     </div>
   );
