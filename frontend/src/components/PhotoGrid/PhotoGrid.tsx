@@ -12,6 +12,7 @@ import { trackPhotoView, trackPhotoDownload } from '../../api/client';
 import ExifOverlay from './ExifOverlay';
 import { derivedImages } from '../../utils/imageSizes';
 import { createRefreshGuard } from '../../utils/expiredImages';
+import { photoAlt } from '../../utils/photoAlt';
 import styles from './PhotoGrid.module.css';
 
 // Extend slide type to include EXIF data
@@ -28,6 +29,9 @@ interface SlideWithExif {
 
 interface PhotoGridProps {
   photos: Photo[];
+  // Names the gallery in each photo's alt text. Without it a photo's own
+  // gallery_title is used when the API joined one.
+  galleryTitle?: string;
   // Called when a grid or lightbox image fails to load, which after the page
   // has been open a while means its signed URL expired. The parent refetches
   // the photos; calls are rate limited here.
@@ -51,7 +55,7 @@ function getPhotoUrl(photo: Photo, size: 'thumbnail' | 'web' | 'original'): stri
   return photo.webUrl || photo.url || photo.thumbnailUrl || '';
 }
 
-export default function PhotoGrid({ photos, onImagesExpired }: PhotoGridProps) {
+export default function PhotoGrid({ photos, galleryTitle, onImagesExpired }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const lastTrackedIndex = useRef(-1);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -87,7 +91,10 @@ export default function PhotoGrid({ photos, onImagesExpired }: PhotoGridProps) {
     }
   }, [lightboxIndex, photos]);
 
-  const albumPhotos = photos.map((photo) => {
+  const altFor = (photo: Photo, index: number) =>
+    photoAlt(index, photos.length, galleryTitle ?? photo.gallery_title);
+
+  const albumPhotos = photos.map((photo, index) => {
     const candidates = derivedImages(photo);
     const largest = candidates[candidates.length - 1];
     // The album appends { src, width } to the srcset whenever no candidate
@@ -98,11 +105,11 @@ export default function PhotoGrid({ photos, onImagesExpired }: PhotoGridProps) {
       srcSet: candidates,
       width: largest?.width ?? photo.width,
       height: largest?.height ?? photo.height,
-      alt: photo.original_filename,
+      alt: altFor(photo, index),
     };
   });
 
-  const lightboxSlides: SlideWithExif[] = photos.map((photo) => {
+  const lightboxSlides: SlideWithExif[] = photos.map((photo, index) => {
     const candidates = derivedImages(photo);
     const largest = candidates[candidates.length - 1];
     return {
@@ -112,7 +119,7 @@ export default function PhotoGrid({ photos, onImagesExpired }: PhotoGridProps) {
       srcSet: candidates,
       width: largest?.width ?? photo.width,
       height: largest?.height ?? photo.height,
-      alt: photo.original_filename,
+      alt: altFor(photo, index),
       download: getPhotoUrl(photo, 'original'),
       downloadFilename: photo.original_filename,
       exif: photo.exif_data,

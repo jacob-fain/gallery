@@ -20,6 +20,7 @@ import { useAuth } from '../../../contexts/auth';
 import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries, updatePhoto } from '../../../api/client';
 import type { Photo, Gallery } from '../../../types';
 import { describeFailures, isPhotoGone, settleBulk } from '../../../utils/bulkResults';
+import { photoAlt } from '../../../utils/photoAlt';
 import styles from './PhotoManager.module.css';
 
 // Select value for the Unassigned target; gallery ids are UUIDs, so it cannot collide.
@@ -34,6 +35,7 @@ interface PhotoManagerProps {
 
 interface SortablePhotoCardProps {
   photo: Photo;
+  alt: string;
   isCover: boolean;
   isSelected: boolean;
   isDeleting: boolean;
@@ -47,6 +49,7 @@ interface SortablePhotoCardProps {
 
 function SortablePhotoCard({
   photo,
+  alt,
   isCover,
   isSelected,
   isDeleting,
@@ -87,7 +90,7 @@ function SortablePhotoCard({
           >
             <img
               src={photo.thumbnailUrl}
-              alt={photo.original_filename}
+              alt={alt}
               className={styles.image}
             />
             <div className={styles.coverSelectHint}>Click to set as cover</div>
@@ -101,7 +104,7 @@ function SortablePhotoCard({
           >
             <img
               src={photo.thumbnailUrl}
-              alt={photo.original_filename}
+              alt={alt}
               className={styles.image}
             />
             {sortable && <div className={styles.dragHint}>Drag to reorder</div>}
@@ -581,10 +584,11 @@ export default function PhotoManager({
           strategy={rectSortingStrategy}
         >
           <div className={`${styles.grid} ${coverSelectMode ? styles.coverSelectMode : ''}`}>
-            {localPhotos.map((photo) => (
+            {localPhotos.map((photo, index) => (
               <SortablePhotoCard
                 key={photo.id}
                 photo={photo}
+                alt={photoAlt(index, localPhotos.length, gallery?.title)}
                 isCover={effectiveCoverId === photo.id}
                 isSelected={selectedIds.has(photo.id)}
                 isDeleting={deletingIds.has(photo.id)}

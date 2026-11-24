@@ -30,7 +30,7 @@ export default function TopPhotos({ data }: TopPhotosProps) {
                 to={photo.gallery_id ? `/galleries/${photo.gallery_id}/photos` : '/unassigned'}
                 className={styles.photoThumbnail}
               >
-                <img src={photo.thumbnailUrl} alt={photo.filename} />
+                <img src={photo.thumbnailUrl} alt={`Top photo ${index + 1} in ${photo.gallery_title}`} />
               </Link>
               <div className={styles.itemInfo}>
                 <div className={styles.itemTitle}>{photo.filename}</div>
