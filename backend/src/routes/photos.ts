@@ -3,13 +3,22 @@ import * as photoController from '../controllers/photoController';
 import { authMiddleware } from '../middleware/auth';
 import { trackingRateLimit } from '../middleware/rateLimit';
 import { upload } from '../config/upload';
+import { uuidParam, validateBodyIds } from '../middleware/validateIds';
 
 const router = Router();
+
+router.param('id', uuidParam('Photo not found'));
 
 // ============ Admin Routes (auth required) ============
 
 // POST /api/photos/upload - Upload photo (admin only)
-router.post('/upload', authMiddleware, upload.single('photo'), photoController.uploadPhoto);
+router.post(
+  '/upload',
+  authMiddleware,
+  upload.single('photo'),
+  validateBodyIds({ galleryId: 'uuid?' }),
+  photoController.uploadPhoto
+);
 
 // GET /api/photos/admin/unassigned - List photos without a gallery
 router.get('/admin/unassigned', authMiddleware, photoController.listUnassignedPhotos);
@@ -18,10 +27,20 @@ router.get('/admin/unassigned', authMiddleware, photoController.listUnassignedPh
 router.post('/admin/check-duplicates', authMiddleware, photoController.checkDuplicates);
 
 // PUT /api/photos/reorder - Reorder photos in a gallery
-router.put('/reorder', authMiddleware, photoController.reorderPhotos);
+router.put(
+  '/reorder',
+  authMiddleware,
+  validateBodyIds({ gallery_id: 'uuid', photo_ids: 'uuid[]' }),
+  photoController.reorderPhotos
+);
 
 // PUT /api/photos/move - Move photos to another gallery
-router.put('/move', authMiddleware, photoController.movePhotos);
+router.put(
+  '/move',
+  authMiddleware,
+  validateBodyIds({ photo_ids: 'uuid[]', target_gallery_id: 'uuid' }),
+  photoController.movePhotos
+);
 
 // PUT /api/photos/:id - Update photo (featured, sort_order)
 router.put('/:id', authMiddleware, photoController.updatePhoto);
