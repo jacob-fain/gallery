@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Request, Response } from 'express';
+import { createRouter } from '../middleware/requestLog';
 import { query } from '../config/db';
 import { isS3Configured } from '../config/s3';
 import { logger } from '../utils/logger';
@@ -72,7 +73,7 @@ export const createReadiness = ({
 
 const checkReady = createReadiness({ probe: () => query('SELECT 1') });
 
-const router = Router();
+const router = createRouter();
 
 // Liveness: the process answers. Uptime monitoring watches this path.
 router.get('/health', (_req: Request, res: Response) => {

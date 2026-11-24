@@ -245,9 +245,11 @@ jobs:
           cd "$GALLERY_DIR"
           
           # Build and start all services. The backend reports BUILD_ID on
-          # /api/health/ready: an opaque hash of version and commit, the same
-          # 16 hex characters images.yml produces, so the public route
-          # reveals no version. Commit and version are shown only to the
+          # /api/health/ready: an opaque hash of version and commit, so the
+          # public route reveals no version. It has the format of images.yml's
+          # id (16 hex characters of a sha256 over name:commit) but hashes the
+          # version where images.yml hashes the branch, so the two ids for a
+          # commit differ. Commit and version are shown only to the
           # admin. The frontend bakes BUILD_ID into its bundle for browser
           # error reports and ignores the others.
           build_id=$(printf '%s:%s' "$VERSION" "$COMMIT_SHA" | sha256sum | cut -c1-16)

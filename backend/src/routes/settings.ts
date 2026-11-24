@@ -1,8 +1,8 @@
-import { Router } from 'express';
+import { createRouter } from '../middleware/requestLog';
 import * as settingsController from '../controllers/settingsController';
 import { authMiddleware } from '../middleware/auth';
 
-const router = Router();
+const router = createRouter();
 
 // GET /api/settings - Public, get all settings
 router.get('/', settingsController.getSettings);

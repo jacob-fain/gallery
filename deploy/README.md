@@ -144,7 +144,9 @@ configured on the server, outside this repository; these are suggestions.
   version, the newest applied migration, memory, database pool counts,
   upload queue, and per-route request
   counts with p50/p95/max latency over the last hour. It is in-memory and per
-  process, so it resets on restart.
+  process, so it resets on restart. The admin session check reads the
+  database, so this route fails while the database is down; use
+  `/api/health/ready` and the request log for that case.
 
 ### Logs
 
@@ -164,8 +166,12 @@ to stderr). Each request logs one line when it ends:
 - Responses with status 500 and above log at `error`; unhandled errors log a
   separate `unhandled error` line with the stack. Successful health and
   readiness checks are not logged.
-- `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`; default `info`)
-  sets the threshold.
+- `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`; default `info`,
+  any case) sets the threshold. Any other value means `info` and logs one
+  `unknown LOG_LEVEL, using info` warning at startup.
+- An error line carries the error's name, message, code and stack, plus the
+  name, message and code of its `cause` and of up to three inner errors of
+  an `AggregateError` (a database connect that tried several addresses).
 
 ### Suggested alerts
 

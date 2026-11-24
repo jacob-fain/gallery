@@ -1,10 +1,10 @@
-import { Router } from 'express';
+import { createRouter } from '../middleware/requestLog';
 import * as galleryController from '../controllers/galleryController';
 import { authMiddleware } from '../middleware/auth';
 import { galleryPasswordRateLimit, trackingRateLimit } from '../middleware/rateLimit';
 import { uuidParam, validateBodyIds } from '../middleware/validateIds';
 
-const router = Router();
+const router = createRouter();
 
 router.param('id', uuidParam('Gallery not found'));
 
