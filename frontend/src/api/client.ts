@@ -1,6 +1,7 @@
 import type {
   Gallery,
   Photo,
+  PublicPhoto,
   ApiResponse,
   AdminStats,
   AnalyticsData,
@@ -85,22 +86,22 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
   return data.data;
 }
 
-export async function getFeaturedPhotos(): Promise<Photo[]> {
+export async function getFeaturedPhotos(): Promise<PublicPhoto[]> {
   const cacheKey = 'featured';
-  const cached = getCached<Photo[]>(cacheKey);
+  const cached = getCached<PublicPhoto[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await fetchApi<Photo[]>('/featured');
+  const data = await fetchApi<PublicPhoto[]>('/featured');
   setCache(cacheKey, data);
   return data;
 }
 
-export async function getAllPhotos(limit?: number, options: FetchOptions = {}): Promise<Photo[]> {
+export async function getAllPhotos(limit?: number, options: FetchOptions = {}): Promise<PublicPhoto[]> {
   const cacheKey = limit ? `allPhotos:${limit}` : 'allPhotos';
-  const cached = options.fresh ? null : getCached<Photo[]>(cacheKey);
+  const cached = options.fresh ? null : getCached<PublicPhoto[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await fetchApi<Photo[]>(limit ? `/photos?limit=${limit}` : '/photos', options);
+  const data = await fetchApi<PublicPhoto[]>(limit ? `/photos?limit=${limit}` : '/photos', options);
   setCache(cacheKey, data);
   return data;
 }
@@ -129,15 +130,15 @@ export async function getGalleryPhotos(
   slug: string,
   accessToken?: string,
   options: FetchOptions = {}
-): Promise<Photo[]> {
+): Promise<PublicPhoto[]> {
   const cacheKey = accessToken ? `photos:${slug}:${accessToken}` : `photos:${slug}`;
-  const cached = options.fresh ? null : getCached<Photo[]>(cacheKey);
+  const cached = options.fresh ? null : getCached<PublicPhoto[]>(cacheKey);
   if (cached) return cached;
 
   const url = accessToken
     ? `/galleries/${slug}/photos?access=${encodeURIComponent(accessToken)}`
     : `/galleries/${slug}/photos`;
-  const data = await fetchApi<Photo[]>(url, options);
+  const data = await fetchApi<PublicPhoto[]>(url, options);
   setCache(cacheKey, data);
   return data;
 }
@@ -522,12 +523,15 @@ export function trackPhotoView(photoId: string): void {
 }
 
 /**
- * Track a photo download - call when user clicks download button
+ * A signed URL that downloads the photo's original under its uploaded
+ * filename. Fetched when the download button is pressed, not with the photo
+ * lists, so lists never sign originals; the request also counts the download.
+ * A photo in a private gallery needs that gallery's access token.
  */
-export function trackPhotoDownload(photoId: string): void {
-  fetch(`${API_BASE}/photos/${photoId}/download-track`, { method: 'POST' }).catch(() => {
-    // Silently ignore errors - tracking should not affect UX
-  });
+export async function getPhotoDownloadUrl(photoId: string, accessToken?: string): Promise<string> {
+  const query = accessToken ? `?access=${encodeURIComponent(accessToken)}` : '';
+  const data = await fetchApi<{ downloadUrl: string }>(`/photos/${photoId}/download${query}`);
+  return data.downloadUrl;
 }
 
 // ============ Contact Form ============

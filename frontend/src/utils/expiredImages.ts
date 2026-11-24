@@ -1,5 +1,3 @@
-import type { Photo } from '../types';
-
 /**
  * Returns a check that allows a photo refresh at most once per
  * `minIntervalMs`. An image that fails for a reason other than an expired URL
@@ -24,7 +22,7 @@ export function createRefreshGuard(
  * order, so a shuffled grid keeps its layout. Photos missing from the fresh
  * list are dropped; new ones are left for the next full load.
  */
-export function withFreshUrls(current: Photo[], fresh: Photo[]): Photo[] {
+export function withFreshUrls<T extends { id: string }>(current: T[], fresh: T[]): T[] {
   const byId = new Map(fresh.map((photo) => [photo.id, photo]));
   return current.flatMap((photo) => {
     const match = byId.get(photo.id);

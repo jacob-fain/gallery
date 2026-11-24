@@ -164,16 +164,19 @@ export const incrementPhotoDownloads = async (photoId: string): Promise<void> =>
 };
 
 /**
+ * Signed URL for the full-size original, served as an attachment under the
+ * photo's uploaded filename.
+ */
+export const getDownloadUrl = (photo: Photo): Promise<string> =>
+  getSignedUrl(photo.s3_key, undefined, sanitizeFilename(photo.original_filename, `${photo.id}.jpg`));
+
+/**
  * Enrich a photo with signed S3 URLs
  * Converts raw S3 keys into temporary accessible URLs
  */
 export const enrichPhotoWithUrls = async (photo: Photo): Promise<PhotoWithUrls> => {
   const [url, webUrl, thumbnailUrl] = await Promise.all([
-    getSignedUrl(
-      photo.s3_key,
-      undefined,
-      sanitizeFilename(photo.original_filename, `${photo.id}.jpg`)
-    ),
+    getDownloadUrl(photo),
     getSignedUrl(photo.s3_web_key),
     getSignedUrl(photo.s3_thumbnail_key),
   ]);

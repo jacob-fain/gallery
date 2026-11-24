@@ -1,4 +1,4 @@
-import type { Photo } from '../types';
+import type { PublicPhoto } from '../types';
 
 // Mirrors IMAGE_SIZES in backend/src/services/imageService.ts. The backend
 // resizes with withoutEnlargement, so a derived size is never wider than the
@@ -18,7 +18,7 @@ export interface ImageCandidate {
  * megabytes and are only for downloads.
  */
 export function derivedImages(
-  photo: Pick<Photo, 'width' | 'height' | 'thumbnailUrl' | 'webUrl'>
+  photo: Pick<PublicPhoto, 'width' | 'height'> & { thumbnailUrl?: string; webUrl?: string }
 ): ImageCandidate[] {
   const candidates: ImageCandidate[] = [];
   if (!photo.width || !photo.height) return candidates;

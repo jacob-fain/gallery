@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
-const { clearCache, getAdminStats, getGallery, getGalleryPhotos, onSessionExpired, uploadPhoto, verifyGalleryPassword } =
-  await import('./client');
+const {
+  clearCache,
+  getAdminStats,
+  getGallery,
+  getGalleryPhotos,
+  getPhotoDownloadUrl,
+  onSessionExpired,
+  uploadPhoto,
+  verifyGalleryPassword,
+} = await import('./client');
 
 const respond = (status: number, body: unknown) =>
   vi.fn().mockResolvedValue({ status, ok: status < 400, json: async () => body });
@@ -95,6 +103,22 @@ describe('fresh photo fetches', () => {
     // The fresh response replaces the cached one.
     expect(await getGalleryPhotos('g')).toEqual([{ id: 'new' }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('photo downloads', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it('asks the download endpoint for the original, with the access token for a private gallery', async () => {
+    const fetchMock = respond(200, { success: true, data: { filename: 'a.jpg', downloadUrl: 'https://s3/original' } });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await getPhotoDownloadUrl('p1', 'tok en')).toBe('https://s3/original');
+    expect(fetchMock).toHaveBeenCalledWith('/api/photos/p1/download?access=tok%20en', undefined);
+    await getPhotoDownloadUrl('p1');
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/photos/p1/download', undefined);
   });
 });
 
