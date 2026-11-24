@@ -30,7 +30,7 @@ describe('Navbar', () => {
   it('lists the pages and a labelled theme toggle in the menu', () => {
     const menu = render().split('id="site-menu"')[1];
     expect(menu).toContain('Galleries');
-    expect(menu).toContain('All Photos');
+    expect(menu).toContain('Photos');
     expect(menu).toContain('<span>Theme</span>');
     expect(menu).toContain('aria-label="Theme: switch to dark mode"');
   });

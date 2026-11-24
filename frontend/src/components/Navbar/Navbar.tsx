@@ -133,7 +133,7 @@ export default function Navbar() {
             Galleries
           </NavLink>
           <NavLink to="/photos" className={menuLinkClass} onClick={closeMenu}>
-            All Photos
+            Photos
           </NavLink>
           <a
             href={COFFEE_URL}
