@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/auth';
 import { getAdminStats, getAnalytics } from '../../api/client';
 import StatsCard from '../../components/Admin/StatsCard/StatsCard';
 import {
@@ -13,7 +12,6 @@ import type { AdminStats, AnalyticsData } from '../../types';
 import styles from './Dashboard.module.css';
 
 export default function Dashboard() {
-  const { token } = useAuth();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -21,12 +19,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function fetchData() {
-      if (!token) return;
-
       try {
         const [statsData, analyticsData] = await Promise.all([
-          getAdminStats(token),
-          getAnalytics(token),
+          getAdminStats(),
+          getAnalytics(),
         ]);
         setStats(statsData);
         setAnalytics(analyticsData);
@@ -38,7 +34,7 @@ export default function Dashboard() {
     }
 
     fetchData();
-  }, [token]);
+  }, []);
 
   if (loading) {
     return <div className={styles.loading}>Loading...</div>;

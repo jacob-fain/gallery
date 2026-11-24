@@ -6,10 +6,12 @@ import {
   generateToken,
   revokeTokens,
 } from '../services/authService';
+import { clearSessionCookie, setSessionCookie } from '../middleware/session';
 
 /**
  * POST /api/auth/login
- * Authenticate user and return JWT token
+ * Authenticate the admin and set the session cookie. The token is never in
+ * the response body, so page scripts cannot read it.
  */
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -44,13 +46,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Generate token
-    const token = generateToken(user.id, user.email, user.token_version);
-
+    setSessionCookie(res, generateToken(user.id, user.email, user.token_version));
     res.json({
       success: true,
       data: {
-        token,
         user: {
           id: user.id,
           email: user.email,
@@ -106,6 +105,7 @@ export const me = async (req: Request, res: Response): Promise<void> => {
 export const logout = async (req: Request, res: Response): Promise<void> => {
   try {
     await revokeTokens(req.user!.userId);
+    clearSessionCookie(res);
     res.json({ success: true });
   } catch (err) {
     console.error('Logout error:', err);

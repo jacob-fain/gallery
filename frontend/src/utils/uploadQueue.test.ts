@@ -23,7 +23,7 @@ const flush = async () => {
 function setup(overrides: Partial<UploadQueueDeps> = {}) {
   const calls: Call[] = [];
   const deps: UploadQueueDeps = {
-    upload: (_token, galleryId, file, onProgress, signal) =>
+    upload: (galleryId, file, onProgress, signal) =>
       new Promise<Photo>((resolve, reject) => {
         calls.push({ galleryId, file, onProgress, signal, resolve, reject });
       }),
@@ -33,7 +33,7 @@ function setup(overrides: Partial<UploadQueueDeps> = {}) {
     ...overrides,
   };
   const queue = new UploadQueue(deps);
-  queue.setToken('token');
+  queue.setSession('user-1');
   return { queue, calls, deps };
 }
 
@@ -177,7 +177,7 @@ describe('UploadQueue', () => {
     queue.add([image('a1'), image('a2'), image('a3'), image('a4')], { galleryId: 'a', checkOnly: false });
     await flush();
 
-    queue.setToken(null);
+    queue.setSession(null);
     expect(calls.every((c) => c.signal.aborted)).toBe(true);
     expect(queue.getTarget('a').items).toEqual([]);
     expect(queue.getSummary().active).toBe(false);
@@ -209,14 +209,14 @@ describe('UploadQueue', () => {
     expect(queue.getTarget('a').items).toEqual([]);
   });
 
-  it('aborts when a different session signs in, but not when the same token is set again', async () => {
+  it('aborts when a different session signs in, but not when the same one is set again', async () => {
     const { queue, calls } = setup();
     queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
     await flush();
 
-    queue.setToken('token');
+    queue.setSession('user-1');
     expect(calls[0].signal.aborted).toBe(false);
-    queue.setToken('other');
+    queue.setSession('user-2');
     expect(calls[0].signal.aborted).toBe(true);
   });
 

@@ -9,60 +9,55 @@ import {
 import { AuthContext } from './auth';
 import { clearAdminMode } from '../utils/subdomain';
 
-const TOKEN_KEY = 'auth_token';
+// Where the admin token was kept before the session moved to an httpOnly
+// cookie. Removed on load so a token left by an older build does not linger.
+const LEGACY_TOKEN_KEY = 'auth_token';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [isLoading, setIsLoading] = useState(true);
 
-  // On mount, check if we have a valid token
+  // The session cookie is httpOnly, so the only way to know whether one is
+  // live is to ask the API.
   useEffect(() => {
-    async function validateToken() {
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const currentUser = await getCurrentUser(token);
-        setUser(currentUser);
-      } catch {
-        // Token is invalid, clear it
-        localStorage.removeItem(TOKEN_KEY);
-        setToken(null);
-      } finally {
-        setIsLoading(false);
-      }
+    try {
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
+    } catch {
+      // Storage blocked: there is nothing to remove.
     }
 
-    validateToken();
-  }, [token]);
+    let cancelled = false;
+    getCurrentUser()
+      .then((currentUser) => {
+        if (!cancelled) setUser(currentUser);
+      })
+      .catch(() => {
+        // No session, or it expired: the login page shows.
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // A 401 on any admin request means the session ended on the server: sign
   // out locally, which sends the admin back to the login page.
   useEffect(() => {
-    onSessionExpired(() => {
-      localStorage.removeItem(TOKEN_KEY);
-      setToken(null);
-      setUser(null);
-    });
+    onSessionExpired(() => setUser(null));
     return () => onSessionExpired(null);
   }, []);
 
   const login = async (email: string, password: string) => {
     const response = await apiLogin(email, password);
-    localStorage.setItem(TOKEN_KEY, response.token);
-    setToken(response.token);
     setUser(response.user);
   };
 
   const logout = () => {
-    // Revokes this and every other session on the server; signing out locally
-    // does not wait for it.
-    if (token) apiLogout(token).catch(() => {});
-    localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
+    // Revokes this and every other session on the server and clears the
+    // cookie; signing out locally does not wait for it.
+    apiLogout().catch(() => {});
     setUser(null);
     clearAdminMode();
   };
@@ -71,7 +66,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        token,
         isAuthenticated: !!user,
         isLoading,
         login,

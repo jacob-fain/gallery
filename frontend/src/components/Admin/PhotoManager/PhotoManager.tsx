@@ -16,7 +16,6 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useAuth } from '../../../contexts/auth';
 import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries, updatePhoto } from '../../../api/client';
 import type { Photo, Gallery } from '../../../types';
 import { describeFailures, isPhotoGone, settleBulk } from '../../../utils/bulkResults';
@@ -176,7 +175,6 @@ export default function PhotoManager({
   gallery,
   onPhotosChange,
 }: PhotoManagerProps) {
-  const { token } = useAuth();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [localPhotos, setLocalPhotos] = useState<Photo[]>(photos);
@@ -246,9 +244,9 @@ export default function PhotoManager({
       setLocalPhotos(newOrder);
 
       // Save to backend
-      if (token && gallery) {
+      if (gallery) {
         try {
-          await reorderPhotos(token, gallery.id, newOrder.map((p) => p.id));
+          await reorderPhotos(gallery.id, newOrder.map((p) => p.id));
         } catch (err) {
           setActionError(err instanceof Error ? err.message : 'Failed to save the new order');
           // Revert on error
@@ -259,14 +257,14 @@ export default function PhotoManager({
   };
 
   const handleSetCover = async (photoId: string) => {
-    if (!token || !gallery) return;
+    if (!gallery) return;
 
     // Optimistic UI - show cover immediately
     setOptimisticCoverId(photoId);
     setCoverSelectMode(false);
 
     try {
-      await setCoverImage(token, gallery.id, photoId);
+      await setCoverImage(gallery.id, photoId);
       onPhotosChange();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to set the cover');
@@ -275,14 +273,12 @@ export default function PhotoManager({
   };
 
   const handleDelete = async (photoId: string) => {
-    if (!token) return;
-
     // Add to deleting set for immediate visual feedback
     setDeletingIds((prev) => new Set(prev).add(photoId));
 
     setActionError(null);
     try {
-      await deletePhoto(token, photoId).catch((err) => {
+      await deletePhoto(photoId).catch((err) => {
         // Already gone counts as deleted.
         if (!isPhotoGone(err)) throw err;
       });
@@ -307,8 +303,6 @@ export default function PhotoManager({
   };
 
   const handleToggleHidden = async (photoId: string) => {
-    if (!token) return;
-
     const photo = localPhotos.find((p) => p.id === photoId);
     if (!photo) return;
 
@@ -320,7 +314,7 @@ export default function PhotoManager({
     );
 
     try {
-      await updatePhoto(token, photoId, { is_hidden: !photo.is_hidden });
+      await updatePhoto(photoId, { is_hidden: !photo.is_hidden });
       onPhotosChange();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to change visibility');
@@ -334,7 +328,7 @@ export default function PhotoManager({
 
   // Shuffle photos randomly
   const handleShuffle = async () => {
-    if (!token || !gallery) return;
+    if (!gallery) return;
 
     setShuffling(true);
 
@@ -350,7 +344,7 @@ export default function PhotoManager({
     setShuffleConfirm(false);
 
     try {
-      await reorderPhotos(token, gallery.id, shuffled.map((p) => p.id));
+      await reorderPhotos(gallery.id, shuffled.map((p) => p.id));
       onPhotosChange();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to shuffle');
@@ -363,7 +357,7 @@ export default function PhotoManager({
 
   // Bulk actions
   const handleBulkDelete = async () => {
-    if (!token || selectedIds.size === 0) return;
+    if (selectedIds.size === 0) return;
 
     setBulkActionLoading(true);
     // Mark all selected as deleting
@@ -374,7 +368,7 @@ export default function PhotoManager({
     try {
       // Every request settles, so one failure cannot hide which photos were
       // deleted: those leave the grid and the selection, failures stay.
-      const results = await Promise.allSettled(ids.map((id) => deletePhoto(token, id)));
+      const results = await Promise.allSettled(ids.map((id) => deletePhoto(id)));
       const outcome = settleBulk(ids, results, isPhotoGone);
       const done = new Set(outcome.done);
       setLocalPhotos((prev) => prev.filter((p) => !done.has(p.id)));
@@ -390,9 +384,8 @@ export default function PhotoManager({
 
   // Open move modal and fetch galleries
   const handleOpenMoveModal = async () => {
-    if (!token) return;
     try {
-      const galleries = await getAllGalleries(token);
+      const galleries = await getAllGalleries();
       // Filter out current gallery
       setAvailableGalleries(galleries.filter((g) => g.id !== gallery?.id));
       setSelectedTargetGallery('');
@@ -404,12 +397,11 @@ export default function PhotoManager({
 
   // Move selected photos
   const handleMove = async () => {
-    if (!token || selectedIds.size === 0 || !selectedTargetGallery) return;
+    if (selectedIds.size === 0 || !selectedTargetGallery) return;
 
     setMoving(true);
     try {
       await movePhotos(
-        token,
         Array.from(selectedIds),
         selectedTargetGallery === UNASSIGNED_TARGET ? null : selectedTargetGallery
       );
@@ -429,7 +421,7 @@ export default function PhotoManager({
   // are sent, so a mixed selection can be published without deselecting the
   // public ones first.
   const handleBulkSetHidden = async (hide: boolean) => {
-    if (!token || selectedIds.size === 0) return;
+    if (selectedIds.size === 0) return;
     const ids = localPhotos
       .filter((p) => selectedIds.has(p.id) && p.is_hidden !== hide)
       .map((p) => p.id);
@@ -444,7 +436,7 @@ export default function PhotoManager({
     setActionError(null);
     try {
       const results = await Promise.allSettled(
-        ids.map((id) => updatePhoto(token, id, { is_hidden: hide }))
+        ids.map((id) => updatePhoto(id, { is_hidden: hide }))
       );
       const outcome = settleBulk(ids, results);
       // Put back the ones that did not change, keep the rest.
