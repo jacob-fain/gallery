@@ -67,7 +67,13 @@ export interface GalleryWithCover extends Gallery {
 
 // Gallery with cover photo URL for frontend display
 export interface GalleryWithCoverUrl extends Gallery {
+  /** Thumbnail of the cover photo (at most 600px wide). */
   coverUrl: string | null;
+  /** Web size of the cover photo (at most 1920px wide). */
+  coverWebUrl: string | null;
+  /** The cover photo's displayed size, from which the derived widths follow. */
+  coverWidth: number | null;
+  coverHeight: number | null;
 }
 
 export interface ApiResponse<T> {

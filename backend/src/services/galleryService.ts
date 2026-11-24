@@ -44,19 +44,29 @@ export const getPublicGalleries = async (): Promise<Gallery[]> => {
  * gallery; otherwise the first visible photo stands in, so hiding a photo
  * always removes it from the public site.
  */
-export const getPublicGalleryCoverKeys = async (): Promise<
-  (Gallery & { cover_thumbnail_key: string | null })[]
-> => {
+export interface GalleryCoverRow extends Gallery {
+  cover_thumbnail_key: string | null;
+  cover_web_key: string | null;
+  cover_width: number | null;
+  cover_height: number | null;
+}
+
+export const getPublicGalleryCoverKeys = async (): Promise<GalleryCoverRow[]> => {
+  // Every cover field comes from the same photo: the chosen cover when it
+  // qualifies, otherwise the first visible one.
   const result = await query(
     `SELECT g.*,
-            COALESCE(cover.s3_thumbnail_key, first_photo.s3_thumbnail_key) as cover_thumbnail_key
+            CASE WHEN cover.id IS NOT NULL THEN cover.s3_thumbnail_key ELSE first_photo.s3_thumbnail_key END AS cover_thumbnail_key,
+            CASE WHEN cover.id IS NOT NULL THEN cover.s3_web_key ELSE first_photo.s3_web_key END AS cover_web_key,
+            CASE WHEN cover.id IS NOT NULL THEN cover.width ELSE first_photo.width END AS cover_width,
+            CASE WHEN cover.id IS NOT NULL THEN cover.height ELSE first_photo.height END AS cover_height
      FROM galleries g
      LEFT JOIN photos cover
        ON cover.id = g.cover_image_id
       AND cover.gallery_id = g.id
       AND cover.is_hidden = false
      LEFT JOIN LATERAL (
-       SELECT s3_thumbnail_key
+       SELECT s3_thumbnail_key, s3_web_key, width, height
        FROM photos
        WHERE gallery_id = g.id AND is_hidden = false
        ORDER BY sort_order ASC, uploaded_at ASC
@@ -74,11 +84,12 @@ export const getPublicGalleriesWithCovers = async (): Promise<GalleryWithCoverUr
   // Generate signed URLs for cover photos
   const galleriesWithUrls = await Promise.all(
     rows.map(async (row) => {
-      const { cover_thumbnail_key, ...gallery } = row;
-      return {
-        ...gallery,
-        coverUrl: cover_thumbnail_key ? await getSignedUrl(cover_thumbnail_key) : null,
-      };
+      const { cover_thumbnail_key, cover_web_key, cover_width, cover_height, ...gallery } = row;
+      const [coverUrl, coverWebUrl] = await Promise.all([
+        cover_thumbnail_key ? getSignedUrl(cover_thumbnail_key) : null,
+        cover_web_key ? getSignedUrl(cover_web_key) : null,
+      ]);
+      return { ...gallery, coverUrl, coverWebUrl, coverWidth: cover_width, coverHeight: cover_height };
     })
   );
 
