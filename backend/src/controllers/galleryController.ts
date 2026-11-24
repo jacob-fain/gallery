@@ -8,7 +8,7 @@ import {
   generateGalleryAccessToken,
   verifyGalleryAccessToken,
 } from '../services/authService';
-import { publicGallery, publicGalleryCard, adminGallery } from '../services/galleryView';
+import { publicGalleryDetail, publicGalleryCard, adminGallery } from '../services/galleryView';
 import { toPublicPhotos } from '../services/photoView';
 import { cachePublicly } from '../middleware/cacheControl';
 import { nextOffset, parseAdminPage } from '../services/photoPaging';
@@ -57,8 +57,9 @@ export const getGallery = async (req: Request, res: Response) => {
 
     // Not counted here: a cached response never reaches the server. The page
     // counts its view with POST /galleries/:slug/view once it is shown.
+    const photoCount = await galleryService.countVisiblePhotos(gallery.id);
     cachePublicly(res);
-    res.json({ success: true, data: publicGallery(gallery) });
+    res.json({ success: true, data: publicGalleryDetail(gallery, photoCount) });
   } catch (err) {
     logger.error('Error fetching gallery', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch gallery' });
@@ -408,6 +409,7 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
     // Generate a signed access token for this gallery
     // This token is cryptographically signed and time-limited (24 hours)
     const accessToken = generateGalleryAccessToken(gallery.id, gallery.slug, gallery.access_version);
+    const photoCount = await galleryService.countVisiblePhotos(gallery.id);
 
     // Return gallery data with signed access token
     // The frontend should include this token in ?access= query param when fetching photos
@@ -417,6 +419,7 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
         title: gallery.title,
         slug: gallery.slug,
         description: gallery.description,
+        photoCount,
         is_public: gallery.is_public,
         verified: true,
         accessToken, // Signed JWT token for accessing photos

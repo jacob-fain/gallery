@@ -12,6 +12,7 @@ import { isNotFound, visitorMessage } from '../api/errors';
 import LoadError from '../components/StatusMessage/LoadError';
 import NotFound from './NotFound';
 import PageTitle from '../components/PageTitle';
+import PageHeading from '../components/PageHeading/PageHeading';
 import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
 import { useGalleryViewTracking } from '../utils/galleryViewTracking';
@@ -28,6 +29,23 @@ function isPrivateGallery(
 
 // Session storage key for gallery access tokens
 const getStorageKey = (slug: string) => `gallery_access_${slug}`;
+
+// What the unlock response adds to a private gallery's heading. The locked
+// response leaves it out, so a revisit with a stored token reads it from here.
+type UnlockedDetails = Pick<GalleryType, 'description' | 'photoCount'>;
+const getDetailsKey = (slug: string) => `gallery_details_${slug}`;
+
+function readUnlockedDetails(slug: string): UnlockedDetails {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(getDetailsKey(slug)) ?? '{}');
+    return {
+      description: typeof stored.description === 'string' ? stored.description : null,
+      photoCount: typeof stored.photoCount === 'number' ? stored.photoCount : undefined,
+    };
+  } catch {
+    return { description: null };
+  }
+}
 
 export default function Gallery() {
   const { slug: rawSlug } = useParams<{ slug: string }>();
@@ -104,10 +122,12 @@ export default function Gallery() {
               ...galleryData,
               title: galleryData.title,
               slug: galleryData.slug,
+              ...readUnlockedDetails(slug),
             } as unknown as GalleryType);
           } else {
             // Token expired or invalid, clear it
             sessionStorage.removeItem(getStorageKey(slug));
+            sessionStorage.removeItem(getDetailsKey(slug));
           }
         }
       } catch (err) {
@@ -132,6 +152,10 @@ export default function Gallery() {
 
       // Store access token in sessionStorage
       sessionStorage.setItem(getStorageKey(slug), result.accessToken);
+      sessionStorage.setItem(
+        getDetailsKey(slug),
+        JSON.stringify({ description: result.description, photoCount: result.photoCount })
+      );
       setAccessToken(result.accessToken);
 
       // Update gallery with full data from verification response
@@ -140,6 +164,7 @@ export default function Gallery() {
         title: result.title,
         slug: result.slug,
         description: result.description,
+        photoCount: result.photoCount,
         is_public: result.is_public,
       } as GalleryType);
 
@@ -223,9 +248,18 @@ export default function Gallery() {
     window.open(url, '_blank');
   };
 
+  // A private gallery's state is still the locked response type here, with
+  // the unlock details merged in.
+  const unlocked = gallery as GalleryType;
+
   return (
     <div className={styles.container}>
       <PageTitle page={gallery.title} />
+      <PageHeading
+        title={gallery.title}
+        photoCount={unlocked.photoCount ?? photos.length}
+        description={unlocked.description}
+      />
       {photos.length > 1 && (
         <button
           className={styles.shuffleBtn}

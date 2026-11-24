@@ -11,6 +11,16 @@ export interface PublicGallery {
   slug: string;
 }
 
+/**
+ * One gallery as its page receives it: the heading also shows the
+ * description and how many photos a visitor sees. Never sent for a private
+ * gallery before it is unlocked.
+ */
+export interface PublicGalleryDetail extends PublicGallery {
+  description: string | null;
+  photoCount: number;
+}
+
 /** A gallery on the public list, with the cover photo the card shows. */
 export interface PublicGalleryCard extends PublicGallery {
   coverUrl: string | null;
@@ -23,6 +33,12 @@ export const publicGallery = (gallery: Gallery): PublicGallery => ({
   id: gallery.id,
   title: gallery.title,
   slug: gallery.slug,
+});
+
+export const publicGalleryDetail = (gallery: Gallery, photoCount: number): PublicGalleryDetail => ({
+  ...publicGallery(gallery),
+  description: gallery.description ?? null,
+  photoCount,
 });
 
 export const publicGalleryCard = (gallery: GalleryWithCoverUrl): PublicGalleryCard => ({

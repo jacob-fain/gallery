@@ -112,6 +112,15 @@ export const getGalleryById = async (id: string): Promise<Gallery | null> => {
   return result.rows[0] || null;
 };
 
+/** How many photos a visitor sees in a gallery: hidden ones are not counted. */
+export const countVisiblePhotos = async (galleryId: string): Promise<number> => {
+  const result = await query(
+    `SELECT COUNT(*)::int AS count FROM photos WHERE gallery_id = $1 AND is_hidden = false`,
+    [galleryId]
+  );
+  return result.rows[0].count;
+};
+
 export const getGalleryPhotos = async (galleryId: string): Promise<Photo[]> => {
   const result = await query(
     `SELECT * FROM photos

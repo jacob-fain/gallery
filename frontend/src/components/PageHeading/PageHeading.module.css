@@ -1,0 +1,58 @@
+.galleryHeader,
+.indexHeader {
+  text-align: center;
+}
+
+.galleryHeader {
+  padding: 56px 48px 40px;
+}
+
+.indexHeader {
+  padding: 48px 48px 32px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text);
+}
+
+.count {
+  margin-top: 10px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+}
+
+.description {
+  max-width: 600px;
+  margin: 16px auto 0;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-text-light);
+}
+
+@media (max-width: 640px) {
+  .galleryHeader {
+    padding: 36px 20px 28px;
+  }
+
+  .indexHeader {
+    padding: 32px 20px 24px;
+  }
+
+  .title {
+    font-size: 20px;
+  }
+
+  .count {
+    font-size: 12px;
+  }
+
+  .description {
+    font-size: 15px;
+  }
+}
