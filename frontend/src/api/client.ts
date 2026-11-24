@@ -14,7 +14,7 @@ import { ApiError } from './errors';
 
 // In production (HTTPS), use relative path since nginx proxies /api
 // In dev (HTTP), use port 3001 directly
-const API_BASE = import.meta.env.VITE_API_URL ||
+export const API_BASE = import.meta.env.VITE_API_URL ||
   (window.location.protocol === 'https:' ? '/api' : `http://${window.location.hostname}:3001/api`);
 
 // ============ Simple In-Memory Cache ============

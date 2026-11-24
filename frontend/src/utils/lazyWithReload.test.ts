@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadWithReload } from './lazyWithReload';
 
+const { reportClientError } = vi.hoisted(() => ({ reportClientError: vi.fn() }));
+vi.mock('./clientErrors', () => ({ reportClientError }));
+
 function stubWindow(storage: Partial<Storage>) {
   const reload = vi.fn();
   vi.stubGlobal('window', { location: { reload }, sessionStorage: storage });
@@ -22,6 +25,7 @@ describe('loadWithReload', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    reportClientError.mockReset();
   });
 
   it('returns the module when the import succeeds', async () => {
@@ -37,10 +41,14 @@ describe('loadWithReload', () => {
     void loadWithReload(failing);
     await vi.advanceTimersByTimeAsync(0);
     expect(reload).toHaveBeenCalledTimes(1);
+    // The reload may still fix it, so nothing is reported yet.
+    expect(reportClientError).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1_000);
     await expect(loadWithReload(failing)).rejects.toThrow('dynamically imported module');
     expect(reload).toHaveBeenCalledTimes(1);
+    expect(reportClientError).toHaveBeenCalledOnce();
+    expect(reportClientError).toHaveBeenCalledWith('chunk', expect.any(Error));
   });
 
   it('reloads again for a failure well after the last reload', async () => {

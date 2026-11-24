@@ -117,3 +117,13 @@ export const contactRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
   message: 'Too many messages from this connection. Please try again later.',
 });
+
+// The browser reporter sends at most a few reports per page load, so this
+// admits a visitor reloading a broken page many times over. Past it, reports
+// are dropped silently: the beacon ignores the response.
+export const clientErrorRateLimit = rateLimit({
+  name: 'client-errors',
+  max: 30,
+  windowMs: 15 * 60 * 1000,
+  onLimit: 'drop',
+});

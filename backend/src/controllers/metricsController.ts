@@ -3,21 +3,23 @@ import pool, { query } from '../config/db';
 import { logger } from '../utils/logger';
 import { uploadSlots } from '../services/imageService';
 import { requestMetrics } from '../services/requestMetrics';
+import { clientErrorMetrics } from '../services/clientErrorMetrics';
 import { buildId } from '../routes/health';
 
 type PoolCounts = { totalCount: number; idleCount: number; waitingCount: number };
 
 /**
  * A snapshot of this process for the admin: what build it runs, request
- * counts and latency per route over the last hour, database pool use and the
- * upload queue. Everything is read from memory, so the route is cheap enough
- * to poll. Commit, version and schema are admin-only; the public health
- * routes report only the opaque build id.
+ * counts and latency per route and browser error reports over the last hour,
+ * database pool use and the upload queue. Everything is read from memory,
+ * so the route is cheap enough to poll. Commit, version and schema are
+ * admin-only; the public health routes report only the opaque build id.
  */
 export const metricsSnapshot = ({
   db = pool as PoolCounts,
   uploads = uploadSlots,
   requests = requestMetrics,
+  clientErrors = clientErrorMetrics,
   env = process.env,
   uptimeSeconds = process.uptime(),
   memory = process.memoryUsage(),
@@ -25,6 +27,7 @@ export const metricsSnapshot = ({
   db?: PoolCounts;
   uploads?: { running: number; queued: number; limit: number };
   requests?: { summarize: typeof requestMetrics.summarize };
+  clientErrors?: { summarize: typeof clientErrorMetrics.summarize };
   env?: NodeJS.ProcessEnv;
   uptimeSeconds?: number;
   memory?: NodeJS.MemoryUsage;
@@ -35,6 +38,7 @@ export const metricsSnapshot = ({
   db: { total: db.totalCount, idle: db.idleCount, waiting: db.waitingCount },
   uploads: { running: uploads.running, queued: uploads.queued, limit: uploads.limit },
   requests: requests.summarize(),
+  clientErrors: clientErrors.summarize(),
 });
 
 /**
