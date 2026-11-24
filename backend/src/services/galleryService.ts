@@ -38,28 +38,42 @@ export const getPublicGalleries = async (): Promise<Gallery[]> => {
  * Get public galleries with cover photo URLs
  * Uses explicit cover_image_id if set, otherwise falls back to first photo
  */
-export const getPublicGalleriesWithCovers = async (): Promise<GalleryWithCoverUrl[]> => {
-  // Get galleries with their cover photo's thumbnail key
-  // If no cover_image_id is set, use the first photo (by sort_order) as fallback
+/**
+ * Public galleries with the thumbnail key of the photo to show as each cover.
+ * The chosen cover is used only while it is visible and still in the
+ * gallery; otherwise the first visible photo stands in, so hiding a photo
+ * always removes it from the public site.
+ */
+export const getPublicGalleryCoverKeys = async (): Promise<
+  (Gallery & { cover_thumbnail_key: string | null })[]
+> => {
   const result = await query(
     `SELECT g.*,
             COALESCE(cover.s3_thumbnail_key, first_photo.s3_thumbnail_key) as cover_thumbnail_key
      FROM galleries g
-     LEFT JOIN photos cover ON g.cover_image_id = cover.id
+     LEFT JOIN photos cover
+       ON cover.id = g.cover_image_id
+      AND cover.gallery_id = g.id
+      AND cover.is_hidden = false
      LEFT JOIN LATERAL (
        SELECT s3_thumbnail_key
        FROM photos
        WHERE gallery_id = g.id AND is_hidden = false
        ORDER BY sort_order ASC, uploaded_at ASC
        LIMIT 1
-     ) first_photo ON g.cover_image_id IS NULL
+     ) first_photo ON cover.id IS NULL
      WHERE g.is_public = true
      ORDER BY g.sort_order ASC, g.created_at DESC`
   );
+  return result.rows;
+};
+
+export const getPublicGalleriesWithCovers = async (): Promise<GalleryWithCoverUrl[]> => {
+  const rows = await getPublicGalleryCoverKeys();
 
   // Generate signed URLs for cover photos
   const galleriesWithUrls = await Promise.all(
-    result.rows.map(async (row: Gallery & { cover_thumbnail_key: string | null }) => {
+    rows.map(async (row) => {
       const { cover_thumbnail_key, ...gallery } = row;
       return {
         ...gallery,
