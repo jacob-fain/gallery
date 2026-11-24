@@ -22,6 +22,7 @@ export interface RequestOptions {
   // cookie (default true).
   admin?: boolean;
   session?: boolean;
+  headers?: Record<string, string>;
 }
 
 /**
@@ -62,9 +63,9 @@ export function useAppServer() {
   const request = async (
     method: string,
     path: string,
-    { body, admin = true, session = admin }: RequestOptions = {}
+    { body, admin = true, session = admin, headers: extra = {} }: RequestOptions = {}
   ): Promise<ApiResponse> => {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...extra };
     if (admin) headers.Origin = ADMIN_ORIGIN;
     if (session) headers.Cookie = cookie;
     if (body !== undefined) headers['Content-Type'] = 'application/json';

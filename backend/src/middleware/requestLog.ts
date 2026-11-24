@@ -48,7 +48,7 @@ export const createRouter = (options?: RouterOptions): Router => {
 
 /**
  * The route pattern that handled the request ("/api/galleries/:slug"), never
- * the raw URL, which can carry ids, slugs and ?access tokens. Read when the
+ * the raw URL, which can carry ids, slugs and query strings. Read when the
  * response ends. Prefers the pattern a createRouter route recorded; a route
  * defined elsewhere falls back to req.baseUrl and req.route, which are only
  * both still accurate when the route answered without an error.

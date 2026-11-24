@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,7 +9,7 @@ import type { PublicPhoto } from '../types';
 vi.mock('../api/client', () => ({
   getGallery: vi.fn(),
   getGalleryPhotos: vi.fn(),
-  getGalleryDownloadUrl: vi.fn(() => '/download'),
+  getGalleryDownloadUrl: vi.fn(async () => '/download'),
   isKnownPrivateGallery: vi.fn(() => true),
   verifyGalleryPassword: vi.fn(),
   trackGalleryView: vi.fn(),
@@ -105,6 +105,40 @@ describe('Gallery password screen', () => {
     expect(client.getGalleryPhotos).toHaveBeenCalledWith('smith', 'token-1');
     expect(sessionStorage.getItem('gallery_access_smith')).toBe('token-1');
     expect(screen.queryByPlaceholderText('Enter password')).toBeNull();
+  });
+
+  it("downloads the ZIP through the URL the client builds from the gallery's token", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign });
+    vi.mocked(client.verifyGalleryPassword).mockResolvedValue(access);
+    vi.mocked(client.getGalleryPhotos).mockResolvedValue(photos);
+    vi.mocked(client.getGalleryDownloadUrl).mockResolvedValue('/api/galleries/smith/download?ticket=t1');
+    const user = renderGallery();
+
+    await user.type(await screen.findByPlaceholderText('Enter password'), 'secret{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'Download all photos as ZIP' }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/galleries/smith/download?ticket=t1'));
+    expect(client.getGalleryDownloadUrl).toHaveBeenCalledWith('smith', 'token-1');
+    vi.unstubAllGlobals();
+  });
+
+  it('stays on the page when the ZIP cannot be started', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sessionStorage.setItem('gallery_access_smith', 'token-1');
+    vi.mocked(client.getGalleryPhotos).mockResolvedValue(photos);
+    vi.mocked(client.getGalleryDownloadUrl).mockRejectedValue(new ApiError('Forbidden', 403));
+    const user = renderGallery();
+
+    await user.click(await screen.findByRole('button', { name: 'Download all photos as ZIP' }));
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalled());
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByText('2 photos shown')).toBeTruthy();
+    consoleError.mockRestore();
+    vi.unstubAllGlobals();
   });
 
   it('skips the password screen on a revisit with a stored token', async () => {

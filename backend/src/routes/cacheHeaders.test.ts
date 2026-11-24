@@ -98,8 +98,8 @@ beforeEach(() => {
 });
 
 // T is the data shape the caller asserts on; /photos adds a cursor beside it.
-const get = async <T = unknown>(path: string) => {
-  const res = await fetch(`${base}${path}`);
+const get = async <T = unknown>(path: string, headers: Record<string, string> = {}) => {
+  const res = await fetch(`${base}${path}`, { headers });
   return {
     status: res.status,
     cache: res.headers.get('cache-control'),
@@ -132,6 +132,19 @@ describe('public responses are cached briefly on success', () => {
         .on('error', reject);
     });
     expect(status).toBe(304);
+  });
+});
+
+// The access header changes only no-store answers. A public answer is the
+// same with or without it, so a shared cache keyed on the URL alone is right.
+describe('a public answer does not depend on the access header', () => {
+  it.each(['/galleries/iceland/photos', `/photos/${PHOTO_ID}`])('GET %s', async (path) => {
+    const token = generateGalleryAccessToken(GALLERY_ID, 'iceland', 0);
+    const plain = await get(path);
+    const unlocked = await get(path, { 'X-Gallery-Access': token });
+    expect(unlocked.status).toBe(200);
+    expect(unlocked.cache).toBe(plain.cache);
+    expect(unlocked.body).toEqual(plain.body);
   });
 });
 
@@ -203,16 +216,19 @@ describe('public gallery objects carry no internal fields', () => {
 });
 
 describe('gallery view tracking', () => {
-  const post = async (path: string) => {
-    const res = await fetch(`${base}${path}`, { method: 'POST' });
+  const post = async (path: string, headers: Record<string, string> = {}) => {
+    const res = await fetch(`${base}${path}`, { method: 'POST', headers });
     return { status: res.status, cache: res.headers.get('cache-control'), body: await res.json() };
   };
 
   it('passes the slug, with no gallery when there is no valid token', async () => {
     vi.mocked(eventTracking.recordGalleryView).mockClear();
     expect(await post('/galleries/iceland/view')).toEqual({ status: 200, cache: 'no-store', body: { success: true } });
-    await post('/galleries/iceland/view?access=forged');
+    await post('/galleries/iceland/view', { 'X-Gallery-Access': 'forged' });
+    // A valid token is ignored in the query string: tokens never go in URLs.
+    await post(`/galleries/iceland/view?access=${encodeURIComponent(generateGalleryAccessToken(GALLERY_ID, 'iceland', 0))}`);
     expect(vi.mocked(eventTracking.recordGalleryView).mock.calls).toEqual([
+      ['iceland', null],
       ['iceland', null],
       ['iceland', null],
     ]);
@@ -221,7 +237,7 @@ describe('gallery view tracking', () => {
   it('passes the gallery a valid token unlocks', async () => {
     vi.mocked(eventTracking.recordGalleryView).mockClear();
     const token = generateGalleryAccessToken(GALLERY_ID, 'iceland', 0);
-    await post(`/galleries/iceland/view?access=${encodeURIComponent(token)}`);
+    await post('/galleries/iceland/view', { 'X-Gallery-Access': token });
     expect(eventTracking.recordGalleryView).toHaveBeenCalledWith('iceland', {
       galleryId: GALLERY_ID,
       slug: 'iceland',
@@ -261,9 +277,20 @@ describe('responses that must never be stored', () => {
   it('a private gallery photo list unlocked with a token', async () => {
     vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue(gallery(false));
     const token = generateGalleryAccessToken(GALLERY_ID, 'iceland', 0);
-    const res = await get(`/galleries/iceland/photos?access=${encodeURIComponent(token)}`);
+    const res = await get('/galleries/iceland/photos', { 'X-Gallery-Access': token });
     expect(res.status).toBe(200);
     expect(res.cache).toBe('no-store');
+  });
+
+  it('a ZIP ticket', async () => {
+    vi.mocked(galleryService.getGalleryBySlug).mockResolvedValue(gallery(false));
+    const token = generateGalleryAccessToken(GALLERY_ID, 'iceland', 0);
+    const res = await fetch(`${base}/galleries/iceland/download-ticket`, {
+      method: 'POST',
+      headers: { 'X-Gallery-Access': token },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
   });
 
   it('a single photo', async () => {

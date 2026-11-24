@@ -9,14 +9,14 @@ describe('gallery view tracking', () => {
     vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
   });
 
-  it('posts to the tracking endpoint, with the access token for a private gallery', () => {
+  it('posts to the tracking endpoint, with the access token in a header for a private gallery', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal('fetch', fetchMock);
     trackGalleryView('iceland');
     trackGalleryView('wedding', 'tok en');
     expect(fetchMock.mock.calls).toEqual([
       ['/api/galleries/iceland/view', { method: 'POST' }],
-      ['/api/galleries/wedding/view?access=tok%20en', { method: 'POST' }],
+      ['/api/galleries/wedding/view', { method: 'POST', headers: { 'X-Gallery-Access': 'tok en' } }],
     ]);
   });
 

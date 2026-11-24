@@ -36,9 +36,8 @@ const optionalString = (value: unknown, max: number): string | undefined | null 
 
 /**
  * The fields worth logging from a report, truncated, or null when the body
- * is not a report. The path is cut at its query string and hash again here:
- * a client that skipped its own redaction must still not put a ?access token
- * in the log.
+ * is not a report. The path is cut at its query string and hash again here,
+ * for a client that skipped its own redaction.
  */
 export const parseClientError = (body: unknown, headerUserAgent?: string): ClientErrorReport | null => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;

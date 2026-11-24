@@ -76,15 +76,27 @@ export interface FetchOptions {
 // The list endpoints put paging fields beside data.
 type ApiBody<T> = ApiResponse<T> & { nextCursor?: string | null; total?: number };
 
-async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-  return (await fetchApiBody<T>(endpoint, options)).data;
+// A private gallery's access token travels in this header, never in a URL:
+// nginx's error log records the full request line when the API fails.
+const GALLERY_ACCESS_HEADER = 'X-Gallery-Access';
+
+const accessHeaders = (accessToken?: string): Record<string, string> | undefined =>
+  accessToken ? { [GALLERY_ACCESS_HEADER]: accessToken } : undefined;
+
+async function fetchApi<T>(endpoint: string, options: FetchOptions = {}, accessToken?: string): Promise<T> {
+  return (await fetchApiBody<T>(endpoint, options, accessToken)).data;
 }
 
-async function fetchApiBody<T>(endpoint: string, options: FetchOptions = {}): Promise<ApiBody<T> & { data: T }> {
-  const response = await fetch(
-    `${API_BASE}${endpoint}`,
-    options.fresh ? { cache: 'no-cache' } : undefined
-  );
+async function fetchApiBody<T>(
+  endpoint: string,
+  options: FetchOptions = {},
+  accessToken?: string
+): Promise<ApiBody<T> & { data: T }> {
+  const init: RequestInit = {};
+  if (options.fresh) init.cache = 'no-cache';
+  const headers = accessHeaders(accessToken);
+  if (headers) init.headers = headers;
+  const response = await fetch(`${API_BASE}${endpoint}`, Object.keys(init).length ? init : undefined);
 
   if (!response.ok) {
     throw new ApiError(`API request failed: ${response.status} ${response.statusText}`, response.status);
@@ -102,8 +114,8 @@ async function fetchApiBody<T>(endpoint: string, options: FetchOptions = {}): Pr
 // A fresh request never joins one in flight, since that one may carry the
 // expired URLs. It takes over the key instead: only the newest request for a
 // key fills the cache, so an older response cannot overwrite a fresher one.
-function fetchCached<T>(key: string, endpoint: string, options: FetchOptions = {}): Promise<T> {
-  return cachedRequest(key, options, () => fetchApi<T>(endpoint, options));
+function fetchCached<T>(key: string, endpoint: string, options: FetchOptions = {}, accessToken?: string): Promise<T> {
+  return cachedRequest(key, options, () => fetchApi<T>(endpoint, options, accessToken));
 }
 
 function cachedRequest<T>(key: string, options: FetchOptions, load: () => Promise<T>): Promise<T> {
@@ -163,8 +175,12 @@ export function getGalleries(): Promise<Gallery[]> {
 // costs only a photos request after the metadata instead of alongside it.
 const privateSlugs = new Set<string>();
 
+// React Router hands the page a decoded slug, so a slug from the address bar
+// can hold "/", "?" or "..". Encoded, it stays one path segment.
+const galleryPath = (slug: string) => `/galleries/${encodeURIComponent(slug)}`;
+
 export async function getGallery(slug: string): Promise<Gallery | PrivateGalleryResponse> {
-  const data = await fetchCached<Gallery | PrivateGalleryResponse>(`gallery:${slug}`, `/galleries/${slug}`);
+  const data = await fetchCached<Gallery | PrivateGalleryResponse>(`gallery:${slug}`, galleryPath(slug));
   if ('requires_password' in data && data.requires_password === true) {
     privateSlugs.add(slug);
   } else {
@@ -187,17 +203,14 @@ export function getGalleryPhotos(
   options: FetchOptions = {}
 ): Promise<PublicPhoto[]> {
   const cacheKey = accessToken ? `photos:${slug}:${accessToken}` : `photos:${slug}`;
-  const url = accessToken
-    ? `/galleries/${slug}/photos?access=${encodeURIComponent(accessToken)}`
-    : `/galleries/${slug}/photos`;
-  return fetchCached<PublicPhoto[]>(cacheKey, url, options);
+  return fetchCached<PublicPhoto[]>(cacheKey, `${galleryPath(slug)}/photos`, options, accessToken);
 }
 
 export async function verifyGalleryPassword(
   slug: string,
   password: string
 ): Promise<GalleryAccessResponse> {
-  const response = await fetch(`${API_BASE}/galleries/${slug}/verify`, {
+  const response = await fetch(`${API_BASE}${galleryPath(slug)}/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
@@ -516,15 +529,25 @@ export async function movePhotos(
 // ============ Gallery ZIP Download ============
 
 /**
- * Get the URL for downloading a gallery as ZIP
- * For private galleries, include the access token
+ * The URL that downloads a gallery as a ZIP. The download is a navigation,
+ * which cannot send the access header, so a private gallery's URL carries a
+ * one-time ticket (valid for a minute) that the token buys, never the token.
  */
-export function getGalleryDownloadUrl(slug: string, accessToken?: string): string {
-  const url = `${API_BASE}/galleries/${slug}/download`;
-  if (accessToken) {
-    return `${url}?access=${encodeURIComponent(accessToken)}`;
+export async function getGalleryDownloadUrl(slug: string, accessToken?: string): Promise<string> {
+  const url = `${API_BASE}${galleryPath(slug)}/download`;
+  if (!accessToken) return url;
+  const response = await fetch(`${API_BASE}${galleryPath(slug)}/download-ticket`, {
+    method: 'POST',
+    headers: accessHeaders(accessToken),
+  });
+  const data: ApiResponse<{ ticket: string | null }> | null = await response.json().catch(() => null);
+  if (!response.ok || !data?.success || !data.data) {
+    const serverMessage = data?.error || null;
+    throw new ApiError(serverMessage || 'The download could not be started', response.status, serverMessage);
   }
-  return url;
+  // Null for a gallery made public since it was unlocked: no ticket needed.
+  const { ticket } = data.data;
+  return ticket ? `${url}?ticket=${encodeURIComponent(ticket)}` : url;
 }
 
 // ============ Analytics Tracking (Public, fire-and-forget) ============
@@ -544,8 +567,9 @@ export function trackPhotoView(photoId: string): void {
  * counts only with its access token.
  */
 export function trackGalleryView(slug: string, accessToken?: string): void {
-  const query = accessToken ? `?access=${encodeURIComponent(accessToken)}` : '';
-  fetch(`${API_BASE}/galleries/${slug}/view${query}`, { method: 'POST' }).catch(() => {
+  const headers = accessHeaders(accessToken);
+  const init: RequestInit = headers ? { method: 'POST', headers } : { method: 'POST' };
+  fetch(`${API_BASE}${galleryPath(slug)}/view`, init).catch(() => {
     // Tracking never affects the page.
   });
 }
@@ -557,8 +581,8 @@ export function trackGalleryView(slug: string, accessToken?: string): void {
  * A photo in a private gallery needs that gallery's access token.
  */
 export async function getPhotoDownloadUrl(photoId: string, accessToken?: string): Promise<string> {
-  const query = accessToken ? `?access=${encodeURIComponent(accessToken)}` : '';
-  const data = await fetchApi<{ downloadUrl: string }>(`/photos/${photoId}/download${query}`);
+  const endpoint = `/photos/${encodeURIComponent(photoId)}/download`;
+  const data = await fetchApi<{ downloadUrl: string }>(endpoint, {}, accessToken);
   return data.downloadUrl;
 }
 

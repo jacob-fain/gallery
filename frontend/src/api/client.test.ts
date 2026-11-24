@@ -9,9 +9,11 @@ const {
   getGallery,
   getGalleryPhotos,
   getCurrentUser,
+  getGalleryDownloadUrl,
   getGalleryPhotosPage,
   getPhotoDownloadUrl,
   isKnownPrivateGallery,
+  trackGalleryView,
   login,
   logout,
   onSessionExpired,
@@ -280,9 +282,84 @@ describe('photo downloads', () => {
     const fetchMock = respond(200, { success: true, data: { filename: 'a.jpg', downloadUrl: 'https://s3/original' } });
     vi.stubGlobal('fetch', fetchMock);
     expect(await getPhotoDownloadUrl('p1', 'tok en')).toBe('https://s3/original');
-    expect(fetchMock).toHaveBeenCalledWith('/api/photos/p1/download?access=tok%20en', undefined);
+    expect(fetchMock).toHaveBeenCalledWith('/api/photos/p1/download', { headers: { 'X-Gallery-Access': 'tok en' } });
     await getPhotoDownloadUrl('p1');
     expect(fetchMock).toHaveBeenLastCalledWith('/api/photos/p1/download', undefined);
+  });
+});
+
+describe('gallery ZIP downloads', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it('links a public gallery straight to its ZIP', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await getGalleryDownloadUrl('iceland')).toBe('/api/galleries/iceland/download');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('buys a private gallery a one-time ticket with the token in a header', async () => {
+    const fetchMock = respond(200, { success: true, data: { ticket: 'tick/et' } });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await getGalleryDownloadUrl('smith', 'tok en')).toBe('/api/galleries/smith/download?ticket=tick%2Fet');
+    expect(fetchMock).toHaveBeenCalledWith('/api/galleries/smith/download-ticket', {
+      method: 'POST',
+      headers: { 'X-Gallery-Access': 'tok en' },
+    });
+  });
+
+  it('links without a ticket when the API says none is needed', async () => {
+    vi.stubGlobal('fetch', respond(200, { success: true, data: { ticket: null } }));
+    expect(await getGalleryDownloadUrl('smith', 'tok')).toBe('/api/galleries/smith/download');
+  });
+
+  it('reports a refused ticket with the API message', async () => {
+    vi.stubGlobal('fetch', respond(403, { success: false, error: 'Invalid or expired access token.' }));
+    await expect(getGalleryDownloadUrl('smith', 'old')).rejects.toMatchObject({
+      status: 403,
+      serverMessage: 'Invalid or expired access token.',
+    });
+  });
+});
+
+// nginx's error log records full request lines, so a token must never be
+// part of a URL the client requests.
+describe('gallery access tokens stay out of URLs', () => {
+  afterEach(() => {
+    clearCache();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'example.com' } });
+  });
+
+  it('sends the token only in the X-Gallery-Access header', async () => {
+    const TOKEN = 'eyJSECRET.ACCESS.TOKEN';
+    const fetchMock = vi.fn(async (url: string) => ({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: url.endsWith('/download-ticket') ? { ticket: 'one-time' } : { downloadUrl: 'https://s3/o' },
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getGalleryPhotos('smith', TOKEN);
+    await getGalleryPhotos('smith', TOKEN, { fresh: true });
+    await getPhotoDownloadUrl('p1', TOKEN);
+    trackGalleryView('smith', TOKEN);
+    const zipUrl = await getGalleryDownloadUrl('smith', TOKEN);
+
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit | undefined][];
+    expect(calls).toHaveLength(5);
+    for (const [url, init] of calls) {
+      expect(url).not.toContain(TOKEN);
+      expect(url).not.toMatch(/[?&]access=/);
+      expect(init?.headers).toMatchObject({ 'X-Gallery-Access': TOKEN });
+    }
+    expect(zipUrl).toBe('/api/galleries/smith/download?ticket=one-time');
   });
 });
 

@@ -13,12 +13,13 @@ export const requestContext = new AsyncLocalStorage<{ requestId: string }>();
 const REDACTED = '[redacted]';
 
 // Keys whose values never reach a log, matched anywhere in the key name.
-const SECRET_KEY = /authorization|cookie|password|passwd|secret|token|signature|credential|api[-_]?key|session/i;
+const SECRET_KEY =
+  /authorization|cookie|password|passwd|secret|token|ticket|signature|credential|api[-_]?key|session|gallery[-_]?access/i;
 
-// A query string can carry a presigned URL's signature or a gallery ?access
-// token, so every URL is logged without it.
+// A query string can carry a presigned URL's signature or a gallery ZIP
+// ticket, so every URL is logged without it.
 const URL_QUERY = /(\bhttps?:\/\/[^\s"'<>?#]+)\?[^\s"'<>]*/gi;
-// Path-only URLs as they appear in messages ("GET /api/photos/1?access=...").
+// Path-only URLs as they appear in messages ("GET /api/galleries/x/download?ticket=...").
 const PATH_QUERY = /((?:^|[\s"'(])\/[^\s"'<>?#]*)\?[^\s"'<>]*/g;
 // A JWT, wherever it appears.
 const JWT = /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g;

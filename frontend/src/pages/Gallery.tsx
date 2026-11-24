@@ -214,10 +214,16 @@ export default function Gallery() {
     );
   }
 
-  const handleDownload = () => {
+  // The ZIP answers with Content-Disposition: attachment, so navigating to it
+  // saves the file and leaves the page in place. Navigation, unlike opening a
+  // tab, is not blocked after the await for a private gallery's ticket.
+  const handleDownload = async () => {
     if (!slug) return;
-    const url = getGalleryDownloadUrl(slug, accessToken || undefined);
-    window.open(url, '_blank');
+    try {
+      window.location.assign(await getGalleryDownloadUrl(slug, accessToken || undefined));
+    } catch (err) {
+      console.error('Failed to download gallery:', err);
+    }
   };
 
   return (
