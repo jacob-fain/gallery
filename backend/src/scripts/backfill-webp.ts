@@ -7,7 +7,7 @@
  * - Uploads to new S3 keys (.webp extension)
  * - Updates database with new keys
  *
- * Usage: npx ts-node scripts/backfill-webp.ts
+ * Usage: node dist/scripts/backfill-webp.js
  */
 
 import dotenv from 'dotenv';
@@ -23,7 +23,7 @@ import sharp from 'sharp';
 import { Readable } from 'stream';
 
 // Load environment variables from root .env
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
 // WebP settings (same as imageService.ts)
 const IMAGE_SIZES = {

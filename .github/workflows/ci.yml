@@ -29,7 +29,7 @@ jobs:
     # every migration applies to an empty database.
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:15.20-alpine@sha256:e18480a22d6e48f4d816a6696769b1ec09ac73a824c5649e49c7d8b684913f3d
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
