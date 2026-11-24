@@ -122,26 +122,6 @@ export const getGalleryPhotos = async (galleryId: string): Promise<Photo[]> => {
   return result.rows;
 };
 
-export const incrementGalleryViews = async (galleryId: string): Promise<void> => {
-  // One statement, so the counter and the event log cannot disagree.
-  await query(
-    `WITH counted AS (
-       UPDATE galleries SET view_count = view_count + 1 WHERE id = $1 RETURNING id
-     )
-     INSERT INTO analytics_events (event_type, gallery_id)
-     SELECT 'gallery_view', id FROM counted`,
-    [galleryId]
-  );
-};
-
-export const incrementGalleryDownloads = async (galleryId: string): Promise<void> => {
-  // Log analytics event for gallery ZIP download
-  await query(
-    `INSERT INTO analytics_events (event_type, gallery_id) VALUES ('gallery_download', $1)`,
-    [galleryId]
-  );
-};
-
 /**
  * Get all galleries (admin only - includes private)
  */

@@ -131,33 +131,6 @@ export const reorderFeaturedPhotos = async (photoIds: string[]): Promise<void> =
   });
 
 /**
- * Counts a view and logs its analytics event in one statement, so the
- * counter and the event log cannot disagree.
- */
-export const incrementPhotoViews = async (photoId: string): Promise<void> => {
-  await query(
-    `WITH counted AS (
-       UPDATE photos SET view_count = view_count + 1 WHERE id = $1 RETURNING id, gallery_id
-     )
-     INSERT INTO analytics_events (event_type, gallery_id, photo_id)
-     SELECT 'photo_view', gallery_id, id FROM counted`,
-    [photoId]
-  );
-};
-
-/** Counts a download and logs its analytics event in one statement. */
-export const incrementPhotoDownloads = async (photoId: string): Promise<void> => {
-  await query(
-    `WITH counted AS (
-       UPDATE photos SET download_count = download_count + 1 WHERE id = $1 RETURNING id, gallery_id
-     )
-     INSERT INTO analytics_events (event_type, gallery_id, photo_id)
-     SELECT 'photo_download', gallery_id, id FROM counted`,
-    [photoId]
-  );
-};
-
-/**
  * Signed URL for the full-size original, served as an attachment under the
  * photo's uploaded filename.
  */
@@ -221,9 +194,11 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> =>
       `INSERT INTO photos (
         gallery_id, filename, original_filename,
         s3_key, s3_thumbnail_key, s3_web_key,
-        width, height, file_size, exif_data, content_hash, sort_order
+        width, height, file_size, exif_data, content_hash, sort_order, is_hidden
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      -- New uploads start hidden so nothing is public before it is reviewed;
+      -- the admin publishes them with Show.
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true)
       RETURNING *`,
       [
         data.gallery_id,

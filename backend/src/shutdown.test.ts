@@ -38,6 +38,27 @@ describe('createShutdown', () => {
     expect(exit).toHaveBeenCalledExactlyOnceWith(0);
   });
 
+  it('waits for background work to drain before closing the pool', async () => {
+    const server = fakeServer();
+    let release: () => void = () => {};
+    const drain = vi.fn(() => new Promise<void>((r) => (release = r)));
+    const closePool = vi.fn().mockResolvedValue(undefined);
+    const exit = vi.fn();
+    const done = createShutdown({ server, drain, closePool, exit, log: () => {} })('SIGTERM');
+
+    await flush();
+    expect(drain).not.toHaveBeenCalled();
+    server.finish();
+    await flush();
+    expect(drain).toHaveBeenCalledOnce();
+    expect(closePool).not.toHaveBeenCalled();
+
+    release();
+    await done;
+    expect(closePool).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+  });
+
   it('exits 1 when draining outlasts the timeout', async () => {
     vi.useFakeTimers();
     const server = fakeServer();

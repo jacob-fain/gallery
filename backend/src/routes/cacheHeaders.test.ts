@@ -9,7 +9,6 @@ vi.mock('../services/galleryService', async (importOriginal) => ({
   getPublicGalleriesWithCovers: vi.fn(),
   getGalleryBySlug: vi.fn(),
   getGalleryPhotos: vi.fn(),
-  incrementGalleryViews: vi.fn(),
   getGalleryById: vi.fn(),
 }));
 vi.mock('../services/photoService', async (importOriginal) => ({
@@ -17,9 +16,13 @@ vi.mock('../services/photoService', async (importOriginal) => ({
   getAllPublicPhotos: vi.fn(),
   getFeaturedPhotos: vi.fn(),
   getPhotoById: vi.fn(),
-  incrementPhotoViews: vi.fn(),
-  incrementPhotoDownloads: vi.fn(),
   getDownloadUrl: vi.fn(async () => 'https://s3.example/original?sig'),
+}));
+vi.mock('../services/eventTracking', () => ({
+  recordGalleryView: vi.fn(),
+  recordGalleryDownload: vi.fn(),
+  recordPhotoView: vi.fn(),
+  recordPhotoDownload: vi.fn(),
 }));
 vi.mock('../services/settingsService', () => ({
   getAllSettings: vi.fn(),
@@ -184,7 +187,7 @@ describe('responses that must never be stored', () => {
     expect(res.cache).toBe('no-store');
   });
 
-  it('a single photo, which counts a view', async () => {
+  it('a single photo', async () => {
     expect((await get(`/photos/${PHOTO_ID}`)).cache).toBe('no-store');
   });
 

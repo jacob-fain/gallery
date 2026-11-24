@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as galleryService from '../services/galleryService';
 import * as photoService from '../services/photoService';
 import * as s3Service from '../services/s3Service';
+import { recordGalleryDownload, recordGalleryView } from '../services/eventTracking';
 import {
   generateGalleryAccessToken,
   verifyGalleryAccessToken,
@@ -51,7 +52,7 @@ export const getGallery = async (req: Request, res: Response) => {
     }
 
     // Increment view count for public galleries
-    await galleryService.incrementGalleryViews(gallery.id);
+    recordGalleryView(gallery.id);
 
     cachePublicly(res);
     res.json({ success: true, data: publicGallery(gallery) });
@@ -447,7 +448,7 @@ export const downloadGalleryZip = async (req: Request, res: Response) => {
     const result = await writeZip(sources, res, s3Service.getFileStream);
 
     if (result.status === 'complete') {
-      await galleryService.incrementGalleryDownloads(gallery.id);
+      recordGalleryDownload(gallery.id);
     } else if (result.status === 'failed') {
       console.error(`Gallery ZIP for ${gallery.slug} failed mid-stream:`, result.error);
     }
