@@ -9,6 +9,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Form state
   const [siteTitle, setSiteTitle] = useState('');
@@ -22,6 +23,7 @@ export default function Settings() {
         setMetaDescription(data.meta_description);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load settings');
+        setLoadFailed(true);
       } finally {
         setLoading(false);
       }
@@ -53,6 +55,17 @@ export default function Settings() {
 
   if (loading) {
     return <div className={styles.loading}>Loading...</div>;
+  }
+
+  // The form would open blank, and saving it would replace the stored
+  // settings with empty values.
+  if (loadFailed) {
+    return (
+      <div className={styles.container}>
+        <h1 className={styles.title}>Site Settings</h1>
+        <div className={styles.error}>{error}</div>
+      </div>
+    );
   }
 
   return (

@@ -98,10 +98,13 @@ describe('admin settings', () => {
     expect(screen.queryByText('Settings saved successfully')).toBeNull();
   });
 
-  it('reports settings that could not be loaded', async () => {
+  it('offers no form to save when the settings could not be loaded', async () => {
     vi.mocked(client.getSettings).mockRejectedValue(new Error('API request failed: 500'));
     renderSettings();
 
     expect(await screen.findByText('API request failed: 500')).toBeTruthy();
+    // A blank form saved here would overwrite the stored settings.
+    expect(screen.queryByRole('button', { name: 'Save Settings' })).toBeNull();
+    expect(screen.queryByLabelText('Site Title')).toBeNull();
   });
 });
