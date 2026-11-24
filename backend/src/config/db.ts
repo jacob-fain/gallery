@@ -1,16 +1,32 @@
-import { Pool } from 'pg';
+import { Pool, PoolClient, PoolConfig } from 'pg';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required');
 }
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+/**
+ * Every wait on the database is bounded, so a burst of slow queries or an
+ * unreachable server turns into request errors instead of requests that hang
+ * with a pool connection held. statement_timeout is enforced by Postgres;
+ * query_timeout is the client's own limit for when the server never answers,
+ * so it sits above statement_timeout.
+ */
+export const poolConfig = (connectionString: string): PoolConfig => ({
+  connectionString,
+  max: 10,
+  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis: 30000,
+  statement_timeout: 10000,
+  query_timeout: 15000,
 });
 
+const pool = new Pool(poolConfig(process.env.DATABASE_URL));
+
+// An idle client fails when Postgres restarts or drops the connection. The
+// pool discards that client and opens a new one on demand, so the process
+// keeps serving instead of exiting with uploads and downloads in flight.
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+  console.error('Idle database client error:', err.message);
 });
 
 export const query = (text: string, params?: unknown[]) => {
@@ -19,6 +35,24 @@ export const query = (text: string, params?: unknown[]) => {
 
 export const getClient = () => {
   return pool.connect();
+};
+
+/**
+ * Runs fn on one pooled client inside BEGIN/COMMIT, rolling back if it throws.
+ */
+export const withTransaction = async <T>(fn: (client: PoolClient) => Promise<T>): Promise<T> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 export const testConnection = async (): Promise<boolean> => {

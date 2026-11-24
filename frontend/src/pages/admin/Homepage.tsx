@@ -60,6 +60,7 @@ function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoPro
       <div className={styles.dragHandle} {...attributes} {...listeners}>
         <img src={photo.thumbnailUrl} alt="" className={styles.thumbnail} />
         {isHero && <div className={styles.heroBadge}>Hero</div>}
+        {photo.is_hidden && <div className={styles.hiddenBadge}>Hidden</div>}
       </div>
       <div className={styles.photoInfo}>
         <span className={styles.galleryName}>{photo.gallery_title}</span>
@@ -68,6 +69,8 @@ function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoPro
             <button
               className={styles.makeHeroBtn}
               onClick={() => onMakeHero(photo.id)}
+              disabled={photo.is_hidden}
+              title={photo.is_hidden ? 'Show this photo before making it the hero' : undefined}
             >
               Make Hero
             </button>
@@ -131,6 +134,8 @@ export default function Homepage() {
     const newIndex = photos.findIndex((p) => p.id === over.id);
 
     const newPhotos = arrayMove(photos, oldIndex, newIndex);
+    // Position 0 is the hero, and visitors never see a hidden one.
+    if (newPhotos[0].is_hidden && newPhotos[0].id !== photos[0].id) return;
     setPhotos(newPhotos);
 
     try {
@@ -255,6 +260,12 @@ export default function Homepage() {
             <p className={styles.sectionDesc}>
               The main background image visitors see first. Drag to reorder.
             </p>
+            {heroPhoto?.is_hidden && (
+              <p className={styles.heroWarning}>
+                This photo is hidden, so visitors see the next visible featured photo as the
+                hero instead.
+              </p>
+            )}
             {heroPhoto && (
               <div className={styles.heroPreview}>
                 <SortableContext

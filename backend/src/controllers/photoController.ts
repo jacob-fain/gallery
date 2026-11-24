@@ -280,7 +280,9 @@ export const checkDuplicates = async (req: Request, res: Response) => {
 export const updatePhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { is_featured, is_hidden, sort_order } = req.body;
+    // Featured state lives in featured_order and changes only through the
+    // homepage endpoints, so is_featured is not accepted here.
+    const { is_hidden, sort_order } = req.body;
 
     // Check if photo exists
     const existing = await photoService.getPhotoById(id);
@@ -289,7 +291,6 @@ export const updatePhoto = async (req: Request, res: Response) => {
     }
 
     const photo = await photoService.updatePhoto(id, {
-      is_featured,
       is_hidden,
       sort_order,
     });
@@ -363,10 +364,13 @@ export const reorderPhotos = async (req: Request, res: Response) => {
 
 /**
  * Move photos to a different gallery
+ * Body: { photo_ids: string[], target_gallery_id: string | null }
+ * A null target moves the photos to Unassigned. The field must still be
+ * sent, so a request that omits it cannot unassign photos by accident.
  */
 export const movePhotos = async (req: Request, res: Response) => {
   try {
-    const { photo_ids, target_gallery_id } = req.body;
+    const { photo_ids } = req.body;
 
     if (!Array.isArray(photo_ids) || photo_ids.length === 0) {
       return res.status(400).json({
@@ -375,21 +379,22 @@ export const movePhotos = async (req: Request, res: Response) => {
       });
     }
 
-    if (!target_gallery_id) {
+    if (req.body.target_gallery_id === undefined) {
       return res.status(400).json({
         success: false,
-        error: 'target_gallery_id is required',
+        error: 'target_gallery_id is required (null for Unassigned)',
       });
     }
+    const targetGalleryId: string | null = req.body.target_gallery_id || null;
 
-    // Verify target gallery exists
-    const targetGallery = await galleryService.getGalleryById(target_gallery_id);
-    if (!targetGallery) {
-      return res.status(404).json({ success: false, error: 'Target gallery not found' });
+    if (targetGalleryId) {
+      const targetGallery = await galleryService.getGalleryById(targetGalleryId);
+      if (!targetGallery) {
+        return res.status(404).json({ success: false, error: 'Target gallery not found' });
+      }
     }
 
-    // Move photos
-    const movedCount = await photoService.movePhotos(photo_ids, target_gallery_id);
+    const movedCount = await photoService.movePhotos(photo_ids, targetGalleryId);
 
     res.json({ success: true, data: { moved: movedCount } });
   } catch (err) {
@@ -429,6 +434,13 @@ export const setHero = async (req: Request, res: Response) => {
     const photo = await photoService.getPhotoById(photo_id);
     if (!photo) {
       return res.status(404).json({ success: false, error: 'Photo not found' });
+    }
+    // Visitors never see a hidden photo, so as hero it would be silently
+    // replaced by the next featured photo.
+    if (photo.is_hidden) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Show this photo before making it the hero' });
     }
 
     await photoService.setHeroPhoto(photo_id);
@@ -507,6 +519,15 @@ export const reorderFeatured = async (req: Request, res: Response) => {
         success: false,
         error: 'photo_ids array is required',
       });
+    }
+
+    // The first position is the hero. A hidden photo may stay there (it was
+    // hidden after becoming hero), but none may be moved there.
+    const first = await photoService.getPhotoById(photo_ids[0]);
+    if (first?.is_hidden && first.featured_order !== 0) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Show this photo before making it the hero' });
     }
 
     await photoService.reorderFeaturedPhotos(photo_ids);

@@ -419,7 +419,7 @@ export async function uploadPhoto(
 export async function updatePhoto(
   token: string,
   id: string,
-  data: { is_featured?: boolean; is_hidden?: boolean; sort_order?: number }
+  data: { is_hidden?: boolean; sort_order?: number }
 ): Promise<Photo> {
   const result = await fetchApiAuth<Photo>(`/photos/${id}`, token, {
     method: 'PUT',
@@ -461,10 +461,11 @@ export async function reorderPhotos(
   return result;
 }
 
+// A null targetGalleryId moves the photos to Unassigned.
 export async function movePhotos(
   token: string,
   photoIds: string[],
-  targetGalleryId: string
+  targetGalleryId: string | null
 ): Promise<{ moved: number }> {
   const result = await fetchApiAuth<{ moved: number }>('/photos/move', token, {
     method: 'PUT',

@@ -1,55 +1,48 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DeleteObjectsCommand } from '@aws-sdk/client-s3';
 
+const send = vi.fn();
 vi.mock('../config/s3', () => ({
-  s3Client: {},
-  S3_BUCKET: 'bucket',
+  s3Client: { send: (...args: unknown[]) => send(...args) },
+  S3_BUCKET: 'test-bucket',
   isS3Configured: () => true,
 }));
 
-let signed = 0;
-vi.mock('@aws-sdk/s3-request-presigner', () => ({
-  getSignedUrl: vi.fn(async () => `https://s3.example/signed-${++signed}`),
-}));
+const { deleteFiles } = await import('./s3Service');
 
-const { cacheReuseDeadline, getSignedUrl, MIN_REMAINING_LIFETIME_MS } = await import('./s3Service');
+const keys = (n: number) => Array.from({ length: n }, (_, i) => `galleries/g/${i}.jpg`);
 
-const MINUTE = 60 * 1000;
-
-describe('cacheReuseDeadline', () => {
-  it('reuses a one-hour URL only while it has at least the minimum lifetime left', () => {
-    const deadline = cacheReuseDeadline(0, 3600);
-    expect(deadline).toBe(10 * MINUTE);
-    expect(3600 * 1000 - deadline).toBe(MIN_REMAINING_LIFETIME_MS);
-  });
-
-  it('never reuses a URL whose whole lifetime is under the minimum', () => {
-    expect(cacheReuseDeadline(5000, 600)).toBe(5000);
-  });
-});
-
-describe('getSignedUrl cache', () => {
+describe('deleteFiles', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    send.mockReset();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  it('sends one DeleteObjects request per 1000 keys', async () => {
+    send.mockResolvedValue({});
+    expect(await deleteFiles(keys(2500))).toBe(0);
+
+    expect(send).toHaveBeenCalledTimes(3);
+    const sizes = send.mock.calls.map(([cmd]) => {
+      expect(cmd).toBeInstanceOf(DeleteObjectsCommand);
+      expect(cmd.input.Bucket).toBe('test-bucket');
+      return cmd.input.Delete.Objects.length;
+    });
+    expect(sizes).toEqual([1000, 1000, 500]);
+    expect(send.mock.calls[2][0].input.Delete.Objects[0]).toEqual({ Key: 'galleries/g/2000.jpg' });
   });
 
-  it('serves a cached URL inside the reuse window and signs a new one after it', async () => {
-    const first = await getSignedUrl('a.jpg');
-
-    vi.advanceTimersByTime(10 * MINUTE - 1);
-    expect(await getSignedUrl('a.jpg')).toBe(first);
-
-    vi.advanceTimersByTime(1);
-    const second = await getSignedUrl('a.jpg');
-    expect(second).not.toBe(first);
+  it('sends nothing for no keys', async () => {
+    expect(await deleteFiles([])).toBe(0);
+    expect(send).not.toHaveBeenCalled();
   });
 
-  it('never caches a short-lived URL', async () => {
-    const first = await getSignedUrl('b.jpg', 300);
-    expect(await getSignedUrl('b.jpg', 300)).not.toBe(first);
+  it('counts per-key errors and failed batches without throwing', async () => {
+    send
+      .mockResolvedValueOnce({ Errors: [{ Key: 'a' }, { Key: 'b' }] })
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({});
+    expect(await deleteFiles(keys(2100))).toBe(2 + 1000);
+    expect(send).toHaveBeenCalledTimes(3);
   });
 });
