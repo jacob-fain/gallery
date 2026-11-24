@@ -5,7 +5,15 @@ import type { User, JwtPayload, GalleryAccessPayload } from '../types';
 
 const BCRYPT_ROUNDS = 10;
 const JWT_EXPIRY = '7d';
-const GALLERY_ACCESS_EXPIRY = '24h'; // Gallery access tokens expire in 24 hours
+const GALLERY_ACCESS_EXPIRY = '24h';
+
+// Admin sessions and gallery unlocks share one signing secret, so each token
+// names its audience and every verifier requires its own. Without this a
+// gallery unlock token passes the admin check.
+const ISSUER = 'gallery-api';
+const ADMIN_AUDIENCE = 'admin';
+const GALLERY_AUDIENCE = 'gallery-access';
+const ALGORITHM = 'HS256';
 
 // Validate JWT_SECRET is configured
 const getJwtSecret = (): string => {
@@ -38,7 +46,12 @@ export const verifyPassword = async (
  */
 export const generateToken = (userId: string, email: string): string => {
   const payload: JwtPayload = { userId, email };
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRY });
+  return jwt.sign(payload, getJwtSecret(), {
+    expiresIn: JWT_EXPIRY,
+    algorithm: ALGORITHM,
+    issuer: ISSUER,
+    audience: ADMIN_AUDIENCE,
+  });
 };
 
 /**
@@ -47,8 +60,19 @@ export const generateToken = (userId: string, email: string): string => {
  */
 export const verifyToken = (token: string): JwtPayload | null => {
   try {
-    const decoded = jwt.verify(token, getJwtSecret());
-    return decoded as JwtPayload;
+    const decoded = jwt.verify(token, getJwtSecret(), {
+      algorithms: [ALGORITHM],
+      issuer: ISSUER,
+      audience: ADMIN_AUDIENCE,
+    });
+    if (
+      typeof decoded !== 'object' ||
+      typeof decoded.userId !== 'string' ||
+      typeof decoded.email !== 'string'
+    ) {
+      return null;
+    }
+    return { userId: decoded.userId, email: decoded.email };
   } catch {
     return null;
   }
@@ -79,7 +103,12 @@ export const generateGalleryAccessToken = (
   slug: string
 ): string => {
   const payload: GalleryAccessPayload = { galleryId, slug };
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: GALLERY_ACCESS_EXPIRY });
+  return jwt.sign(payload, getJwtSecret(), {
+    expiresIn: GALLERY_ACCESS_EXPIRY,
+    algorithm: ALGORITHM,
+    issuer: ISSUER,
+    audience: GALLERY_AUDIENCE,
+  });
 };
 
 /**
@@ -90,8 +119,19 @@ export const verifyGalleryAccessToken = (
   token: string
 ): GalleryAccessPayload | null => {
   try {
-    const decoded = jwt.verify(token, getJwtSecret());
-    return decoded as GalleryAccessPayload;
+    const decoded = jwt.verify(token, getJwtSecret(), {
+      algorithms: [ALGORITHM],
+      issuer: ISSUER,
+      audience: GALLERY_AUDIENCE,
+    });
+    if (
+      typeof decoded !== 'object' ||
+      typeof decoded.galleryId !== 'string' ||
+      typeof decoded.slug !== 'string'
+    ) {
+      return null;
+    }
+    return { galleryId: decoded.galleryId, slug: decoded.slug };
   } catch {
     return null;
   }
