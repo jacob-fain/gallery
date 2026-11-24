@@ -3,7 +3,8 @@ import path from 'path';
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 import app from './app';
-import { testConnection } from './config/db';
+import pool, { testConnection } from './config/db';
+import { createShutdown } from './shutdown';
 
 const PORT = process.env.PORT || 3001;
 
@@ -16,10 +17,18 @@ const start = async () => {
   }
 
   // Listen on 0.0.0.0 to be accessible from Windows host in WSL2
-  app.listen(Number(PORT), '0.0.0.0', () => {
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/api/health`);
   });
+
+  const shutdown = createShutdown({
+    server,
+    closePool: () => pool.end(),
+    exit: (code) => process.exit(code),
+  });
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => void shutdown('SIGINT'));
 };
 
 start();
