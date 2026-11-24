@@ -44,6 +44,8 @@ export interface Photo {
   sort_order: number;
   is_featured: boolean;
   is_hidden: boolean;
+  // 0 is the homepage hero, 1+ the featured photos, null not on the homepage.
+  featured_order?: number | null;
   view_count: number;
   download_count: number;
   uploaded_at: Date;
