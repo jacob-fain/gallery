@@ -45,6 +45,14 @@ describe('public routes', () => {
     }
   });
 
+  it('end every public page with the footer', () => {
+    for (const path of ['/', '/galleries', '/photos', '/g/some-slug', '/nope']) {
+      const html = render(path);
+      expect(html).toMatch(/<\/main><footer/);
+      expect(html).toContain('href="https://buymeacoffee.com/jacobfain"');
+    }
+  });
+
   it('render links as plain hrefs from the navbar', () => {
     const html = render('/');
     expect(html).toContain('href="/galleries"');

@@ -651,6 +651,10 @@ export async function reorderHomepagePhotos(photoIds: string[]): Promise<Photo[]
 export interface SiteSettings {
   site_title: string;
   meta_description: string;
+  /** Empty when not configured. */
+  instagram_url: string;
+  /** Empty when not configured. */
+  contact_email: string;
 }
 
 /**

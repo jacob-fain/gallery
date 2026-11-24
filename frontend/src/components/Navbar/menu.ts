@@ -32,3 +32,8 @@ export function menuAction(event: MenuEvent): MenuAction {
 export function isMenuOpen(openedAtKey: string | null, locationKey: string): boolean {
   return openedAtKey !== null && openedAtKey === locationKey;
 }
+
+/** The galleries list and every gallery page, which the navbar marks as Galleries. */
+export function isGalleriesPath(pathname: string): boolean {
+  return /^\/galleries(\/|$)|^\/g\/./.test(pathname);
+}
