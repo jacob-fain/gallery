@@ -13,7 +13,24 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
+/**
+ * The form is on only when CONTACT_FORM_ENABLED is "true". In production it
+ * also needs SMTP settings: without them a message would only reach the
+ * server log while the visitor was told it was sent.
+ */
+export const contactAvailable = (env: NodeJS.ProcessEnv = process.env): boolean => {
+  if (env.CONTACT_FORM_ENABLED !== 'true') return false;
+  if (env.NODE_ENV !== 'production') return true;
+  return Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
+};
+
 export const sendContactMessage = async (req: Request, res: Response) => {
+  if (!contactAvailable()) {
+    return res.status(503).json({
+      success: false,
+      error: 'The contact form is not available right now.',
+    });
+  }
   try {
     const { name, email, message } = req.body;
 
