@@ -13,7 +13,7 @@ From the repository root:
 
 Database-backed tests (`*.db.test.ts`) run only when `TEST_DATABASE_URL` is
 set, against a throwaway database whose name ends in `_test`; the setup
-drops and rebuilds its schema from `db/init`. To run them locally:
+drops its schema and rebuilds it with the migration runner. To run them locally:
 
 ```sh
 docker run -d --rm --name gallery-test-pg -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test \
