@@ -7,6 +7,7 @@ export interface ExifData {
   aperture?: number;
   shutterSpeed?: number;
   focalLength?: number;
+  // Camera wall-clock time, with OffsetTimeOriginal appended when recorded.
   dateTaken?: string;
 }
 

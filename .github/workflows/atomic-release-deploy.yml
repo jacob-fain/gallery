@@ -221,7 +221,7 @@ jobs:
               
               if [ -z "$applied" ]; then
                 echo "Applying migration: $filename"
-                if docker exec -i gallery-db-1 psql -U gallery -d gallery < "$f"; then
+                if docker exec -i gallery-db-1 psql -v ON_ERROR_STOP=1 -U gallery -d gallery < "$f"; then
                   docker exec gallery-db-1 psql -U gallery -d gallery -c \
                     "INSERT INTO _migrations (filename) VALUES ('$filename');" 2>/dev/null
                   new_migrations=$((new_migrations + 1))

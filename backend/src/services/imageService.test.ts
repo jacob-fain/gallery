@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { extractExifData, isValidImage, processImage } from './imageService';
+import { extractExifData, formatDateTaken, isValidImage, normalizeIso, processImage } from './imageService';
 
 const image = (width: number, height: number, format: 'jpeg' | 'png' | 'webp' = 'jpeg') =>
   sharp({ create: { width, height, channels: 3, background: { r: 120, g: 90, b: 60 } } })
@@ -99,5 +99,69 @@ describe('extractExifData', () => {
 
   it('returns null when there is no EXIF', async () => {
     expect(await extractExifData(await image(100, 100))).toBeNull();
+  });
+
+  const withDate = (exifIfd: Record<string, string>) =>
+    image(100, 100).then((jpeg) =>
+      sharp(jpeg).withExif({ IFD0: { Make: 'FUJIFILM' }, IFD2: exifIfd }).jpeg().toBuffer()
+    );
+
+  it('keeps the camera wall-clock time with no zone when no offset was recorded', async () => {
+    const jpeg = await withDate({ DateTimeOriginal: '2024:06:01 14:30:00' });
+    expect((await extractExifData(jpeg))?.dateTaken).toBe('2024-06-01T14:30:00');
+  });
+
+  it('attaches OffsetTimeOriginal when the camera recorded one', async () => {
+    const jpeg = await withDate({ DateTimeOriginal: '2024:06:01 14:30:00', OffsetTimeOriginal: '+02:00' });
+    const { dateTaken } = (await extractExifData(jpeg))!;
+    expect(dateTaken).toBe('2024-06-01T14:30:00+02:00');
+    expect(new Date(dateTaken!).toISOString()).toBe('2024-06-01T12:30:00.000Z');
+  });
+
+  it('reads the ISO', async () => {
+    const jpeg = await withDate({ ISOSpeedRatings: '400' });
+    expect(await extractExifData(jpeg)).toMatchObject({ iso: 400 });
+  });
+});
+
+describe('normalizeIso', () => {
+  it('takes the first value when the camera wrote several', () => {
+    expect(normalizeIso([100, 100])).toBe(100);
+    expect(normalizeIso([800])).toBe(800);
+  });
+
+  it('passes a single value through', () => {
+    expect(normalizeIso(3200)).toBe(3200);
+  });
+
+  it('drops values that are not a positive number', () => {
+    expect(normalizeIso(undefined)).toBeUndefined();
+    expect(normalizeIso([])).toBeUndefined();
+    expect(normalizeIso(0)).toBeUndefined();
+    expect(normalizeIso('100')).toBeUndefined();
+  });
+});
+
+describe('formatDateTaken', () => {
+  // exif-reader builds DateTimeOriginal with Date.UTC from the wall-clock digits.
+  const wallClock = new Date(Date.UTC(2024, 5, 1, 14, 30, 0));
+
+  it('has no zone without an offset', () => {
+    expect(formatDateTaken(wallClock, undefined)).toBe('2024-06-01T14:30:00');
+  });
+
+  it('appends a valid offset', () => {
+    expect(formatDateTaken(wallClock, '-07:00')).toBe('2024-06-01T14:30:00-07:00');
+    expect(formatDateTaken(wallClock, ' +05:30 ')).toBe('2024-06-01T14:30:00+05:30');
+  });
+
+  it('ignores an offset that is not +HH:MM', () => {
+    expect(formatDateTaken(wallClock, '   :  ')).toBe('2024-06-01T14:30:00');
+    expect(formatDateTaken(wallClock, 'Z')).toBe('2024-06-01T14:30:00');
+  });
+
+  it('drops a missing or unparseable date', () => {
+    expect(formatDateTaken(null, '+02:00')).toBeUndefined();
+    expect(formatDateTaken(new Date(NaN), undefined)).toBeUndefined();
   });
 });

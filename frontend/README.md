@@ -20,7 +20,9 @@ npm ci
 npm run dev
 ```
 
-The dev server listens on port 5173. Over plain HTTP the app calls the API at
+The dev server listens on `127.0.0.1:5173`, so only this machine can reach it.
+To open it from another device, start it with `VITE_HOST=0.0.0.0 npm run dev`.
+Over plain HTTP the app calls the API at
 `http://<same host>:3001/api`; over HTTPS it uses `/api` on the same origin.
 Set `VITE_API_URL` to point it somewhere else.
 
