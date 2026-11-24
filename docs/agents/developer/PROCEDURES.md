@@ -33,6 +33,10 @@ back, then `npm ci`.
 
 ## Keep a PR mergeable
 
+- Once the tester has a PR, push to it only when the tester asks or to fix
+  its findings, and send the new head sha. A push while the tester is merging
+  makes the merge API refuse. If `main` moves under a queued PR, report
+  whether it still merges cleanly and let the tester ask for an update.
 - When `main` moves and a PR conflicts, merge `main` into the branch, build,
   read the exit code, then push. Never force-push.
 - A test-file conflict keeps both sides' tests.
