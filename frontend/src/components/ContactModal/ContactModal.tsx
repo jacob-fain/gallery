@@ -42,8 +42,8 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
       setName('');
       setEmail('');
       setMessage('');
-    } catch {
-      setError('Failed to send message. Please try again.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send message. Please try again.');
     } finally {
       setSending(false);
     }

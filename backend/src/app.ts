@@ -6,6 +6,12 @@ import routes from './routes';
 
 const app = express();
 
+// Requests arrive through nginx on the Docker network, so the socket address
+// is nginx's. Trusting only private-network hops makes req.ip the client
+// address nginx forwards, which rate limits key on. A client cannot spoof it:
+// nginx overwrites X-Forwarded-For rather than appending to it.
+app.set('trust proxy', 'loopback, uniquelocal');
+
 // Middleware
 app.use(cors({
   origin: process.env.NODE_ENV === 'development'

@@ -484,10 +484,11 @@ export async function sendContactMessage(
     body: JSON.stringify({ name, email, message }),
   });
 
-  const data: ApiResponse<{ sent: boolean }> = await response.json();
+  // A refused or failed request may carry no JSON body.
+  const data: ApiResponse<{ sent: boolean }> | null = await response.json().catch(() => null);
 
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || 'Failed to send message');
+  if (!response.ok || !data?.success) {
+    throw new Error(data?.error || 'Failed to send message. Please try again.');
   }
 }
 
