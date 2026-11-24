@@ -301,10 +301,6 @@ export const updatePhoto = async (
   const values: (boolean | number | string)[] = [];
   let paramIndex = 1;
 
-  if (data.is_featured !== undefined) {
-    updates.push(`is_featured = $${paramIndex++}`);
-    values.push(data.is_featured);
-  }
   if (data.is_hidden !== undefined) {
     updates.push(`is_hidden = $${paramIndex++}`);
     values.push(data.is_hidden);

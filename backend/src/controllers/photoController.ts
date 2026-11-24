@@ -280,7 +280,9 @@ export const checkDuplicates = async (req: Request, res: Response) => {
 export const updatePhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { is_featured, is_hidden, sort_order } = req.body;
+    // Featured state lives in featured_order and changes only through the
+    // homepage endpoints, so is_featured is not accepted here.
+    const { is_hidden, sort_order } = req.body;
 
     // Check if photo exists
     const existing = await photoService.getPhotoById(id);
@@ -289,7 +291,6 @@ export const updatePhoto = async (req: Request, res: Response) => {
     }
 
     const photo = await photoService.updatePhoto(id, {
-      is_featured,
       is_hidden,
       sort_order,
     });
@@ -429,6 +430,13 @@ export const setHero = async (req: Request, res: Response) => {
     const photo = await photoService.getPhotoById(photo_id);
     if (!photo) {
       return res.status(404).json({ success: false, error: 'Photo not found' });
+    }
+    // Visitors never see a hidden photo, so as hero it would be silently
+    // replaced by the next featured photo.
+    if (photo.is_hidden) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Show this photo before making it the hero' });
     }
 
     await photoService.setHeroPhoto(photo_id);

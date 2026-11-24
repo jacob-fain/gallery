@@ -403,7 +403,7 @@ export async function uploadPhoto(
 export async function updatePhoto(
   token: string,
   id: string,
-  data: { is_featured?: boolean; is_hidden?: boolean; sort_order?: number }
+  data: { is_hidden?: boolean; sort_order?: number }
 ): Promise<Photo> {
   const result = await fetchApiAuth<Photo>(`/photos/${id}`, token, {
     method: 'PUT',
