@@ -26,6 +26,12 @@ describe('redaction', () => {
     );
   });
 
+  it('drops a ZIP ticket from a path', () => {
+    expect(redactString('GET /api/galleries/smith/download?ticket=Zm9vYmFy-baz_qux')).toBe(
+      'GET /api/galleries/smith/download?[redacted]'
+    );
+  });
+
   it('removes JWTs and connection string passwords wherever they appear', () => {
     expect(redactString('token eyJhbGciOi.eyJzdWIi.c2lnbmF0dXJl rejected')).toBe('token [redacted] rejected');
     expect(redactString('connect postgresql://gallery:hunter2@db:5432/gallery failed')).toBe(
@@ -36,17 +42,24 @@ describe('redaction', () => {
   it('replaces secret-named fields at any depth', () => {
     expect(
       redactFields({
-        headers: { Authorization: 'Bearer x', cookie: 'admin_session=y', 'content-type': 'json' },
+        headers: { Authorization: 'Bearer x', cookie: 'admin_session=y', 'x-gallery-access': 'g', 'content-type': 'json' },
         password: 'p',
         jwtSecret: 's',
         accessToken: 't',
+        ticket: 'z',
         list: [{ apiKey: 'k', ok: 1 }],
       })
     ).toEqual({
-      headers: { Authorization: '[redacted]', cookie: '[redacted]', 'content-type': 'json' },
+      headers: {
+        Authorization: '[redacted]',
+        cookie: '[redacted]',
+        'x-gallery-access': '[redacted]',
+        'content-type': 'json',
+      },
       password: '[redacted]',
       jwtSecret: '[redacted]',
       accessToken: '[redacted]',
+      ticket: '[redacted]',
       list: [{ apiKey: '[redacted]', ok: 1 }],
     });
   });

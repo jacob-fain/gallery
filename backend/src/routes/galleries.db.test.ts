@@ -14,11 +14,16 @@ vi.mock('../services/s3Service', async (importOriginal) => ({
 import { query } from '../config/db';
 import { generateGalleryAccessToken } from '../services/authService';
 import { drainTracking } from '../services/eventTracking';
-import { useAppServer } from '../../test/appServer';
+import { useAppServer, type RequestOptions } from '../../test/appServer';
 import { tag, useFixtures } from '../../test/fixtures';
 
 const db = process.env.TEST_DATABASE_URL;
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
+
+const visitor = (access?: string): RequestOptions => ({
+  admin: false,
+  headers: access ? { 'X-Gallery-Access': access } : {},
+});
 
 describe.skipIf(!db)('gallery routes (database)', () => {
   const { request } = useAppServer();
@@ -169,19 +174,38 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       expect(right.status).toBe(200);
       expect(right.body.data).toMatchObject({ title: g.title, slug: g.slug, verified: true });
 
-      const access = encodeURIComponent(right.body.data.accessToken);
-      const open = await request('GET', `/galleries/${g.slug}/photos?access=${access}`, { admin: false });
+      const open = await request('GET', `/galleries/${g.slug}/photos`, visitor(right.body.data.accessToken));
       expect(open.status).toBe(200);
       expect(open.body.data).toHaveLength(1);
       // Photos behind a password are for one visitor, never a shared cache.
       expect(open.headers.get('cache-control')).not.toContain('public');
     });
 
+    // A token in a URL reaches nginx's error log, so no route reads one there.
+    it('refuses a token sent as ?access=', async () => {
+      const g = await fixtures.gallery({ isPublic: false, password: 'pw' });
+      const p = await fixtures.photo(g.id);
+      const access = encodeURIComponent(generateGalleryAccessToken(g.id, g.slug, 0));
+      const status = async (method: string, path: string) => (await request(method, path, { admin: false })).status;
+      expect({
+        list: await status('GET', `/galleries/${g.slug}/photos?access=${access}`),
+        photo: await status('GET', `/photos/${p.id}?access=${access}`),
+        download: await status('GET', `/photos/${p.id}/download?access=${access}`),
+        ticket: await status('POST', `/galleries/${g.slug}/download-ticket?access=${access}`),
+        zip: await status('GET', `/galleries/${g.slug}/download?access=${access}`),
+      }).toEqual({ list: 403, photo: 404, download: 404, ticket: 403, zip: 403 });
+
+      const before = (await query(`SELECT view_count FROM galleries WHERE id = $1`, [g.id])).rows[0].view_count;
+      await request('POST', `/galleries/${g.slug}/view?access=${access}`, { admin: false });
+      await drainTracking();
+      expect((await query(`SELECT view_count FROM galleries WHERE id = $1`, [g.id])).rows[0].view_count).toBe(before);
+    });
+
     it("refuses another gallery's token", async () => {
       const g = await fixtures.gallery({ isPublic: false, password: 'pw' });
       const other = await fixtures.gallery({ isPublic: false, password: 'pw' });
-      const token = encodeURIComponent(generateGalleryAccessToken(other.id, other.slug, 0));
-      const res = await request('GET', `/galleries/${g.slug}/photos?access=${token}`, { admin: false });
+      const token = generateGalleryAccessToken(other.id, other.slug, 0);
+      const res = await request('GET', `/galleries/${g.slug}/photos`, visitor(token));
       expect(res.status).toBe(403);
     });
 
@@ -208,29 +232,32 @@ describe.skipIf(!db)('gallery routes (database)', () => {
     const unlock = async (slug: string, password: string) => {
       const res = await request('POST', `/galleries/${slug}/verify`, { admin: false, body: { password } });
       expect(res.status).toBe(200);
-      return encodeURIComponent(res.body.data.accessToken as string);
+      return res.body.data.accessToken as string;
     };
 
     const viewCount = async (id: string) =>
       (await query(`SELECT view_count FROM galleries WHERE id = $1`, [id])).rows[0].view_count as number;
 
     // Every route that takes the token: the photo list, one photo, its
-    // download, the ZIP, and view tracking (which answers 200 either way, so
-    // its effect is read from the counter).
+    // download, the ZIP ticket, and view tracking (which answers the same
+    // either way, so its effect is read from the counter).
     const uses = async (g: { id: string; slug: string }, photoId: string, access: string) => {
       const before = await viewCount(g.id);
-      await request('POST', `/galleries/${g.slug}/view?access=${access}`, { admin: false });
+      await request('POST', `/galleries/${g.slug}/view`, visitor(access));
       await drainTracking();
+      const ticket = await request('POST', `/galleries/${g.slug}/download-ticket`, visitor(access));
       return {
-        list: (await request('GET', `/galleries/${g.slug}/photos?access=${access}`, { admin: false })).status,
-        photo: (await request('GET', `/photos/${photoId}?access=${access}`, { admin: false })).status,
-        download: (await request('GET', `/photos/${photoId}/download?access=${access}`, { admin: false })).status,
-        zip: (await request('GET', `/galleries/${g.slug}/download?access=${access}`, { admin: false })).status,
+        list: (await request('GET', `/galleries/${g.slug}/photos`, visitor(access))).status,
+        photo: (await request('GET', `/photos/${photoId}`, visitor(access))).status,
+        download: (await request('GET', `/photos/${photoId}/download`, visitor(access))).status,
+        ticket: ticket.status,
+        zip: (await request('GET', `/galleries/${g.slug}/download?ticket=${ticket.body.data?.ticket ?? ''}`, visitor()))
+          .status,
         viewCounted: (await viewCount(g.id)) > before,
       };
     };
-    const works = { list: 200, photo: 200, download: 200, zip: 200, viewCounted: true };
-    const refused = { list: 403, photo: 404, download: 404, zip: 403, viewCounted: false };
+    const works = { list: 200, photo: 200, download: 200, ticket: 200, zip: 200, viewCounted: true };
+    const refused = { list: 403, photo: 404, download: 404, ticket: 403, zip: 403, viewCounted: false };
 
     it('a password change revokes tokens issued before it', async () => {
       const g = await fixtures.gallery({ isPublic: false, password: 'old' });
@@ -394,15 +421,92 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       expect(res.raw.includes(Buffer.from(p.s3_key))).toBe(true);
     });
 
-    it('refuses an empty gallery and a private one without a token', async () => {
+    it('refuses an empty gallery and a private one without a ticket', async () => {
       const empty = await fixtures.gallery();
       expect((await request('GET', `/galleries/${empty.slug}/download`, { admin: false })).status).toBe(400);
 
       const priv = await fixtures.gallery({ isPublic: false, password: 'pw' });
       await fixtures.photo(priv.id);
-      expect((await request('GET', `/galleries/${priv.slug}/download`, { admin: false })).status).toBe(403);
-      const token = encodeURIComponent(generateGalleryAccessToken(priv.id, priv.slug, 0));
-      expect((await request('GET', `/galleries/${priv.slug}/download?access=${token}`, { admin: false })).status).toBe(200);
+      const res = await request('GET', `/galleries/${priv.slug}/download`, { admin: false });
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('Password required to download this gallery');
+    });
+  });
+
+  describe('POST /galleries/:slug/download-ticket', () => {
+    const ticketFor = async (slug: string, access?: string) =>
+      request('POST', `/galleries/${slug}/download-ticket`, visitor(access));
+    const zip = async (slug: string, ticket: string) =>
+      request('GET', `/galleries/${slug}/download?ticket=${encodeURIComponent(ticket)}`, visitor());
+
+    const privateGallery = async () => {
+      const g = await fixtures.gallery({ isPublic: false, password: 'pw' });
+      const p = await fixtures.photo(g.id);
+      return { g, p, token: generateGalleryAccessToken(g.id, g.slug, 0) };
+    };
+
+    it('trades the access header for a ticket that opens the ZIP once', async () => {
+      const { g, p, token } = await privateGallery();
+      const res = await ticketFor(g.slug, token);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      const { ticket } = res.body.data;
+      expect(ticket).toMatch(/^[\w-]{43}$/);
+      expect(ticket).not.toContain(token);
+
+      const first = await zip(g.slug, ticket);
+      expect(first.status).toBe(200);
+      expect(first.headers.get('content-type')).toBe('application/zip');
+      expect(first.raw.includes(Buffer.from(p.s3_key))).toBe(true);
+
+      const again = await zip(g.slug, ticket);
+      expect(again.status).toBe(403);
+      expect(again.body.error).toBe('This download link has expired. Please try the download again.');
+    });
+
+    it('needs a token that unlocks the gallery', async () => {
+      const { g } = await privateGallery();
+      const other = await fixtures.gallery({ isPublic: false, password: 'pw' });
+      expect((await ticketFor(g.slug)).status).toBe(403);
+      expect((await ticketFor(g.slug, 'not-a-token')).status).toBe(403);
+      expect((await ticketFor(g.slug, generateGalleryAccessToken(other.id, other.slug, 0))).status).toBe(403);
+      expect((await ticketFor(`no-such-${tag()}`, 'x')).status).toBe(404);
+    });
+
+    it("refuses a ticket for another gallery's ZIP, and spends it", async () => {
+      const a = await privateGallery();
+      const b = await privateGallery();
+      const ticket = (await ticketFor(a.g.slug, a.token)).body.data.ticket;
+      expect((await zip(b.g.slug, ticket)).status).toBe(403);
+      expect((await zip(a.g.slug, ticket)).status).toBe(403);
+    });
+
+    it('a password change between ticket and download revokes the ticket', async () => {
+      const { g, token } = await privateGallery();
+      const ticket = (await ticketFor(g.slug, token)).body.data.ticket;
+      expect((await request('PUT', `/galleries/${g.id}`, { body: { password: 'new' } })).status).toBe(200);
+      expect((await zip(g.slug, ticket)).status).toBe(403);
+    });
+
+    it('a ticket stops working after 60 seconds', async () => {
+      const { g, token } = await privateGallery();
+      const ticket = (await ticketFor(g.slug, token)).body.data.ticket;
+      const issued = Date.now();
+      const now = vi.spyOn(Date, 'now').mockReturnValue(issued + 60_000);
+      try {
+        expect((await zip(g.slug, ticket)).status).toBe(403);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it('answers null for a public gallery, whose ZIP needs no ticket', async () => {
+      const g = await fixtures.gallery();
+      await fixtures.photo(g.id);
+      const res = await ticketFor(g.slug);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ ticket: null });
+      expect((await request('GET', `/galleries/${g.slug}/download`, visitor())).status).toBe(200);
     });
   });
 });

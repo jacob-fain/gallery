@@ -13,6 +13,7 @@ import { storedFilename } from '../config/upload';
 import { photoDownloadName } from '../services/downloadNames';
 import type { Photo } from '../types';
 import { logger } from '../utils/logger';
+import { galleryAccessToken } from '../utils/galleryAccessHeader';
 
 const NOT_FOUND = { success: false, error: 'Photo not found' } as const;
 
@@ -28,7 +29,7 @@ const loadViewablePhoto = async (id: string, accessToken: unknown) => {
 export const getPhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const photo = await loadViewablePhoto(id, req.query.access);
+    const photo = await loadViewablePhoto(id, galleryAccessToken(req));
     if (!photo) {
       return res.status(404).json(NOT_FOUND);
     }
@@ -106,7 +107,7 @@ export const getFeatured = async (_req: Request, res: Response) => {
 export const downloadPhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const photo = await loadViewablePhoto(id, req.query.access);
+    const photo = await loadViewablePhoto(id, galleryAccessToken(req));
     if (!photo) {
       return res.status(404).json(NOT_FOUND);
     }

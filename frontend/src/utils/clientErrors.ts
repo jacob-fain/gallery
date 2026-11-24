@@ -1,7 +1,7 @@
 /**
  * Reports browser errors to the API, which writes them to the server log.
  * A report carries only the error, the page path and the build: never the
- * query string or hash (a gallery ?access token lives there), cookies, or
+ * query string or hash (a gallery ZIP ticket can live there), cookies, or
  * anything typed into the page.
  */
 
