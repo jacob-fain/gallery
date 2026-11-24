@@ -39,7 +39,7 @@ describe.skipIf(!db)('POST /galleries/:slug/view (database)', () => {
     const qs = access ? `?access=${encodeURIComponent(access)}` : '';
     const res = await fetch(`${base}/galleries/${slug}/view${qs}`, { method: 'POST' });
     await drainTracking();
-    return { status: res.status, cache: res.headers.get('cache-control'), body: await res.json() };
+    return { status: res.status, cache: res.headers.get('cache-control'), body: await res.text() };
   };
 
   const viewCount = async (id: string) =>
@@ -49,7 +49,7 @@ describe.skipIf(!db)('POST /galleries/:slug/view (database)', () => {
     const g = await gallery(true);
 
     const res = await view(g.slug);
-    expect(res).toEqual({ status: 200, cache: 'no-store', body: { success: true } });
+    expect(res).toEqual({ status: 204, cache: 'no-store', body: '' });
     expect(await viewCount(g.id)).toBe(1);
 
     await fetch(`${base}/galleries/${g.slug}`);
@@ -61,7 +61,7 @@ describe.skipIf(!db)('POST /galleries/:slug/view (database)', () => {
     const g = await gallery(false);
     const other = await gallery(false);
 
-    expect((await view(g.slug)).body).toEqual({ success: true });
+    expect((await view(g.slug)).status).toBe(204);
     await view(g.slug, 'not-a-token');
     await view(g.slug, generateGalleryAccessToken(other.id, other.slug, 0));
     expect(await viewCount(g.id)).toBe(0);
@@ -71,6 +71,6 @@ describe.skipIf(!db)('POST /galleries/:slug/view (database)', () => {
   });
 
   it('answers an unknown slug the same way', async () => {
-    expect(await view('no-such-gallery')).toEqual({ status: 200, cache: 'no-store', body: { success: true } });
+    expect(await view('no-such-gallery')).toEqual({ status: 204, cache: 'no-store', body: '' });
   });
 });
