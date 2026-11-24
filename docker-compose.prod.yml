@@ -1,3 +1,12 @@
+# Every container's log is capped at 3 files of 10 MB. The backend writes one
+# line per request, and the Docker default (json-file, no limit) can fill the
+# server's root disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   frontend:
     build: ./frontend
@@ -7,6 +16,7 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    logging: *logging
     networks:
       - gallery
 
@@ -40,6 +50,7 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    logging: *logging
     networks:
       - gallery
 
@@ -57,6 +68,7 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    logging: *logging
     networks:
       - gallery
 
