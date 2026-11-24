@@ -7,14 +7,9 @@
     <title>Jacob Fain Photography</title>
   </head>
   <body>
-    <script>
-      // Apply persisted theme before first paint to avoid a flash of the wrong theme
-      try {
-        if (localStorage.getItem('theme') === 'dark') {
-          document.documentElement.dataset.theme = 'dark';
-        }
-      } catch (e) {}
-    </script>
+    <!-- Applies the saved theme before first paint. A file, not inline, so
+         the Content-Security-Policy can allow only same-origin scripts. -->
+    <script src="/theme.js"></script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
