@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import crypto from 'crypto';
 import { query } from '../config/db';
-import { getPublicGalleryCoverKeys } from './galleryService';
+import { countVisiblePhotos, getPublicGalleryCoverKeys } from './galleryService';
 
 const db = process.env.TEST_DATABASE_URL;
 
@@ -82,5 +82,24 @@ describe.skipIf(!db)('getPublicGalleryCoverKeys (database)', () => {
     const only = await photo(g, 'only', 0, true);
     await query(`UPDATE galleries SET cover_image_id = $1 WHERE id = $2`, [only, g]);
     expect(await coverOf(g)).toBeNull();
+  });
+
+  it('counts only visible photos, in the same query, matching the single-gallery count', async () => {
+    const g = await gallery();
+    await photo(g, 'a', 0);
+    await photo(g, 'b', 1);
+    await photo(g, 'c', 2, true);
+    const other = await gallery();
+    await photo(other, 'elsewhere', 0);
+    const rows = await getPublicGalleryCoverKeys();
+    expect(rows.find((r) => r.id === g)?.photo_count).toBe(2);
+    expect(rows.find((r) => r.id === other)?.photo_count).toBe(1);
+    expect(await countVisiblePhotos(g)).toBe(2);
+  });
+
+  it('counts zero for a gallery whose photos are all hidden', async () => {
+    const g = await gallery();
+    await photo(g, 'only', 0, true);
+    expect((await getPublicGalleryCoverKeys()).find((r) => r.id === g)?.photo_count).toBe(0);
   });
 });

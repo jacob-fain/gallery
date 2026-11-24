@@ -186,9 +186,16 @@ describe('public photo lists carry no internal fields', () => {
 });
 
 describe('public gallery objects carry no internal fields', () => {
-  it('GET /galleries lists id, title, slug and the cover', async () => {
+  it('GET /galleries lists id, title, slug, the cover and the photo count', async () => {
     vi.mocked(galleryService.getPublicGalleriesWithCovers).mockResolvedValue([
-      { ...gallery(true), coverUrl: 'thumb?sig', coverWebUrl: 'web?sig', coverWidth: 1200, coverHeight: 800 },
+      {
+        ...gallery(true),
+        coverUrl: 'thumb?sig',
+        coverWebUrl: 'web?sig',
+        coverWidth: 1200,
+        coverHeight: 800,
+        photoCount: 84,
+      },
     ]);
     const { body } = await get('/galleries');
     expect(body.data).toEqual([
@@ -200,6 +207,7 @@ describe('public gallery objects carry no internal fields', () => {
         coverWebUrl: 'web?sig',
         coverWidth: 1200,
         coverHeight: 800,
+        photoCount: 84,
       },
     ]);
   });

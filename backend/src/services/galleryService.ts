@@ -49,7 +49,16 @@ export interface GalleryCoverRow extends Gallery {
   cover_web_key: string | null;
   cover_width: number | null;
   cover_height: number | null;
+  photo_count: number;
 }
+
+/**
+ * The one definition of a gallery's visible photo count, shared by the
+ * gallery list and a single gallery so the two never disagree. galleryId is
+ * a SQL expression (a parameter or a column), never a value.
+ */
+const visiblePhotoCount = (galleryId: string) =>
+  `(SELECT COUNT(*)::int FROM photos WHERE gallery_id = ${galleryId} AND is_hidden = false)`;
 
 export const getPublicGalleryCoverKeys = async (): Promise<GalleryCoverRow[]> => {
   // Every cover field comes from the same photo: the chosen cover when it
@@ -59,7 +68,8 @@ export const getPublicGalleryCoverKeys = async (): Promise<GalleryCoverRow[]> =>
             CASE WHEN cover.id IS NOT NULL THEN cover.s3_thumbnail_key ELSE first_photo.s3_thumbnail_key END AS cover_thumbnail_key,
             CASE WHEN cover.id IS NOT NULL THEN cover.s3_web_key ELSE first_photo.s3_web_key END AS cover_web_key,
             CASE WHEN cover.id IS NOT NULL THEN cover.width ELSE first_photo.width END AS cover_width,
-            CASE WHEN cover.id IS NOT NULL THEN cover.height ELSE first_photo.height END AS cover_height
+            CASE WHEN cover.id IS NOT NULL THEN cover.height ELSE first_photo.height END AS cover_height,
+            ${visiblePhotoCount('g.id')} AS photo_count
      FROM galleries g
      LEFT JOIN photos cover
        ON cover.id = g.cover_image_id
@@ -84,12 +94,19 @@ export const getPublicGalleriesWithCovers = async (): Promise<GalleryWithCoverUr
   // Generate signed URLs for cover photos
   const galleriesWithUrls = await Promise.all(
     rows.map(async (row) => {
-      const { cover_thumbnail_key, cover_web_key, cover_width, cover_height, ...gallery } = row;
+      const { cover_thumbnail_key, cover_web_key, cover_width, cover_height, photo_count, ...gallery } = row;
       const [coverUrl, coverWebUrl] = await Promise.all([
         cover_thumbnail_key ? getSignedUrl(cover_thumbnail_key) : null,
         cover_web_key ? getSignedUrl(cover_web_key) : null,
       ]);
-      return { ...gallery, coverUrl, coverWebUrl, coverWidth: cover_width, coverHeight: cover_height };
+      return {
+        ...gallery,
+        coverUrl,
+        coverWebUrl,
+        coverWidth: cover_width,
+        coverHeight: cover_height,
+        photoCount: photo_count,
+      };
     })
   );
 
@@ -114,10 +131,7 @@ export const getGalleryById = async (id: string): Promise<Gallery | null> => {
 
 /** How many photos a visitor sees in a gallery: hidden ones are not counted. */
 export const countVisiblePhotos = async (galleryId: string): Promise<number> => {
-  const result = await query(
-    `SELECT COUNT(*)::int AS count FROM photos WHERE gallery_id = $1 AND is_hidden = false`,
-    [galleryId]
-  );
+  const result = await query(`SELECT ${visiblePhotoCount('$1')} AS count`, [galleryId]);
   return result.rows[0].count;
 };
 

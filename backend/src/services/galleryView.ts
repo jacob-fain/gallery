@@ -21,12 +21,13 @@ export interface PublicGalleryDetail extends PublicGallery {
   photoCount: number;
 }
 
-/** A gallery on the public list, with the cover photo the card shows. */
+/** A gallery on the public list, with the cover photo and photo count the card shows. */
 export interface PublicGalleryCard extends PublicGallery {
   coverUrl: string | null;
   coverWebUrl: string | null;
   coverWidth: number | null;
   coverHeight: number | null;
+  photoCount: number;
 }
 
 export const publicGallery = (gallery: Gallery): PublicGallery => ({
@@ -47,6 +48,7 @@ export const publicGalleryCard = (gallery: GalleryWithCoverUrl): PublicGalleryCa
   coverWebUrl: gallery.coverWebUrl,
   coverWidth: gallery.coverWidth,
   coverHeight: gallery.coverHeight,
+  photoCount: gallery.photoCount,
 });
 
 /**
