@@ -1,0 +1,137 @@
+# Production-like stack for the Playwright smoke suite: the real frontend and
+# backend images, a throwaway Postgres, SeaweedFS standing in for S3, and a
+# TLS front. Started and stopped by global-setup.ts and global-teardown.ts
+# with a project name of their own; never run it as project "gallery".
+# Nothing persists: data lives in tmpfs and every credential below is a
+# placeholder that only this stack knows.
+name: gallery-e2e
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://gallery:e2e@db:5432/gallery
+  JWT_SECRET: e2e-only-jwt-secret-for-the-throwaway-stack
+  FRONTEND_URL: https://gallery.localhost:${E2E_PORT:-8443}
+  AWS_ACCESS_KEY_ID: e2e
+  AWS_SECRET_ACCESS_KEY: e2e-secret
+  AWS_REGION: us-east-1
+  AWS_S3_BUCKET: gallery-e2e
+  # Through the TLS front, so signed URLs name a host the browser can reach.
+  AWS_S3_ENDPOINT: https://s3.e2e.amazonaws.com
+  NODE_EXTRA_CA_CERTS: /certs/cert.pem
+  LOG_LEVEL: warn
+
+services:
+  db:
+    image: postgres:15.20-alpine@sha256:e18480a22d6e48f4d816a6696769b1ec09ac73a824c5649e49c7d8b684913f3d
+    environment:
+      POSTGRES_USER: gallery
+      POSTGRES_PASSWORD: e2e
+      POSTGRES_DB: gallery
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gallery -d gallery"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # SeaweedFS, since MinIO no longer publishes images. 4.x is needed: it
+  # honours response-content-disposition on signed URLs, which is how a
+  # download gets the photo's original filename.
+  s3:
+    image: chrislusf/seaweedfs:4.01@sha256:d91cdf769018b143f1c944085b36d29893d9af199e656b2537367c35744fc221
+    command: >-
+      server -dir=/data -ip=s3 -ip.bind=0.0.0.0
+      -master.volumeSizeLimitMB=64 -volume.max=20
+      -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/identities.json
+    volumes:
+      - ./s3/identities.json:/etc/seaweedfs/identities.json:ro
+    tmpfs: [/data]
+
+  # One-shot: the app writes into an existing bucket and never creates one.
+  bucket:
+    image: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+    environment:
+      S3_USER: e2e:e2e-secret
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        for i in $$(seq 60); do
+          code=$$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+            --aws-sigv4 aws:amz:us-east-1:s3 --user "$$S3_USER" \
+            http://s3:8333/gallery-e2e)
+          case $$code in 200|409) exit 0;; esac
+          sleep 1
+        done
+        echo "bucket not created (last status $$code)" >&2
+        exit 1
+    depends_on: [s3]
+
+  migrate:
+    image: gallery-e2e-backend:local
+    build: ../backend
+    command: ["node", "dist/migrate.js"]
+    environment: *backend-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # The production script, so the suite signs in the way an operator would.
+  seed:
+    image: gallery-e2e-backend:local
+    command: ["node", "dist/scripts/seed-admin.js"]
+    environment:
+      <<: *backend-env
+      ADMIN_EMAIL: admin@e2e.test
+      ADMIN_PASSWORD: e2e-admin-password
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  backend:
+    image: gallery-e2e-backend:local
+    environment: *backend-env
+    volumes:
+      # global-setup.ts makes the certificate; a missing one fails the start
+      # instead of Docker creating an empty directory in its place.
+      - &certs_mount
+        type: bind
+        source: ./.certs
+        target: /certs
+        read_only: true
+        bind:
+          create_host_path: false
+    init: true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health/ready"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      bucket:
+        condition: service_completed_successfully
+
+  frontend:
+    image: gallery-e2e-frontend:local
+    build: ../frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  tls:
+    image: nginx:1.31.0-alpine@sha256:2f07d83bf561b506400dc183b1b2003803e39efbd22451f848adaba14d28c7c7
+    ports:
+      - "127.0.0.1:${E2E_PORT:-8443}:443"
+    volumes:
+      - ./tls/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - *certs_mount
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--no-check-certificate", "https://127.0.0.1/api/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      default:
+        aliases: [s3.e2e.amazonaws.com]
+    depends_on: [frontend, s3]
