@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import sharp from 'sharp';
+import { describe, expect, it, vi } from 'vitest';
+import sharp, { type Metadata } from 'sharp';
+import { HEIC_NOT_SUPPORTED } from '../config/upload';
 import {
+  HeicNotSupportedError,
   ImageTooLargeError,
   MAX_INPUT_PIXELS,
   UPLOAD_SLOTS,
@@ -132,6 +134,22 @@ describe('readImageInfo', () => {
       .gif()
       .toBuffer();
     await expect(readImageInfo(gif)).rejects.toBeInstanceOf(UnsupportedImageError);
+  });
+
+  it('rejects HEVC-compressed HEIF, which reads but cannot be decoded, and reads AVIF', async () => {
+    // No HEVC encoder ships with sharp, so the header an iPhone photo gives is mocked.
+    const metadata = vi
+      .spyOn(sharp.prototype, 'metadata')
+      .mockResolvedValueOnce({ format: 'heif', compression: 'hevc', width: 4032, height: 3024 } as Metadata);
+    const heic = readImageInfo(Buffer.from('IMG_0001.jpg'));
+    await expect(heic).rejects.toBeInstanceOf(HeicNotSupportedError);
+    await expect(heic).rejects.toThrow(HEIC_NOT_SUPPORTED);
+    metadata.mockRestore();
+
+    const avif = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#000' } })
+      .avif()
+      .toBuffer();
+    expect((await readImageInfo(avif)).format.contentType).toBe('image/avif');
   });
 
   it('rejects an image over the pixel limit from its header', async () => {

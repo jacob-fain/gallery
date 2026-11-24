@@ -12,11 +12,30 @@ export const UPLOAD_CONCURRENCY = 3;
 // How long a finished row stays so the admin sees it succeed
 export const COMPLETE_ROW_MS = 1500;
 // A file the browser gives no type is judged by extension; the server checks
-// the bytes. HEIC is left out: the server most likely cannot decode it (#131).
+// the bytes.
 const IMAGE_EXTENSION = /\.(jpe?g|png|webp|tiff?)$/i;
 
 const isImageFile = (file: File) =>
   file.type ? file.type.startsWith('image/') : IMAGE_EXTENSION.test(file.name);
+
+export const HEIC_NOT_SUPPORTED =
+  "HEIC photos aren't supported yet. Export as JPEG (on iPhone: Settings > Camera > Formats > Most Compatible)";
+
+// The server cannot decode HEVC-compressed HEIF, which is what an iPhone
+// shoots (#131), and refuses it by type or name, so it is failed here before
+// it is hashed or sent.
+const isHeic = (file: File) =>
+  /^image\/hei[cf](-sequence)?$/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+
+/** Why the server would refuse this file, or null if it may be sent. */
+export const invalidReason = (file: File): string | null =>
+  isHeic(file)
+    ? HEIC_NOT_SUPPORTED
+    : !isImageFile(file)
+    ? 'Not an image file'
+    : file.size > MAX_FILE_SIZE
+    ? 'Larger than the 50MB upload limit'
+    : null;
 
 export type UploadStatus =
   | 'checking'
@@ -193,20 +212,15 @@ export class UploadQueue {
     const { galleryId, checkOnly } = options;
 
     const newItems: UploadItem[] = files.map((file) => {
-      // Matches server limits so bad files fail fast
-      const invalidReason = !isImageFile(file)
-        ? 'Not an image file'
-        : file.size > MAX_FILE_SIZE
-        ? 'Larger than the 50MB upload limit'
-        : null;
+      const reason = invalidReason(file);
       return {
         id: `upload-${++this.nextId}`,
         file,
         galleryId,
         checkOnly,
         progress: 0,
-        status: invalidReason ? 'error' : 'checking',
-        error: invalidReason ?? undefined,
+        status: reason ? 'error' : 'checking',
+        error: reason ?? undefined,
         retryable: false,
       };
     });

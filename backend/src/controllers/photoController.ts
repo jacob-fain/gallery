@@ -177,10 +177,13 @@ export const uploadPhoto = async (req: Request, res: Response) => {
       if (err instanceof imageService.ImageTooLargeError) {
         return res.status(413).json({ success: false, error: err.message });
       }
+      if (err instanceof imageService.HeicNotSupportedError) {
+        return res.status(415).json({ success: false, error: err.message });
+      }
       if (err instanceof imageService.UnsupportedImageError) {
         return res.status(415).json({
           success: false,
-          error: 'Unsupported image format. Allowed: JPEG, PNG, WebP, TIFF, HEIF',
+          error: 'Unsupported image format. Allowed: JPEG, PNG, WebP, TIFF',
         });
       }
       throw err;

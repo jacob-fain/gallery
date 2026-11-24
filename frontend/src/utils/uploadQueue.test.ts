@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Photo } from '../types';
-import { COMPLETE_ROW_MS, MAX_FILE_SIZE, UPLOAD_CONCURRENCY, UploadQueue, type UploadQueueDeps } from './uploadQueue';
+import {
+  COMPLETE_ROW_MS,
+  HEIC_NOT_SUPPORTED,
+  MAX_FILE_SIZE,
+  UPLOAD_CONCURRENCY,
+  UploadQueue,
+  invalidReason,
+  type UploadQueueDeps,
+} from './uploadQueue';
 
 interface Call {
   galleryId: string | null;
@@ -138,6 +146,28 @@ describe('UploadQueue', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('fails HEIC and HEIF files before upload with no retry', async () => {
+    const hash = vi.fn(async (file: File) => file.name);
+    const { queue, calls } = setup({ hash });
+    queue.add(
+      [
+        new File(['x'], 'IMG_0001.HEIC', { type: 'image/heic' }),
+        new File(['x'], 'IMG_0002.heic', { type: '' }),
+        image('IMG_0003.jpg'),
+      ],
+      { galleryId: 'a', checkOnly: false }
+    );
+    await flush();
+
+    const [heic, untyped] = queue.getTarget('a').items;
+    for (const item of [heic, untyped]) {
+      expect(item).toMatchObject({ status: 'error', error: HEIC_NOT_SUPPORTED, retryable: false });
+    }
+    expect(queue.getTarget('a').stats.failed).toBe(2);
+    expect(hash).toHaveBeenCalledTimes(1);
+    expect(calls.map((c) => c.file.name)).toEqual(['IMG_0003.jpg']);
+  });
+
   it('maps rejections through uploadOutcome and retries only what can succeed', async () => {
     const { queue, calls } = setup();
     queue.add([image('a1'), image('a2'), image('a3')], { galleryId: 'a', checkOnly: false });
@@ -237,5 +267,26 @@ describe('UploadQueue', () => {
     const { queue } = setup();
     queue.add([image('u1')], { galleryId: null, checkOnly: false });
     expect(queue.getSummary()).toMatchObject({ targetCount: 1, galleryId: null, checkOnly: false });
+  });
+});
+
+describe('invalidReason', () => {
+  const file = (name: string, type: string) => new File(['x'], name, { type });
+
+  it('names HEIC and HEIF by type or by extension, whatever else the type says', () => {
+    for (const f of [
+      file('IMG_1.HEIC', 'image/heic'),
+      file('IMG_1.heif', 'image/heif'),
+      file('burst', 'image/heic-sequence'),
+      file('IMG_1.HEIC', ''),
+      file('IMG_1.heic', 'image/jpeg'),
+    ]) {
+      expect(invalidReason(f), `${f.name} ${f.type}`).toBe(HEIC_NOT_SUPPORTED);
+    }
+  });
+
+  it('lets supported images through', () => {
+    expect(invalidReason(file('IMG_1.jpg', 'image/jpeg'))).toBeNull();
+    expect(invalidReason(file('IMG_1.tif', ''))).toBeNull();
   });
 });
