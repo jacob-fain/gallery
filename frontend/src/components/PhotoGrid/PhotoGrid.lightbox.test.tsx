@@ -36,6 +36,13 @@ function photo(id: string): PublicPhoto {
 
 const photos = [photo('a'), photo('b'), photo('c')];
 
+// jsdom's location cannot be spied on, so it is replaced by one that keeps
+// the URL parts the lightbox reads to name its photo.
+function stubLocationAssign(assign: (url: string) => void) {
+  const { href, pathname, search, hash } = window.location;
+  vi.stubGlobal('location', { assign, href, pathname, search, hash });
+}
+
 function tiles() {
   return within(screen.getByRole('group', { name: 'Photo album' })).getAllByRole('button');
 }
@@ -53,6 +60,8 @@ function currentSlide() {
 describe('PhotoGrid lightbox', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // A test that ends with the lightbox open leaves its photo in the URL.
+    window.history.replaceState(null, '', '/g/smith');
   });
 
   afterEach(() => {
@@ -140,6 +149,8 @@ describe('PhotoGrid lightbox', () => {
     expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['a'], ['c']]);
 
     unmount();
+    // A later visit to the gallery's own URL, not to the open photo's.
+    window.history.replaceState(null, '', '/g/smith');
     render(<PhotoGrid photos={photos} />);
     await user.click(tiles()[0]);
     expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['a'], ['c'], ['a']]);
@@ -147,7 +158,7 @@ describe('PhotoGrid lightbox', () => {
 
   it("downloads the current photo's original with the gallery's access token", async () => {
     const assign = vi.fn();
-    vi.stubGlobal('location', { assign });
+    stubLocationAssign(assign);
     vi.mocked(client.getPhotoDownloadUrl).mockResolvedValue('https://s3.test/b-original.jpg');
     const user = userEvent.setup();
     render(<PhotoGrid photos={photos} accessToken="token-1" />);
@@ -160,7 +171,7 @@ describe('PhotoGrid lightbox', () => {
   });
 
   it('downloads a public photo without a token', async () => {
-    vi.stubGlobal('location', { assign: vi.fn() });
+    stubLocationAssign(vi.fn());
     vi.mocked(client.getPhotoDownloadUrl).mockResolvedValue('https://s3.test/a-original.jpg');
     const user = userEvent.setup();
     render(<PhotoGrid photos={photos} />);
@@ -173,7 +184,7 @@ describe('PhotoGrid lightbox', () => {
 
   it('stays on the page when the download URL cannot be fetched', async () => {
     const assign = vi.fn();
-    vi.stubGlobal('location', { assign });
+    stubLocationAssign(assign);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(client.getPhotoDownloadUrl).mockRejectedValue(new Error('Forbidden'));
     const user = userEvent.setup();
