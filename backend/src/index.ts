@@ -27,8 +27,8 @@ const start = async () => {
     closePool: () => pool.end(),
     exit: (code) => process.exit(code),
   });
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
-  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 };
 
 start();
