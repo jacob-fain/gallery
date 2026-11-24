@@ -62,6 +62,21 @@ describe.skipIf(!db)('getPublicGalleryCoverKeys (database)', () => {
     expect(await coverOf(g)).toBe('t/shown');
   });
 
+  it('takes every cover field from the same photo', async () => {
+    const g = await gallery();
+    await photo(g, 'first', 0);
+    const chosen = await photo(g, 'chosen', 1);
+    await query(`UPDATE photos SET width = 4000, height = 2667 WHERE id = $1`, [chosen]);
+    await query(`UPDATE galleries SET cover_image_id = $1 WHERE id = $2`, [chosen, g]);
+    const row = (await getPublicGalleryCoverKeys()).find((r) => r.id === g);
+    expect(row).toMatchObject({
+      cover_thumbnail_key: 't/chosen',
+      cover_web_key: 'w/chosen',
+      cover_width: 4000,
+      cover_height: 2667,
+    });
+  });
+
   it('has no cover when every photo is hidden', async () => {
     const g = await gallery();
     const only = await photo(g, 'only', 0, true);
