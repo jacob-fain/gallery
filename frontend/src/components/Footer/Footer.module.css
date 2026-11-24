@@ -1,0 +1,51 @@
+.footer {
+  margin-top: 64px;
+  border-top: 1px solid var(--color-border);
+  padding: 40px 48px 48px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0 12px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+}
+
+.link {
+  color: inherit;
+  transition: color 0.15s ease;
+}
+
+.link:hover {
+  color: var(--color-text);
+}
+
+@media (max-width: 480px) {
+  .footer {
+    padding: 28px 20px 36px;
+  }
+
+  .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  /* The copyright drops below the links, so the dot that follows it in the
+     desktop row goes. */
+  .copyright {
+    order: 1;
+    flex-basis: 100%;
+    text-align: center;
+    margin-top: 8px;
+  }
+
+  .copyright + .separator {
+    display: none;
+  }
+}

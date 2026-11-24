@@ -3,6 +3,8 @@ import { query } from '../config/db';
 export interface SiteSettings {
   site_title: string;
   meta_description: string;
+  instagram_url: string;
+  contact_email: string;
   [key: string]: string;
 }
 
@@ -15,6 +17,8 @@ export const getAllSettings = async (): Promise<SiteSettings> => {
   const settings: SiteSettings = {
     site_title: '',
     meta_description: '',
+    instagram_url: '',
+    contact_email: '',
   };
 
   for (const row of result.rows) {

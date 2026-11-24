@@ -41,6 +41,49 @@ describe.skipIf(!db)('admin dashboard and settings routes (database)', () => {
       expect((await request('GET', '/settings', { admin: false })).body.data.meta_description).toBe(description);
     });
 
+    describe('footer links', () => {
+      let links: { instagram_url: string; contact_email: string } | undefined;
+      afterAll(async () => {
+        if (links) await updateSettings(links);
+      });
+
+      it('saves, serves and clears the Instagram link and contact email', async () => {
+        const { instagram_url, contact_email } = await getAllSettings();
+        links = { instagram_url, contact_email };
+
+        const saved = await request('PUT', '/settings/admin', {
+          body: { instagram_url: ' https://www.instagram.com/jacobfain ', contact_email: 'hello@jacobfain.com' },
+        });
+        expect(saved.status).toBe(200);
+        expect((await request('GET', '/settings', { admin: false })).body.data).toMatchObject({
+          instagram_url: 'https://www.instagram.com/jacobfain',
+          contact_email: 'hello@jacobfain.com',
+        });
+
+        const cleared = await request('PUT', '/settings/admin', { body: { instagram_url: '', contact_email: '' } });
+        expect(cleared.status).toBe(200);
+        expect(cleared.body.data).toMatchObject({ instagram_url: '', contact_email: '' });
+      });
+
+      it('refuses an invalid link and saves nothing from that request', async () => {
+        const before = await getAllSettings();
+
+        const res = await request('PUT', '/settings/admin', {
+          body: { instagram_url: 'https://example.com/jacobfain', contact_email: 'hello@jacobfain.com' },
+        });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Instagram link must be an https://instagram.com address');
+
+        const bad = await request('PUT', '/settings/admin', { body: { contact_email: 'nope' } });
+        expect(bad.status).toBe(400);
+        expect(bad.body.error).toBe('Contact email must be a valid email address');
+
+        const after = await getAllSettings();
+        expect(after.instagram_url).toBe(before.instagram_url);
+        expect(after.contact_email).toBe(before.contact_email);
+      });
+    });
+
     it('needs the admin session to save', async () => {
       const res = await request('PUT', '/settings/admin', { session: false, body: { meta_description: 'x' } });
       expect(res.status).toBe(401);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isMenuOpen, menuAction } from './menu';
+import { isGalleriesPath, isMenuOpen, menuAction } from './menu';
 
 describe('menuAction', () => {
   it('closes on Escape and returns focus to the button', () => {
@@ -33,5 +33,19 @@ describe('isMenuOpen', () => {
 
   it('closes after any navigation', () => {
     expect(isMenuOpen('abc', 'def')).toBe(false);
+  });
+});
+
+describe('isGalleriesPath', () => {
+  it('covers the galleries list and every gallery page', () => {
+    for (const path of ['/galleries', '/galleries/', '/g/iceland', '/g/iceland/']) {
+      expect(isGalleriesPath(path)).toBe(true);
+    }
+  });
+
+  it('leaves out other pages, including look-alike paths', () => {
+    for (const path of ['/', '/photos', '/g', '/g/', '/galleriesx', '/gallery/x']) {
+      expect(isGalleriesPath(path)).toBe(false);
+    }
   });
 });
