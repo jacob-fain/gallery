@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { getFeaturedPhotos } from '../api/client';
 import type { Photo } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
+import { photoAlt } from '../utils/photoAlt';
 import styles from './Home.module.css';
 
 export default function Home() {
@@ -90,7 +91,7 @@ export default function Home() {
                 <div className={styles.featuredImageWrapper}>
                   <img
                     src={photo.webUrl}
-                    alt={photo.original_filename}
+                    alt={photoAlt(index, gridPhotos.length, photo.gallery_title)}
                     className={styles.featuredImage}
                     loading="lazy"
                   />

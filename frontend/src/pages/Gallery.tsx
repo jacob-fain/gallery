@@ -250,7 +250,7 @@ export default function Gallery() {
       {photos.length === 0 ? (
         <div className="loading">No photos in this gallery yet.</div>
       ) : (
-        <PhotoGrid photos={photos} onImagesExpired={refreshPhotos} />
+        <PhotoGrid photos={photos} galleryTitle={gallery.title} onImagesExpired={refreshPhotos} />
       )}
     </div>
   );
