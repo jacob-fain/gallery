@@ -39,3 +39,7 @@ test-image.jpg
 
 # Local deploy script (not shared)
 deploy.sh
+
+# Agent worktrees and local agent settings
+.claude/worktrees/
+.claude/settings.local.json

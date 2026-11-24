@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import type { Gallery, CreateGalleryInput, UpdateGalleryInput } from '../../../types';
 import styles from './GalleryForm.module.css';
 
@@ -26,7 +26,7 @@ export default function GalleryForm({
   isLoading = false,
 }: GalleryFormProps) {
   const [title, setTitle] = useState(gallery?.title || '');
-  const [slug, setSlug] = useState(gallery?.slug || '');
+  const [slugInput, setSlugInput] = useState(gallery?.slug || '');
   const [description, setDescription] = useState(gallery?.description || '');
   const [isPublic, setIsPublic] = useState(gallery?.is_public ?? true);
   const [password, setPassword] = useState('');
@@ -34,11 +34,8 @@ export default function GalleryForm({
   const [autoSlug, setAutoSlug] = useState(!gallery);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (autoSlug && !gallery) {
-      setSlug(slugify(title));
-    }
-  }, [title, autoSlug, gallery]);
+  // While auto is on for a new gallery, the slug follows the title.
+  const slug = autoSlug && !gallery ? slugify(title) : slugInput;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -115,7 +112,11 @@ export default function GalleryForm({
             <button
               type="button"
               className={styles.autoBtn}
-              onClick={() => setAutoSlug(!autoSlug)}
+              onClick={() => {
+                // Switching to manual starts from the slug the title produced.
+                if (autoSlug) setSlugInput(slug);
+                setAutoSlug(!autoSlug);
+              }}
             >
               {autoSlug ? 'Manual' : 'Auto'}
             </button>
@@ -126,7 +127,7 @@ export default function GalleryForm({
           type="text"
           value={slug}
           onChange={(e) => {
-            setSlug(e.target.value);
+            setSlugInput(e.target.value);
             setAutoSlug(false);
           }}
           disabled={isLoading}
