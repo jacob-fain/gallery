@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import archiver from 'archiver';
 import * as galleryService from '../services/galleryService';
 import * as photoService from '../services/photoService';
 import * as s3Service from '../services/s3Service';
@@ -8,6 +7,8 @@ import {
   verifyGalleryAccessToken,
 } from '../services/authService';
 import { publicGallery, adminGallery } from '../services/galleryView';
+import { attachmentDisposition, zipEntryNames } from '../services/downloadNames';
+import { writeZip } from '../services/zipStream';
 
 const PRIVATE_NEEDS_PASSWORD = 'A private gallery needs a password';
 
@@ -400,7 +401,7 @@ export const verifyGalleryPassword = async (req: Request, res: Response) => {
 
 /**
  * Download all photos in a gallery as a ZIP file
- * Streams original (full-res) photos directly from S3 to client
+ * Streams original (full-res) photos from S3 to the client, one at a time
  */
 export const downloadGalleryZip = async (req: Request, res: Response) => {
   try {
@@ -436,43 +437,18 @@ export const downloadGalleryZip = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Gallery has no photos' });
     }
 
-    // Set response headers for ZIP download
-    const filename = `${gallery.slug}.zip`;
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', attachmentDisposition(`${gallery.slug}.zip`));
 
-    // Create ZIP archive with maximum compression
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const names = zipEntryNames(photos);
+    const sources = photos.map((photo, i) => ({ key: photo.s3_key, name: names[i] }));
+    const result = await writeZip(sources, res, s3Service.getFileStream);
 
-    // Handle archive errors
-    archive.on('error', (err) => {
-      console.error('Archive error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ success: false, error: 'Failed to create archive' });
-      }
-    });
-
-    // Pipe archive to response
-    archive.pipe(res);
-
-    // Add each photo's original file to the archive
-    for (const photo of photos) {
-      try {
-        const stream = await s3Service.getFileStream(photo.s3_key);
-        // Use original filename if available, otherwise use photo ID
-        const name = photo.original_filename || `${photo.id}.jpg`;
-        archive.append(stream, { name });
-      } catch (err) {
-        console.error(`Failed to add photo ${photo.id} to archive:`, err);
-        // Continue with other photos
-      }
+    if (result.status === 'complete') {
+      await galleryService.incrementGalleryDownloads(gallery.id);
+    } else if (result.status === 'failed') {
+      console.error(`Gallery ZIP for ${gallery.slug} failed mid-stream:`, result.error);
     }
-
-    // Finalize the archive
-    await archive.finalize();
-
-    // Track gallery download analytics
-    await galleryService.incrementGalleryDownloads(gallery.id);
   } catch (err) {
     console.error('Error downloading gallery:', err);
     if (!res.headersSent) {
