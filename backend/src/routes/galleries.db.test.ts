@@ -189,8 +189,15 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       ['no password', 'public', {}, 400, 'Password is required'],
       ['a public gallery', 'public', { password: 'pw' }, 400, 'This gallery is public and does not require a password'],
       ['an unknown slug', 'missing', { password: 'pw' }, 404, 'Gallery not found'],
+      ['a request with no body', 'private', undefined, 400, 'Password is required'],
+      ['a password that is not a string', 'private', { password: 12345 }, 400, 'Password is required'],
     ])('verify refuses %s', async (_label, kind, body, status, error) => {
-      const slug = kind === 'public' ? (await fixtures.gallery()).slug : `no-such-${tag()}`;
+      const slug =
+        kind === 'public'
+          ? (await fixtures.gallery()).slug
+          : kind === 'private'
+            ? (await fixtures.gallery({ isPublic: false, password: 'pw' })).slug
+            : `no-such-${tag()}`;
       const res = await request('POST', `/galleries/${slug}/verify`, { admin: false, body });
       expect(res.status).toBe(status);
       expect(res.body.error).toBe(error);
