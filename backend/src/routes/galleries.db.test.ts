@@ -13,6 +13,7 @@ vi.mock('../services/s3Service', async (importOriginal) => ({
 
 import { query } from '../config/db';
 import { generateGalleryAccessToken } from '../services/authService';
+import { drainTracking } from '../services/eventTracking';
 import { useAppServer } from '../../test/appServer';
 import { tag, useFixtures } from '../../test/fixtures';
 
@@ -179,7 +180,7 @@ describe.skipIf(!db)('gallery routes (database)', () => {
     it("refuses another gallery's token", async () => {
       const g = await fixtures.gallery({ isPublic: false, password: 'pw' });
       const other = await fixtures.gallery({ isPublic: false, password: 'pw' });
-      const token = encodeURIComponent(generateGalleryAccessToken(other.id, other.slug));
+      const token = encodeURIComponent(generateGalleryAccessToken(other.id, other.slug, 0));
       const res = await request('GET', `/galleries/${g.slug}/photos?access=${token}`, { admin: false });
       expect(res.status).toBe(403);
     });
@@ -193,6 +194,90 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       const res = await request('POST', `/galleries/${slug}/verify`, { admin: false, body });
       expect(res.status).toBe(status);
       expect(res.body.error).toBe(error);
+    });
+  });
+
+  describe('access token revocation', () => {
+    const unlock = async (slug: string, password: string) => {
+      const res = await request('POST', `/galleries/${slug}/verify`, { admin: false, body: { password } });
+      expect(res.status).toBe(200);
+      return encodeURIComponent(res.body.data.accessToken as string);
+    };
+
+    const viewCount = async (id: string) =>
+      (await query(`SELECT view_count FROM galleries WHERE id = $1`, [id])).rows[0].view_count as number;
+
+    // Every route that takes the token: the photo list, one photo, its
+    // download, the ZIP, and view tracking (which answers 200 either way, so
+    // its effect is read from the counter).
+    const uses = async (g: { id: string; slug: string }, photoId: string, access: string) => {
+      const before = await viewCount(g.id);
+      await request('POST', `/galleries/${g.slug}/view?access=${access}`, { admin: false });
+      await drainTracking();
+      return {
+        list: (await request('GET', `/galleries/${g.slug}/photos?access=${access}`, { admin: false })).status,
+        photo: (await request('GET', `/photos/${photoId}?access=${access}`, { admin: false })).status,
+        download: (await request('GET', `/photos/${photoId}/download?access=${access}`, { admin: false })).status,
+        zip: (await request('GET', `/galleries/${g.slug}/download?access=${access}`, { admin: false })).status,
+        viewCounted: (await viewCount(g.id)) > before,
+      };
+    };
+    const works = { list: 200, photo: 200, download: 200, zip: 200, viewCounted: true };
+    const refused = { list: 403, photo: 404, download: 404, zip: 403, viewCounted: false };
+
+    it('a password change revokes tokens issued before it', async () => {
+      const g = await fixtures.gallery({ isPublic: false, password: 'old' });
+      const p = await fixtures.photo(g.id);
+      const access = await unlock(g.slug, 'old');
+      expect(await uses(g, p.id, access)).toEqual(works);
+
+      expect((await request('PUT', `/galleries/${g.id}`, { body: { password: 'new' } })).status).toBe(200);
+      expect(await uses(g, p.id, access)).toEqual(refused);
+      expect(await uses(g, p.id, await unlock(g.slug, 'new'))).toEqual(works);
+    });
+
+    it('setting the same password again still revokes', async () => {
+      const g = await fixtures.gallery({ isPublic: false, password: 'same' });
+      const p = await fixtures.photo(g.id);
+      const access = await unlock(g.slug, 'same');
+
+      expect((await request('PUT', `/galleries/${g.id}`, { body: { password: 'same' } })).status).toBe(200);
+      expect(await uses(g, p.id, access)).toEqual(refused);
+    });
+
+    it('removing the password revokes, even once it is private again with the same one', async () => {
+      const g = await fixtures.gallery({ isPublic: false, password: 'secret' });
+      const p = await fixtures.photo(g.id);
+      const access = await unlock(g.slug, 'secret');
+
+      const opened = await request('PUT', `/galleries/${g.id}`, { body: { is_public: true, password: null } });
+      expect(opened.status).toBe(200);
+      expect(opened.body.data.has_password).toBe(false);
+      const closed = await request('PUT', `/galleries/${g.id}`, { body: { is_public: false, password: 'secret' } });
+      expect(closed.status).toBe(200);
+      expect(await uses(g, p.id, access)).toEqual(refused);
+    });
+
+    it('going public and back to private revokes, with the stored password kept', async () => {
+      const g = await fixtures.gallery({ isPublic: false, password: 'secret' });
+      const p = await fixtures.photo(g.id);
+      const access = await unlock(g.slug, 'secret');
+
+      expect((await request('PUT', `/galleries/${g.id}`, { body: { is_public: true } })).status).toBe(200);
+      expect((await request('PUT', `/galleries/${g.id}`, { body: { is_public: false } })).status).toBe(200);
+      expect(await uses(g, p.id, access)).toEqual(refused);
+    });
+
+    it('an unrelated edit keeps tokens working', async () => {
+      const g = await fixtures.gallery({ isPublic: false, password: 'secret' });
+      const p = await fixtures.photo(g.id);
+      const access = await unlock(g.slug, 'secret');
+
+      const edited = await request('PUT', `/galleries/${g.id}`, {
+        body: { title: 'Renamed', description: 'New words', is_public: false },
+      });
+      expect(edited.status).toBe(200);
+      expect(await uses(g, p.id, access)).toEqual(works);
     });
   });
 
@@ -309,7 +394,7 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       const priv = await fixtures.gallery({ isPublic: false, password: 'pw' });
       await fixtures.photo(priv.id);
       expect((await request('GET', `/galleries/${priv.slug}/download`, { admin: false })).status).toBe(403);
-      const token = encodeURIComponent(generateGalleryAccessToken(priv.id, priv.slug));
+      const token = encodeURIComponent(generateGalleryAccessToken(priv.id, priv.slug, 0));
       expect((await request('GET', `/galleries/${priv.slug}/download?access=${token}`, { admin: false })).status).toBe(200);
     });
   });

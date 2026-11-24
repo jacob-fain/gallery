@@ -1,5 +1,6 @@
 import { query } from '../config/db';
 import { logger } from '../utils/logger';
+import type { GalleryAccessPayload } from '../types';
 
 /**
  * View and download counts are recorded off the response path: a visitor
@@ -44,11 +45,12 @@ const PHOTO_VIEW_SQL = PHOTO_EVENT_SQL('view_count', 'photo_view');
 const PHOTO_DOWNLOAD_SQL = PHOTO_EVENT_SQL('download_count', 'photo_download');
 
 // A gallery view counts when the visitor can open the gallery: it is public,
-// or the visitor holds an access token for it ($2, null without one). The
-// UPDATE doubles as that check and as the lookup of the id by slug.
+// or the visitor holds a current access token for it ($2 and $3, its gallery
+// id and access version, null without one). The UPDATE doubles as that check
+// and as the lookup of the id by slug.
 const GALLERY_VIEW_SQL = `WITH counted AS (
      UPDATE galleries SET view_count = view_count + 1
-     WHERE slug = $1 AND (is_public = true OR id = $2)
+     WHERE slug = $1 AND (is_public = true OR (id = $2 AND access_version = $3))
      RETURNING id
    )
    INSERT INTO analytics_events (event_type, gallery_id)
@@ -62,8 +64,10 @@ export const recordPhotoView = (photoId: string) =>
 export const recordPhotoDownload = (photoId: string) =>
   track('photo download', () => query(PHOTO_DOWNLOAD_SQL, [photoId]));
 
-export const recordGalleryView = (slug: string, accessGalleryId: string | null) =>
-  track('gallery view', () => query(GALLERY_VIEW_SQL, [slug, accessGalleryId]));
+export const recordGalleryView = (slug: string, access: GalleryAccessPayload | null) =>
+  track('gallery view', () =>
+    query(GALLERY_VIEW_SQL, [slug, access?.galleryId ?? null, access?.accessVersion ?? null])
+  );
 
 export const recordGalleryDownload = (galleryId: string) =>
   track('gallery download', () => query(GALLERY_DOWNLOAD_SQL, [galleryId]));
