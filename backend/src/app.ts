@@ -6,6 +6,7 @@ import routes from './routes';
 import { JSON_BODY_LIMIT } from './middleware/validateIds';
 
 const app = express();
+app.disable('x-powered-by');
 
 // Requests arrive through nginx on the Docker network, so the socket address
 // is nginx's. Trusting only private-network hops makes req.ip the client
