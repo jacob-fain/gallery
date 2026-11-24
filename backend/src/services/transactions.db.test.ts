@@ -88,7 +88,7 @@ describe.skipIf(!db)('multi-step writes (database)', () => {
     expect(await deleteGallery(g)).toBeNull();
   });
 
-  it('reorders photos in one statement, ignoring other galleries and repeats', async () => {
+  it('reorders photos densely, ignoring other galleries and repeats', async () => {
     const g = await gallery();
     const other = await gallery();
     const a = await upload(g, 'a');
@@ -98,8 +98,8 @@ describe.skipIf(!db)('multi-step writes (database)', () => {
     await reorderPhotos(g, [c.id, foreign.id, a.id, c.id, b.id]);
     expect((await getPhotosByGalleryId(g)).map((p) => [p.original_filename, p.sort_order])).toEqual([
       ['c', 0],
-      ['a', 2],
-      ['b', 4],
+      ['a', 1],
+      ['b', 2],
     ]);
     expect((await getPhotosByGalleryId(other))[0].sort_order).toBe(0);
   });

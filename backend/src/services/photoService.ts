@@ -3,6 +3,7 @@ import { query, withTransaction } from '../config/db';
 import { Photo, PhotoWithUrls, CreatePhotoInput, UpdatePhotoInput } from '../types';
 import { getSignedUrl } from './s3Service';
 import { photoDownloadName } from './downloadNames';
+import type { PublicCursor } from './photoPaging';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
   const result = await query(
@@ -262,46 +263,87 @@ export const getPhotosByContentHashes = async (
   return result.rows;
 };
 
+// Postgres keeps microseconds, which a JavaScript Date would drop, so the
+// cursor's timestamp is formatted by the database.
+const CURSOR_TIME = `to_char(p.uploaded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
 /**
- * Get every publicly visible photo (public galleries and unassigned photos)
- * @param limit - Optional cap on the number of photos returned
+ * One page of the publicly visible photos (public galleries and unassigned),
+ * newest first, starting after the given cursor. next is the cursor of the
+ * following page, or null when this page is the last.
  */
-export const getAllPublicPhotos = async (limit?: number): Promise<Photo[]> => {
+export const getPublicPhotosPage = async (
+  limit: number,
+  after: PublicCursor | null = null
+): Promise<{ photos: Photo[]; next: PublicCursor | null }> => {
+  // One extra row says whether another page follows, without a count.
   const result = await query(
-    `SELECT p.* FROM photos p
+    `SELECT p.*, ${CURSOR_TIME} AS cursor_uploaded_at
+     FROM photos p
      LEFT JOIN galleries g ON p.gallery_id = g.id
      WHERE p.is_hidden = false AND (g.is_public = true OR p.gallery_id IS NULL)
-     ORDER BY p.uploaded_at DESC
-     ${limit ? 'LIMIT $1' : ''}`,
-    limit ? [limit] : []
+       AND ($2::timestamptz IS NULL OR (p.uploaded_at, p.id) < ($2::timestamptz, $3::uuid))
+     ORDER BY p.uploaded_at DESC, p.id DESC
+     LIMIT $1`,
+    [limit + 1, after?.uploadedAt ?? null, after?.id ?? null]
   );
-  return result.rows;
+  const rows = result.rows.slice(0, limit);
+  const last = rows[rows.length - 1];
+  return {
+    photos: rows.map(({ cursor_uploaded_at: _cursor, ...photo }) => photo as Photo),
+    next: result.rows.length > limit ? { uploadedAt: last.cursor_uploaded_at, id: last.id } : null,
+  };
+};
+
+/** A page of an admin photo list, and the length of the whole list. */
+export interface PhotoPage {
+  photos: Photo[];
+  total: number;
+}
+
+export type OffsetPage = { limit: number; offset: number } | null;
+
+const offsetPage = async (
+  where: string,
+  orderBy: string,
+  params: unknown[],
+  page: OffsetPage
+): Promise<PhotoPage> => {
+  if (!page) {
+    const all = await query(`SELECT * FROM photos WHERE ${where} ORDER BY ${orderBy}`, params);
+    return { photos: all.rows, total: all.rows.length };
+  }
+  const n = params.length;
+  const [rows, count] = await Promise.all([
+    query(
+      `SELECT * FROM photos WHERE ${where} ORDER BY ${orderBy} LIMIT $${n + 1} OFFSET $${n + 2}`,
+      [...params, page.limit, page.offset]
+    ),
+    query(`SELECT COUNT(*)::int AS total FROM photos WHERE ${where}`, params),
+  ]);
+  return { photos: rows.rows, total: count.rows[0].total };
 };
 
 /**
- * Get all photos not assigned to any gallery (admin)
+ * Photos not assigned to any gallery (admin), newest first: one page, or
+ * all of them when page is null.
  */
-export const getUnassignedPhotos = async (): Promise<Photo[]> => {
-  const result = await query(
-    `SELECT * FROM photos
-     WHERE gallery_id IS NULL
-     ORDER BY uploaded_at DESC`
-  );
-  return result.rows;
-};
+export const getUnassignedPhotos = (page: OffsetPage = null): Promise<PhotoPage> =>
+  offsetPage('gallery_id IS NULL', 'uploaded_at DESC, id DESC', [], page);
+
+/**
+ * A gallery's photos, hidden ones included (admin), in gallery order: one
+ * page, or all of them when page is null. The id tiebreak keeps pages from
+ * overlapping when two photos share a position.
+ */
+export const getGalleryPhotosAdmin = (galleryId: string, page: OffsetPage = null): Promise<PhotoPage> =>
+  offsetPage('gallery_id = $1', 'sort_order ASC, uploaded_at ASC, id ASC', [galleryId], page);
 
 /**
  * Get all photos in a gallery ordered by sort_order
  */
-export const getPhotosByGalleryId = async (galleryId: string): Promise<Photo[]> => {
-  const result = await query(
-    `SELECT * FROM photos
-     WHERE gallery_id = $1
-     ORDER BY sort_order ASC, uploaded_at ASC`,
-    [galleryId]
-  );
-  return result.rows;
-};
+export const getPhotosByGalleryId = async (galleryId: string): Promise<Photo[]> =>
+  (await getGalleryPhotosAdmin(galleryId)).photos;
 
 /**
  * Update a photo's metadata
@@ -353,26 +395,37 @@ export const deletePhoto = async (id: string): Promise<{ galleryId: string } | n
 };
 
 /**
- * Reorder photos in a gallery in one statement, so a failure leaves the old
- * order intact and two concurrent reorders cannot interleave row by row.
- * Ids not in the gallery are ignored; a repeated id takes its first position.
+ * Put a gallery's photos in the given order and renumber the gallery 0..n-1.
+ * The gallery's photos missing from the list keep their relative order after
+ * the listed ones, so the admin can reorder the pages it has loaded without
+ * sending the rest. Ids not in the gallery are ignored; a repeated id takes
+ * its first position.
  * @param galleryId - Gallery the photos must belong to
- * @param photoIds - Array of photo IDs in desired order
+ * @param photoIds - Photo IDs in the desired order
  */
-export const reorderPhotos = async (
-  galleryId: string,
-  photoIds: string[]
-): Promise<void> => {
-  await query(
-    `UPDATE photos p
-     SET sort_order = t.pos
-     FROM (
-       SELECT id, MIN(n) - 1 AS pos FROM unnest($2::uuid[]) WITH ORDINALITY AS u(id, n) GROUP BY id
-     ) t
-     WHERE p.id = t.id AND p.gallery_id = $1`,
-    [galleryId, photoIds]
-  );
-};
+export const reorderPhotos = async (galleryId: string, photoIds: string[]): Promise<void> =>
+  withTransaction(async (client) => {
+    // The lock uploads and moves take before picking a position, so none of
+    // them reads positions this reorder is rewriting, and two reorders apply
+    // one after the other.
+    await client.query(`SELECT 1 FROM galleries WHERE id = $1 FOR UPDATE`, [galleryId]);
+    await client.query(
+      `WITH listed AS (
+         SELECT id, MIN(n) AS n FROM unnest($2::uuid[]) WITH ORDINALITY AS u(id, n) GROUP BY id
+       ), ranked AS (
+         SELECT p.id,
+                ROW_NUMBER() OVER (ORDER BY listed.n NULLS LAST, p.sort_order, p.uploaded_at, p.id) - 1 AS pos
+         FROM photos p
+         LEFT JOIN listed ON listed.id = p.id
+         WHERE p.gallery_id = $1
+       )
+       UPDATE photos p
+       SET sort_order = ranked.pos
+       FROM ranked
+       WHERE p.id = ranked.id AND p.sort_order IS DISTINCT FROM ranked.pos`,
+      [galleryId, photoIds]
+    );
+  });
 
 /**
  * Move photos to another gallery, or to Unassigned when targetGalleryId is

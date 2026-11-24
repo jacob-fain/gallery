@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   getHomepagePhotos,
   setHeroPhoto,
@@ -6,8 +6,10 @@ import {
   removeFromHomepage,
   reorderHomepagePhotos,
   getAllGalleries,
-  getPhotosByGallery,
+  getGalleryPhotosPage,
 } from '../../api/client';
+import LoadMore from '../../components/Admin/PhotoManager/LoadMore';
+import { usePhotoList } from '../../components/Admin/PhotoManager/usePhotoList';
 import type { Photo, Gallery } from '../../types';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
@@ -35,6 +37,60 @@ interface SortablePhotoProps {
   onRemove: (id: string) => void;
 }
 
+interface PickerPhotosProps {
+  galleryId: string;
+  onHomepage: Set<string>;
+  onAdd: (id: string) => void;
+}
+
+// One instance per chosen gallery (keyed by it), so a slow response for a
+// gallery chosen earlier lands in an unmounted instance instead of replacing
+// the photos of the one chosen since.
+function PickerPhotos({ galleryId, onHomepage, onAdd }: PickerPhotosProps) {
+  const loadPage = useCallback(
+    (offset: number, limit: number) => getGalleryPhotosPage(galleryId, offset, limit),
+    [galleryId]
+  );
+  const photos = usePhotoList(loadPage);
+  const { list } = photos;
+
+  if (photos.status === 'loading') {
+    return <div className={styles.loadingPhotos}>Loading photos...</div>;
+  }
+  if (photos.status === 'error') {
+    return <p className={styles.noPhotos}>{photos.error}</p>;
+  }
+  if (list.items.length === 0) {
+    return <p className={styles.noPhotos}>No photos in this gallery</p>;
+  }
+
+  return (
+    <div className={styles.pickerGrid}>
+      {list.items.map((photo) => {
+        const isAdded = onHomepage.has(photo.id);
+        return (
+          <div
+            key={photo.id}
+            className={`${styles.pickerPhoto} ${isAdded ? styles.added : ''}`}
+            onClick={() => !isAdded && onAdd(photo.id)}
+          >
+            <img src={photo.thumbnailUrl} alt="" loading="lazy" decoding="async" />
+            {isAdded && <div className={styles.addedBadge}>Added</div>}
+          </div>
+        );
+      })}
+      <LoadMore
+        className={styles.pickerLoadMore}
+        loaded={list.items.length}
+        total={list.total}
+        loading={photos.loadingMore}
+        failed={photos.moreFailed}
+        onLoad={photos.loadMore}
+      />
+    </div>
+  );
+}
+
 function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoProps) {
   const {
     attributes,
@@ -57,7 +113,7 @@ function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoPro
       className={`${styles.photoCard} ${isHero ? styles.heroCard : ''} ${isDragging ? styles.dragging : ''}`}
     >
       <div className={styles.dragHandle} {...attributes} {...listeners}>
-        <img src={photo.thumbnailUrl} alt="" className={styles.thumbnail} />
+        <img src={photo.thumbnailUrl} alt="" className={styles.thumbnail} loading="lazy" decoding="async" />
         {isHero && <div className={styles.heroBadge}>Hero</div>}
         {photo.is_hidden && <div className={styles.hiddenBadge}>Hidden</div>}
       </div>
@@ -93,8 +149,6 @@ export default function Homepage() {
   const [showPicker, setShowPicker] = useState(false);
   const [galleries, setGalleries] = useState<Gallery[]>([]);
   const [selectedGallery, setSelectedGallery] = useState<string>('');
-  const [galleryPhotos, setGalleryPhotos] = useState<Photo[]>([]);
-  const [loadingGalleryPhotos, setLoadingGalleryPhotos] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -168,36 +222,19 @@ export default function Homepage() {
     }
   };
 
-  const handleGallerySelect = async (galleryId: string) => {
-    if (!galleryId) return;
-    setSelectedGallery(galleryId);
-    setLoadingGalleryPhotos(true);
-    try {
-      const data = await getPhotosByGallery(galleryId);
-      setGalleryPhotos(data);
-    } catch (err) {
-      console.error('Failed to load gallery photos:', err);
-    } finally {
-      setLoadingGalleryPhotos(false);
-    }
-  };
+  const handleAddPhoto = useCallback(
+    async (photoId: string) => {
+      try {
+        const updated = await addToHomepage(photoId);
+        setPhotos(updated);
+      } catch (err) {
+        console.error('Failed to add photo:', err);
+      }
+    },
+    []
+  );
 
-  const handleAddPhoto = async (photoId: string) => {
-    try {
-      const updated = await addToHomepage(photoId);
-      setPhotos(updated);
-      // Update gallery photos to reflect the change
-      setGalleryPhotos((prev) =>
-        prev.map((p) => (p.id === photoId ? { ...p, is_featured: true } : p))
-      );
-    } catch (err) {
-      console.error('Failed to add photo:', err);
-    }
-  };
-
-  const isPhotoOnHomepage = (photoId: string) => {
-    return photos.some((p) => p.id === photoId);
-  };
+  const homepageIds = useMemo(() => new Set(photos.map((p) => p.id)), [photos]);
 
   if (loading) {
     return <div className="loading">Loading homepage...</div>;
@@ -322,7 +359,7 @@ export default function Homepage() {
               <label>Select a gallery:</label>
               <select
                 value={selectedGallery}
-                onChange={(e) => handleGallerySelect(e.target.value)}
+                onChange={(e) => setSelectedGallery(e.target.value)}
               >
                 <option value="">Choose gallery...</option>
                 {galleries.map((g) => (
@@ -333,27 +370,14 @@ export default function Homepage() {
               </select>
             </div>
 
-            {loadingGalleryPhotos ? (
-              <div className={styles.loadingPhotos}>Loading photos...</div>
-            ) : galleryPhotos.length > 0 ? (
-              <div className={styles.pickerGrid}>
-                {galleryPhotos.map((photo) => {
-                  const isAdded = isPhotoOnHomepage(photo.id);
-                  return (
-                    <div
-                      key={photo.id}
-                      className={`${styles.pickerPhoto} ${isAdded ? styles.added : ''}`}
-                      onClick={() => !isAdded && handleAddPhoto(photo.id)}
-                    >
-                      <img src={photo.thumbnailUrl} alt="" />
-                      {isAdded && <div className={styles.addedBadge}>Added</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : selectedGallery ? (
-              <p className={styles.noPhotos}>No photos in this gallery</p>
-            ) : null}
+            {selectedGallery && (
+              <PickerPhotos
+                key={selectedGallery}
+                galleryId={selectedGallery}
+                onHomepage={homepageIds}
+                onAdd={handleAddPhoto}
+              />
+            )}
           </div>
         </div>
       )}
