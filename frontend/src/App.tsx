@@ -1,6 +1,7 @@
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { isAdminSubdomain } from './utils/subdomain';
+import { lazyWithReload } from './utils/lazyWithReload';
 import { getSettings } from './api/client';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -15,14 +16,14 @@ import Gallery from './pages/Gallery';
 import AllPhotos from './pages/AllPhotos';
 
 // Admin pages - lazy load (reduces initial bundle for public visitors)
-const Login = lazy(() => import('./pages/admin/Login'));
-const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
-const AdminGalleries = lazy(() => import('./pages/admin/Galleries'));
-const Photos = lazy(() => import('./pages/admin/Photos'));
-const Homepage = lazy(() => import('./pages/admin/Homepage'));
-const Unassigned = lazy(() => import('./pages/admin/Unassigned'));
-const Settings = lazy(() => import('./pages/admin/Settings'));
-const AdminLayout = lazy(() => import('./components/Admin/AdminLayout/AdminLayout'));
+const Login = lazyWithReload(() => import('./pages/admin/Login'));
+const Dashboard = lazyWithReload(() => import('./pages/admin/Dashboard'));
+const AdminGalleries = lazyWithReload(() => import('./pages/admin/Galleries'));
+const Photos = lazyWithReload(() => import('./pages/admin/Photos'));
+const Homepage = lazyWithReload(() => import('./pages/admin/Homepage'));
+const Unassigned = lazyWithReload(() => import('./pages/admin/Unassigned'));
+const Settings = lazyWithReload(() => import('./pages/admin/Settings'));
+const AdminLayout = lazyWithReload(() => import('./components/Admin/AdminLayout/AdminLayout'));
 
 function PublicApp() {
   return (

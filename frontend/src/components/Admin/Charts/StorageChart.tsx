@@ -12,7 +12,7 @@ import styles from './Charts.module.css';
 interface StorageChartProps {
   data: {
     total_bytes: number;
-    galleries: { id: string; title: string; bytes: number }[];
+    galleries: { id: string | null; title: string; bytes: number }[];
   };
 }
 

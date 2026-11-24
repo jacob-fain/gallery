@@ -1,6 +1,7 @@
 import { query } from '../config/db';
 import { Photo, PhotoWithUrls, CreatePhotoInput, UpdatePhotoInput } from '../types';
 import { getSignedUrl, copyFile, deleteFile, generatePhotoKeys } from './s3Service';
+import { sanitizeFilename } from './downloadNames';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
   const result = await query(
@@ -167,7 +168,11 @@ export const incrementPhotoDownloads = async (photoId: string): Promise<void> =>
  */
 export const enrichPhotoWithUrls = async (photo: Photo): Promise<PhotoWithUrls> => {
   const [url, webUrl, thumbnailUrl] = await Promise.all([
-    getSignedUrl(photo.s3_key),
+    getSignedUrl(
+      photo.s3_key,
+      undefined,
+      sanitizeFilename(photo.original_filename, `${photo.id}.jpg`)
+    ),
     getSignedUrl(photo.s3_web_key),
     getSignedUrl(photo.s3_thumbnail_key),
   ]);

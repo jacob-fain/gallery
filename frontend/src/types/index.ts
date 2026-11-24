@@ -126,7 +126,7 @@ export interface AnalyticsData {
   topPhotos: {
     id: string;
     filename: string;
-    gallery_id: string;
+    gallery_id: string | null;
     gallery_title: string;
     thumbnailUrl: string;
     view_count: number;
@@ -134,6 +134,6 @@ export interface AnalyticsData {
   }[];
   storage: {
     total_bytes: number;
-    galleries: { id: string; title: string; bytes: number }[];
+    galleries: { id: string | null; title: string; bytes: number }[];
   };
 }
