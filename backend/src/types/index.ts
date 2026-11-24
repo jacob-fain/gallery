@@ -14,6 +14,7 @@ export interface User {
   id: string;
   email: string;
   password_hash: string;
+  token_version: number;
   created_at: Date;
 }
 
@@ -86,6 +87,8 @@ export interface ApiResponse<T> {
 export interface JwtPayload {
   userId: string;
   email: string;
+  /** The user's token_version when this token was issued. */
+  tokenVersion: number;
 }
 
 // Gallery access token payload (for private gallery password verification)

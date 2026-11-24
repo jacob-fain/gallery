@@ -2,7 +2,9 @@ import { Request, Response } from 'express';
 import {
   getUserByEmail,
   verifyPassword,
+  verifyPasswordForUnknownUser,
   generateToken,
+  revokeTokens,
 } from '../services/authService';
 
 /**
@@ -23,18 +25,18 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Find user by email
-    const user = await getUserByEmail(email);
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        error: 'Invalid email or password',
-      });
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      res.status(400).json({ success: false, error: 'Email and password are required' });
       return;
     }
 
-    // Verify password
-    const isValid = await verifyPassword(password, user.password_hash);
-    if (!isValid) {
+    // An unknown email costs the same bcrypt work as a wrong password, so
+    // timing does not reveal whether the account exists.
+    const user = await getUserByEmail(email);
+    const isValid = user
+      ? await verifyPassword(password, user.password_hash)
+      : await verifyPasswordForUnknownUser(password);
+    if (!user || !isValid) {
       res.status(401).json({
         success: false,
         error: 'Invalid email or password',
@@ -43,7 +45,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Generate token
-    const token = generateToken(user.id, user.email);
+    const token = generateToken(user.id, user.email, user.token_version);
 
     res.json({
       success: true,
@@ -93,5 +95,20 @@ export const me = async (req: Request, res: Response): Promise<void> => {
       success: false,
       error: 'Internal server error',
     });
+  }
+};
+
+/**
+ * POST /api/auth/logout
+ * Revokes every admin token the user holds, this one included, so a copied
+ * or forgotten session stops working too. Requires authMiddleware.
+ */
+export const logout = async (req: Request, res: Response): Promise<void> => {
+  try {
+    await revokeTokens(req.user!.userId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Logout error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
