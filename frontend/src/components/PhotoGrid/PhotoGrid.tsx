@@ -21,6 +21,7 @@ interface SlideWithExif {
   height: number;
   alt: string;
   download: string;
+  downloadFilename: string;
   exif?: ExifData;
 }
 
@@ -88,6 +89,7 @@ export default function PhotoGrid({ photos }: PhotoGridProps) {
       height: largest?.height ?? photo.height,
       alt: photo.original_filename,
       download: getPhotoUrl(photo, 'original'),
+      downloadFilename: photo.original_filename,
       exif: photo.exif_data,
     };
   });
