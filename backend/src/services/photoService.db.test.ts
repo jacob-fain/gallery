@@ -44,6 +44,11 @@ describe.skipIf(!db)('photo ordering and moves (database)', () => {
     if (galleries.length) await query(`DELETE FROM galleries WHERE id = ANY($1)`, [galleries]);
   });
 
+  it('stores a new upload hidden, so it is not public until shown', async () => {
+    const photo = await upload(await gallery(), 'fresh');
+    expect(photo.is_hidden).toBe(true);
+  });
+
   it('puts a new upload last in a reordered gallery', async () => {
     const g = await gallery();
     const a = await upload(g, 'a');
