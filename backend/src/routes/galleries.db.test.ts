@@ -99,8 +99,25 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       expect(ids).not.toContain(priv.id);
       // A visitor's card carries only what the page renders.
       expect(Object.keys(visitor.body.data.find((g: { id: string }) => g.id === pub.id)).sort()).toEqual(
-        ['coverHeight', 'coverUrl', 'coverWebUrl', 'coverWidth', 'id', 'slug', 'title']
+        ['coverHeight', 'coverUrl', 'coverWebUrl', 'coverWidth', 'id', 'photoCount', 'slug', 'title']
       );
+    });
+
+    it('counts each gallery\'s visible photos on the list, as its own page does', async () => {
+      const g = await fixtures.gallery();
+      await fixtures.photo(g.id);
+      await fixtures.photo(g.id);
+      await fixtures.photo(g.id, { hidden: true });
+      const empty = await fixtures.gallery();
+
+      const list = await request('GET', '/galleries', { admin: false });
+      expect(list.headers.get('cache-control')).toContain('public');
+      const card = (id: string) => list.body.data.find((row: { id: string }) => row.id === id);
+      expect(card(g.id).photoCount).toBe(2);
+      expect(card(empty.id).photoCount).toBe(0);
+
+      const page = await request('GET', `/galleries/${g.slug}`, { admin: false });
+      expect(page.body.data.photoCount).toBe(card(g.id).photoCount);
     });
   });
 

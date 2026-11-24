@@ -81,6 +81,8 @@ export interface GalleryWithCoverUrl extends Gallery {
   /** The cover photo's displayed size, from which the derived widths follow. */
   coverWidth: number | null;
   coverHeight: number | null;
+  /** Photos a visitor sees in the gallery: hidden ones are not counted. */
+  photoCount: number;
 }
 
 export interface ApiResponse<T> {
