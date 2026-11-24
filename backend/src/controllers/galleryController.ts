@@ -7,24 +7,14 @@ import {
   generateGalleryAccessToken,
   verifyGalleryAccessToken,
 } from '../services/authService';
-import { Gallery } from '../types';
-
-/**
- * Strip the password hash before returning a gallery, keeping only whether
- * one is set so the admin form knows if a blank password field means
- * "keep the current one".
- */
-const sanitizeGallery = (gallery: Gallery) => {
-  const { password_hash, ...safe } = gallery;
-  return { ...safe, has_password: Boolean(password_hash) };
-};
+import { publicGallery, adminGallery } from '../services/galleryView';
 
 const PRIVATE_NEEDS_PASSWORD = 'A private gallery needs a password';
 
 export const listGalleries = async (_req: Request, res: Response) => {
   try {
     const galleries = await galleryService.getPublicGalleriesWithCovers();
-    res.json({ success: true, data: galleries.map(sanitizeGallery) });
+    res.json({ success: true, data: galleries.map(publicGallery) });
   } catch (err) {
     console.error('Error fetching galleries:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch galleries' });
@@ -58,7 +48,7 @@ export const getGallery = async (req: Request, res: Response) => {
     // Increment view count for public galleries
     await galleryService.incrementGalleryViews(gallery.id);
 
-    res.json({ success: true, data: sanitizeGallery(gallery) });
+    res.json({ success: true, data: publicGallery(gallery) });
   } catch (err) {
     console.error('Error fetching gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch gallery' });
@@ -125,7 +115,7 @@ export const getStats = async (_req: Request, res: Response) => {
 export const listAllGalleries = async (_req: Request, res: Response) => {
   try {
     const galleries = await galleryService.getAllGalleries();
-    res.json({ success: true, data: galleries.map(sanitizeGallery) });
+    res.json({ success: true, data: galleries.map(adminGallery) });
   } catch (err) {
     console.error('Error fetching all galleries:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch galleries' });
@@ -180,7 +170,7 @@ export const createGallery = async (req: Request, res: Response) => {
       password,
     });
 
-    res.status(201).json({ success: true, data: sanitizeGallery(gallery) });
+    res.status(201).json({ success: true, data: adminGallery(gallery) });
   } catch (err) {
     console.error('Error creating gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to create gallery' });
@@ -235,7 +225,7 @@ export const updateGallery = async (req: Request, res: Response) => {
       password,
     });
 
-    res.json({ success: true, data: gallery ? sanitizeGallery(gallery) : null });
+    res.json({ success: true, data: gallery ? adminGallery(gallery) : null });
   } catch (err) {
     console.error('Error updating gallery:', err);
     res.status(500).json({ success: false, error: 'Failed to update gallery' });
@@ -304,7 +294,7 @@ export const setCoverImage = async (req: Request, res: Response) => {
     }
 
     const updated = await galleryService.setCoverImage(id, photoId || null);
-    res.json({ success: true, data: updated ? sanitizeGallery(updated) : null });
+    res.json({ success: true, data: updated ? adminGallery(updated) : null });
   } catch (err) {
     console.error('Error setting cover image:', err);
     res.status(500).json({ success: false, error: 'Failed to set cover image' });
