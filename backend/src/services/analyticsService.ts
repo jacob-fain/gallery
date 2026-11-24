@@ -15,7 +15,7 @@ export interface TopGallery {
 export interface TopPhoto {
   id: string;
   filename: string;
-  gallery_id: string;
+  gallery_id: string | null;
   gallery_title: string;
   thumbnail_key: string;
   view_count: number;
@@ -24,8 +24,9 @@ export interface TopPhoto {
 
 export interface StorageStats {
   total_bytes: number;
+  /** One row per gallery, plus an Unassigned row (id null) for photos in no gallery. */
   galleries: {
-    id: string;
+    id: string | null;
     title: string;
     bytes: number;
   }[];
@@ -45,41 +46,55 @@ export interface AnalyticsData {
 }
 
 /**
+ * The dashboard's day boundary. Days are counted on the site owner's wall
+ * clock, not the database session's timezone (UTC in containers), so an
+ * evening view lands on the day it happened.
+ */
+export const DASHBOARD_TIMEZONE = 'America/New_York';
+
+/**
+ * Counts rows per calendar day in DASHBOARD_TIMEZONE for the last `days`
+ * days, today included, with a zero for each empty day. The window starts at
+ * local midnight so the first day is whole, and the day keys are built in SQL
+ * so neither Node's nor Postgres's own timezone can shift them.
+ */
+const countPerDay = async (
+  table: 'analytics_events' | 'photos',
+  column: 'created_at' | 'uploaded_at',
+  filter: string,
+  days: number,
+  now: Date
+): Promise<{ date: string; count: number }[]> => {
+  const result = await query(
+    `WITH bounds AS (
+       SELECT ($3::timestamptz AT TIME ZONE $1)::date AS today
+     ),
+     day_list AS (
+       SELECT d::date AS day
+       FROM bounds, generate_series((today - ($2::int - 1))::timestamp, today::timestamp, interval '1 day') AS d
+     ),
+     counts AS (
+       SELECT (${column} AT TIME ZONE $1)::date AS day, COUNT(*)::int AS n
+       FROM ${table}, bounds
+       WHERE ${filter}
+         AND ${column} >= (today - ($2::int - 1))::timestamp AT TIME ZONE $1
+         AND ${column} < (today + 1)::timestamp AT TIME ZONE $1
+       GROUP BY 1
+     )
+     SELECT to_char(day_list.day, 'YYYY-MM-DD') AS date, COALESCE(counts.n, 0) AS count
+     FROM day_list LEFT JOIN counts USING (day)
+     ORDER BY day_list.day`,
+    [DASHBOARD_TIMEZONE, days, now]
+  );
+  return result.rows.map((row: { date: string; count: number }) => ({ date: row.date, count: row.count }));
+};
+
+/**
  * Get views over time (last N days, grouped by day)
  */
-export const getViewsOverTime = async (days: number = 30): Promise<ViewsOverTime[]> => {
-  const result = await query(
-    `SELECT
-      DATE(created_at) as date,
-      COUNT(*) as views
-    FROM analytics_events
-    WHERE event_type = 'gallery_view'
-      AND created_at >= NOW() - INTERVAL '${days} days'
-    GROUP BY DATE(created_at)
-    ORDER BY date ASC`
-  );
-
-  // Fill in missing days with 0 views
-  const viewsByDate = new Map(
-    result.rows.map((row: { date: Date; views: string }) => [
-      row.date.toISOString().split('T')[0],
-      parseInt(row.views, 10),
-    ])
-  );
-
-  const filledData: ViewsOverTime[] = [];
-  const today = new Date();
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    const dateStr = date.toISOString().split('T')[0];
-    filledData.push({
-      date: dateStr,
-      views: viewsByDate.get(dateStr) || 0,
-    });
-  }
-
-  return filledData;
+export const getViewsOverTime = async (days: number = 30, now: Date = new Date()): Promise<ViewsOverTime[]> => {
+  const rows = await countPerDay('analytics_events', 'created_at', `event_type = 'gallery_view'`, days, now);
+  return rows.map(({ date, count }) => ({ date, views: count }));
 };
 
 /**
@@ -108,16 +123,16 @@ export const getTopGalleries = async (limit: number = 5): Promise<TopGallery[]> 
 export const getTopPhotos = async (limit: number = 5): Promise<TopPhoto[]> => {
   const result = await query(
     `SELECT p.id, p.original_filename as filename, p.gallery_id,
-            g.title as gallery_title, p.s3_thumbnail_key as thumbnail_key,
+            COALESCE(g.title, 'Unassigned') as gallery_title, p.s3_thumbnail_key as thumbnail_key,
             p.view_count, p.download_count
     FROM photos p
-    JOIN galleries g ON p.gallery_id = g.id
+    LEFT JOIN galleries g ON p.gallery_id = g.id
     ORDER BY p.view_count DESC
     LIMIT $1`,
     [limit]
   );
 
-  return result.rows.map((row: { id: string; filename: string; gallery_id: string; gallery_title: string; thumbnail_key: string; view_count: number; download_count: number }) => ({
+  return result.rows.map((row: { id: string; filename: string; gallery_id: string | null; gallery_title: string; thumbnail_key: string; view_count: number; download_count: number }) => ({
     id: row.id,
     filename: row.filename,
     gallery_id: row.gallery_id,
@@ -143,6 +158,10 @@ export const getStorageStats = async (): Promise<StorageStats> => {
       FROM galleries g
       LEFT JOIN photos p ON p.gallery_id = g.id
       GROUP BY g.id, g.title
+      UNION ALL
+      SELECT NULL, 'Unassigned', COALESCE(SUM(file_size), 0)
+      FROM photos
+      WHERE gallery_id IS NULL
       ORDER BY bytes DESC`
     ),
   ]);
@@ -151,7 +170,7 @@ export const getStorageStats = async (): Promise<StorageStats> => {
 
   return {
     total_bytes: Math.round(originalTotal * STORAGE_MULTIPLIER),
-    galleries: breakdownResult.rows.map((row: { id: string; title: string; bytes: string }) => ({
+    galleries: breakdownResult.rows.map((row: { id: string | null; title: string; bytes: string }) => ({
       id: row.id,
       title: row.title,
       bytes: Math.round(parseInt(row.bytes, 10) * STORAGE_MULTIPLIER),
@@ -162,39 +181,8 @@ export const getStorageStats = async (): Promise<StorageStats> => {
 /**
  * Get upload activity (photos uploaded per day, last N days)
  */
-export const getUploadActivity = async (days: number = 30): Promise<UploadActivity[]> => {
-  const result = await query(
-    `SELECT
-      DATE(uploaded_at) as date,
-      COUNT(*) as count
-    FROM photos
-    WHERE uploaded_at >= NOW() - INTERVAL '${days} days'
-    GROUP BY DATE(uploaded_at)
-    ORDER BY date ASC`
-  );
-
-  // Fill in missing days with 0 uploads
-  const uploadsByDate = new Map(
-    result.rows.map((row: { date: Date; count: string }) => [
-      row.date.toISOString().split('T')[0],
-      parseInt(row.count, 10),
-    ])
-  );
-
-  const filledData: UploadActivity[] = [];
-  const today = new Date();
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    const dateStr = date.toISOString().split('T')[0];
-    filledData.push({
-      date: dateStr,
-      count: uploadsByDate.get(dateStr) || 0,
-    });
-  }
-
-  return filledData;
-};
+export const getUploadActivity = async (days: number = 30, now: Date = new Date()): Promise<UploadActivity[]> =>
+  countPerDay('photos', 'uploaded_at', 'TRUE', days, now);
 
 /**
  * Get all analytics data in one call
