@@ -78,7 +78,7 @@ function SortableRow({ gallery, copiedId, onCopyLink, onEdit, onDelete }: Sortab
           {gallery.is_public ? 'Public' : 'Private'}
         </span>
       </td>
-      <td>{gallery.view_count.toLocaleString()}</td>
+      <td>{(gallery.view_count ?? 0).toLocaleString()}</td>
       <td className={styles.actions}>
         <button
           className={styles.actionBtn}

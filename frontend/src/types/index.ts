@@ -14,24 +14,26 @@ export interface ExifData {
   dateTaken?: string;
 }
 
+// Public responses carry only id, title and slug (backend/src/services/galleryView.ts).
 export interface Gallery {
   id: string;
   title: string;
   slug: string;
-  description: string | null;
-  cover_image_id: string | null;
   // Set on the public gallery list: the cover photo's thumbnail and web
   // URLs and its displayed size.
-  coverUrl: string | null;
+  coverUrl?: string | null;
   coverWebUrl?: string | null;
   coverWidth?: number | null;
   coverHeight?: number | null;
-  is_public: boolean;
-  // Set on admin responses: whether a password is stored, never the password.
+  // Set on admin responses only. has_password says whether a password is
+  // stored, never the password.
+  description?: string | null;
+  cover_image_id?: string | null;
+  is_public?: boolean;
   has_password?: boolean;
-  view_count: number;
-  created_at: string;
-  updated_at: string;
+  view_count?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Photo {
