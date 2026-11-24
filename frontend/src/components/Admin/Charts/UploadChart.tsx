@@ -7,6 +7,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { formatDayLabel } from '../../../utils/dayLabel';
 import styles from './Charts.module.css';
 
 interface UploadChartProps {
@@ -14,16 +15,10 @@ interface UploadChartProps {
 }
 
 export default function UploadChart({ data }: UploadChartProps) {
-  // Format date for display (e.g., "Jan 5")
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
   // Show every 5th label to avoid crowding
   const formatXAxis = (dateStr: string, index: number) => {
     if (index % 5 === 0) {
-      return formatDate(dateStr);
+      return formatDayLabel(dateStr);
     }
     return '';
   };
@@ -57,7 +52,7 @@ export default function UploadChart({ data }: UploadChartProps) {
                 border: '1px solid var(--color-border)',
                 borderRadius: '4px',
               }}
-              labelFormatter={formatDate}
+              labelFormatter={formatDayLabel}
               formatter={(value) => [value, 'Uploads']}
             />
             <Bar
