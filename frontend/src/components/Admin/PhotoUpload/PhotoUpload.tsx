@@ -1,43 +1,8 @@
 import { useState, useRef, useEffect, useCallback, memo, type DragEvent, type ChangeEvent } from 'react';
-import { useAuth } from '../../../contexts/auth';
-import { uploadPhoto, checkDuplicates, type DuplicateInfo } from '../../../api/client';
+import { useUploadQueue, useUploadTarget } from '../../../contexts/uploads';
 import type { Photo } from '../../../types';
-import { uploadOutcome } from '../../../utils/uploadOutcome';
+import { processedCount, type UploadItem as UploadingFile } from '../../../utils/uploadQueue';
 import styles from './PhotoUpload.module.css';
-
-// Matches the server-side multer limit
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
-// Files are hashed and duplicate-checked in batches so uploads can start
-// while later files are still being hashed
-const CHECK_BATCH_SIZE = 20;
-// Parallel uploads
-const UPLOAD_CONCURRENCY = 3;
-// A file the browser gives no type is judged by extension; the server checks
-// the bytes. HEIC is left out: the server most likely cannot decode it (#131).
-const IMAGE_EXTENSION = /\.(jpe?g|png|webp|tiff?)$/i;
-
-const isImageFile = (file: File) =>
-  file.type ? file.type.startsWith('image/') : IMAGE_EXTENSION.test(file.name);
-
-interface UploadingFile {
-  id: string;
-  file: File;
-  progress: number;
-  status: 'checking' | 'pending' | 'uploading' | 'processing' | 'complete' | 'error' | 'duplicate' | 'new';
-  error?: string;
-  note?: string;
-  retryable?: boolean;
-}
-
-interface BatchStats {
-  total: number;
-  uploaded: number;
-  skipped: number;
-  fresh: number;
-  failed: number;
-}
-
-const EMPTY_STATS: BatchStats = { total: 0, uploaded: 0, skipped: 0, fresh: 0, failed: 0 };
 
 interface PhotoUploadProps {
   galleryId: string | null;
@@ -48,16 +13,6 @@ interface UploadItemProps {
   item: UploadingFile;
   onDismiss: (id: string) => void;
   onRetry: (id: string) => void;
-}
-
-// SHA-256 of a file's bytes - matches the content_hash stored at upload
-// time because originals are preserved exactly as uploaded
-async function hashFile(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest('SHA-256', buffer);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 const UploadItem = memo(function UploadItem({ item, onDismiss, onRetry }: UploadItemProps) {
@@ -128,223 +83,28 @@ const UploadItem = memo(function UploadItem({ item, onDismiss, onRetry }: Upload
 });
 
 export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUploadProps) {
-  const { token } = useAuth();
-  const [uploading, setUploading] = useState<UploadingFile[]>([]);
-  const [stats, setStats] = useState<BatchStats>(EMPTY_STATS);
+  const queue = useUploadQueue();
+  const { items: uploading, stats } = useUploadTarget(galleryId);
   const [isDragging, setIsDragging] = useState(false);
   const [checkOnly, setCheckOnly] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Mirror of the upload list for retry lookups outside render
-  const itemsRef = useRef<UploadingFile[]>([]);
-  useEffect(() => {
-    itemsRef.current = uploading;
-  }, [uploading]);
 
-  // Warn user before leaving page with active uploads
-  useEffect(() => {
-    const hasActiveUploads = uploading.some(
-      (u) => u.status === 'uploading' || u.status === 'pending' || u.status === 'processing'
-    );
+  // Uploads outlive this page, so only the ones finishing while it is open
+  // reach its photo list; it reloads the rest when it mounts again.
+  useEffect(
+    () =>
+      queue.onComplete((photo, target) => {
+        if (target === galleryId) onUploadComplete(photo);
+      }),
+    [queue, galleryId, onUploadComplete]
+  );
 
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasActiveUploads) {
-        e.preventDefault();
-        e.returnValue = 'You have uploads in progress. Are you sure you want to leave?';
-        return e.returnValue;
-      }
-    };
+  const handleFiles = useCallback(
+    (files: FileList | File[]) => queue.add(Array.from(files), { galleryId, checkOnly }),
+    [queue, galleryId, checkOnly]
+  );
 
-    if (hasActiveUploads) {
-      window.addEventListener('beforeunload', handleBeforeUnload);
-    }
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [uploading]);
-
-  const updateItem = useCallback((id: string, patch: Partial<UploadingFile>) => {
-    setUploading((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
-  }, []);
-
-  const uploadOne = useCallback(async (item: UploadingFile) => {
-    if (!token) return;
-
-    updateItem(item.id, { status: 'uploading', progress: 0, error: undefined });
-
-    try {
-      const photo = await uploadPhoto(token, galleryId, item.file, (progress) => {
-        setUploading((prev) =>
-          prev.map((u) => {
-            if (u.id !== item.id) return u;
-            // When upload hits 100%, switch to processing status
-            if (progress === 100) {
-              return { ...u, progress: 100, status: 'processing' };
-            }
-            return { ...u, progress };
-          })
-        );
-      });
-      onUploadComplete(photo);
-      setStats((s) => ({ ...s, uploaded: s.uploaded + 1 }));
-      updateItem(item.id, { status: 'complete', progress: 100 });
-      // Remove after delay so user sees the success state
-      setTimeout(() => {
-        setUploading((prev) => prev.filter((u) => u.id !== item.id));
-      }, 1500);
-    } catch (err) {
-      const outcome = uploadOutcome(err);
-      if (outcome.kind === 'duplicate') {
-        setStats((s) => ({ ...s, skipped: s.skipped + 1 }));
-        updateItem(item.id, { status: 'duplicate', note: outcome.note });
-        return;
-      }
-      setStats((s) => ({ ...s, failed: s.failed + 1 }));
-      updateItem(item.id, {
-        status: 'error',
-        error: outcome.error,
-        retryable: outcome.retryable,
-      });
-    }
-  }, [token, galleryId, onUploadComplete, updateItem]);
-
-  const handleRetry = useCallback((id: string) => {
-    const item = itemsRef.current.find((u) => u.id === id);
-    if (!item) return;
-    setStats((s) => ({ ...s, failed: Math.max(0, s.failed - 1) }));
-    uploadOne(item);
-  }, [uploadOne]);
-
-  const handleFiles = useCallback(async (files: FileList | File[]) => {
-    if (!token) return;
-
-    const fileArray = Array.from(files);
-    if (fileArray.length === 0) return;
-
-    // Starting fresh (nothing in flight): clear finished rows and reset counters
-    const processed = stats.uploaded + stats.skipped + stats.fresh + stats.failed;
-    if (stats.total === 0 || processed >= stats.total) {
-      setUploading((prev) =>
-        prev.filter(
-          (u) => u.status === 'checking' || u.status === 'pending' || u.status === 'uploading' || u.status === 'processing'
-        )
-      );
-      setStats({ ...EMPTY_STATS, total: fileArray.length });
-    } else {
-      setStats((s) => ({ ...s, total: s.total + fileArray.length }));
-    }
-
-    // Client-side validation - matches server limits so bad files fail fast
-    const newItems: UploadingFile[] = fileArray.map((file) => {
-      const invalidReason = !isImageFile(file)
-        ? 'Not an image file'
-        : file.size > MAX_FILE_SIZE
-        ? 'Larger than the 50MB upload limit'
-        : null;
-      return {
-        id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        file,
-        progress: 0,
-        status: invalidReason ? ('error' as const) : ('checking' as const),
-        error: invalidReason ?? undefined,
-        retryable: false,
-      };
-    });
-    setUploading((prev) => [...prev, ...newItems]);
-
-    const invalidCount = newItems.filter((i) => i.status === 'error').length;
-    if (invalidCount > 0) {
-      setStats((s) => ({ ...s, failed: s.failed + invalidCount }));
-    }
-    const validItems = newItems.filter((i) => i.status === 'checking');
-
-    // Producer hashes and duplicate-checks files in batches, feeding the
-    // upload queue; workers upload concurrently while later batches are
-    // still being hashed. If hashing or the check fails, files fall
-    // through to upload - the server rejects duplicates as a safety net.
-    const queue: UploadingFile[] = [];
-    let producerDone = false;
-    const seenHashes = new Set<string>();
-
-    const producer = (async () => {
-      for (let i = 0; i < validItems.length; i += CHECK_BATCH_SIZE) {
-        const batch = validItems.slice(i, i + CHECK_BATCH_SIZE);
-
-        const batchHashes = new Map<string, string>();
-        for (const item of batch) {
-          try {
-            batchHashes.set(item.id, await hashFile(item.file));
-          } catch {
-            // Hashing unavailable - treat as new
-          }
-        }
-
-        let existing: Record<string, DuplicateInfo> = {};
-        try {
-          const unchecked = [...new Set(batchHashes.values())].filter((h) => !seenHashes.has(h));
-          if (unchecked.length > 0) {
-            existing = await checkDuplicates(token, unchecked);
-          }
-        } catch {
-          // Check failed - proceed with uploads
-        }
-
-        for (const item of batch) {
-          const hash = batchHashes.get(item.id);
-          const dup = hash ? existing[hash] : undefined;
-
-          if (dup) {
-            const where = dup.gallery_title
-              ? ` in ${dup.gallery_title}`
-              : dup.gallery_id === null
-              ? ' (unassigned)'
-              : '';
-            setStats((s) => ({ ...s, skipped: s.skipped + 1 }));
-            updateItem(item.id, {
-              status: 'duplicate',
-              note: `Already uploaded${where} as ${dup.original_filename}`,
-            });
-          } else if (hash && seenHashes.has(hash)) {
-            setStats((s) => ({ ...s, skipped: s.skipped + 1 }));
-            updateItem(item.id, {
-              status: 'duplicate',
-              note: 'Duplicate of another file in this batch',
-            });
-          } else if (checkOnly) {
-            setStats((s) => ({ ...s, fresh: s.fresh + 1 }));
-            updateItem(item.id, { status: 'new', note: 'Not uploaded yet' });
-            if (hash) seenHashes.add(hash);
-          } else {
-            if (hash) seenHashes.add(hash);
-            updateItem(item.id, { status: 'pending' });
-            queue.push(item);
-          }
-        }
-      }
-      producerDone = true;
-    })();
-
-    if (checkOnly) {
-      await producer;
-      return;
-    }
-
-    const workers = Array.from({ length: UPLOAD_CONCURRENCY }, () =>
-      (async () => {
-        for (;;) {
-          const item = queue.shift();
-          if (!item) {
-            if (producerDone) return;
-            await new Promise((resolve) => setTimeout(resolve, 150));
-            continue;
-          }
-          await uploadOne(item);
-        }
-      })()
-    );
-
-    await Promise.all([producer, ...workers]);
-  }, [token, checkOnly, stats, uploadOne, updateItem]);
+  const handleRetry = useCallback((id: string) => queue.retry(id), [queue]);
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -371,12 +131,10 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
     }
   };
 
-  const dismissError = useCallback((id: string) => {
-    setUploading((prev) => prev.filter((u) => u.id !== id));
-  }, []);
+  const dismissError = useCallback((id: string) => queue.dismiss(id), [queue]);
 
   const hasResults = uploading.some((u) => u.status === 'duplicate' || u.status === 'new');
-  const processed = stats.uploaded + stats.skipped + stats.fresh + stats.failed;
+  const processed = processedCount(stats);
   const batchDone = stats.total > 0 && processed >= stats.total;
 
   const summaryParts: string[] = [];
@@ -425,11 +183,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         {hasResults && (
           <button
             className={styles.clearBtn}
-            onClick={() =>
-              setUploading((prev) =>
-                prev.filter((u) => u.status !== 'duplicate' && u.status !== 'new')
-              )
-            }
+            onClick={() => queue.clearResults(galleryId)}
           >
             Clear results
           </button>

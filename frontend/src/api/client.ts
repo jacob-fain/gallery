@@ -386,9 +386,14 @@ export async function uploadPhoto(
   token: string,
   galleryId: string | null,
   file: File,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal
 ): Promise<Photo> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new UploadError('Upload aborted', 0));
+      return;
+    }
     const xhr = new XMLHttpRequest();
     const formData = new FormData();
     formData.append('photo', file);
@@ -427,6 +432,7 @@ export async function uploadPhoto(
 
     xhr.addEventListener('error', () => reject(new UploadError('Upload failed', 0)));
     xhr.addEventListener('abort', () => reject(new UploadError('Upload aborted', 0)));
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
 
     xhr.open('POST', `${API_BASE}/photos/upload`);
     xhr.setRequestHeader('Authorization', `Bearer ${token}`);
