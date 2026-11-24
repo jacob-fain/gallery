@@ -10,7 +10,10 @@ RUN npx tsc
 # Runtime stage: production dependencies and compiled output only, so the
 # image carries no compiler, test runner or type packages.
 FROM node:24.22.3-alpine
-ENV NODE_ENV=production
+# Opaque id of this build, reported by /api/health/ready. CI passes a hash
+# of the release tag and commit; local builds report "dev".
+ARG BUILD_ID=dev
+ENV NODE_ENV=production BUILD_ID=$BUILD_ID
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
