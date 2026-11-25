@@ -81,6 +81,12 @@ describe('PhotoGrid in the admin Review view', () => {
     expect(screen.queryByText('Shown')).toBeNull();
   });
 
+  it('dims only the rejected tiles', () => {
+    render(<Harness initial={[photo('a', 'review'), photo('b', 'shown'), photo('c', 'rejected')]} save={async () => null} />);
+    const dimmed = tiles().filter((t) => t.closest('.react-photo-album--photo')?.querySelector('[class*="dim"]'));
+    expect(dimmed.map((t) => t.getAttribute('data-photo-index'))).toEqual(['2']);
+  });
+
   it.each([
     ['review', 'People · 1 / 1 · Needs review', ['Show on site', 'Reject']],
     ['shown', 'People · 1 / 1 · Shown', ['Reject', 'Back to review']],

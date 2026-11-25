@@ -52,6 +52,16 @@
   position: relative;
 }
 
+/* A rejected photo shows at 60%: the page background over it at 40%. An
+   overlay rather than the image's opacity, which the fade-in owns. */
+.dim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-background);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 /* Fixed colors: badges sit on a photo, not on the page background. */
 .badge,
 .galleryLabel {

@@ -97,6 +97,7 @@ interface PhotoTilesProps {
 
 const renderReviewExtras: RenderExtras<AlbumPhoto> = (_, { photo }) => (
   <>
+    {photo.status === 'rejected' && <span className={styles.dim} aria-hidden="true" />}
     {photo.status && photo.status !== 'shown' && (
       <span className={`${styles.badge} ${styles[photo.status]}`}>{STATUS_LABELS[photo.status]}</span>
     )}

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Photo, ReviewStatus, StatusCounts } from '../../../types';
@@ -115,8 +115,11 @@ describe('StatusPills and ViewSwitch', () => {
 
 describe('PhotoReviewSection', () => {
   const mixed = () => [photo('new1', 'review'), photo('pub1', 'shown'), photo('out1', 'rejected')];
+  // The Grid names each photo by filename, which makes lists easy to read.
+  const inGrid = () => window.localStorage.setItem('admin.photoView', 'grid');
 
   it('starts on Needs review when a photo needs it', async () => {
+    inGrid();
     renderSection(server(mixed()));
     await screen.findByText('new1.jpg');
     expect(pressed('Status')).toEqual(['Needs review · 1']);
@@ -125,12 +128,14 @@ describe('PhotoReviewSection', () => {
   });
 
   it('starts on All when nothing needs review', async () => {
+    inGrid();
     renderSection(server([photo('pub1', 'shown'), photo('out1', 'rejected')]));
     await screen.findByText('pub1.jpg');
     expect(pressed('Status')).toEqual(['All']);
   });
 
   it('lists the chosen filter', async () => {
+    inGrid();
     const fetchPage = server(mixed());
     const user = renderSection(fetchPage);
     await screen.findByText('new1.jpg');
@@ -140,27 +145,28 @@ describe('PhotoReviewSection', () => {
     expect(fetchPage).toHaveBeenLastCalledWith(0, 100, 'shown');
   });
 
-  it('remembers Review in this browser and shows the public layout', async () => {
-    const user = renderSection(server(mixed()));
-    await screen.findByText('new1.jpg');
-    expect(pressed('View')).toEqual(['Grid']);
-
-    await user.click(screen.getByRole('button', { name: 'Review' }));
-    expect(window.localStorage.getItem('admin.photoView')).toBe('review');
+  it('opens in Review, the public layout, until Grid is chosen', async () => {
+    renderSection(server(mixed()));
     await waitFor(() => expect(document.querySelectorAll('[data-photo-index]')).toHaveLength(1));
+    expect(pressed('View')).toEqual(['Review']);
     expect(screen.queryByText('new1.jpg')).toBeNull();
     expect(screen.getByText('Needs review', { selector: 'span' })).toBeTruthy();
   });
 
-  it('opens in Review when Review was chosen before', async () => {
-    window.localStorage.setItem('admin.photoView', 'review');
-    renderSection(server(mixed()));
+  it('remembers Grid in this browser', async () => {
+    const user = renderSection(server(mixed()));
     await waitFor(() => expect(document.querySelectorAll('[data-photo-index]')).toHaveLength(1));
-    expect(pressed('View')).toEqual(['Review']);
+    await user.click(screen.getByRole('button', { name: 'Grid' }));
+    expect(window.localStorage.getItem('admin.photoView')).toBe('grid');
+    expect(await screen.findByText('new1.jpg')).toBeTruthy();
+    cleanup();
+
+    renderSection(server(mixed()));
+    expect(await screen.findByText('new1.jpg')).toBeTruthy();
+    expect(pressed('View')).toEqual(['Grid']);
   });
 
   it('updates the counts after a Review action, and drops the photo from the filter on close', async () => {
-    window.localStorage.setItem('admin.photoView', 'review');
     vi.mocked(client.setPhotosStatus).mockResolvedValue({ updated: 1 });
     const user = renderSection(server(mixed()));
     await waitFor(() => expect(document.querySelectorAll('[data-photo-index]')).toHaveLength(1));
@@ -179,6 +185,7 @@ describe('PhotoReviewSection', () => {
   });
 
   it('shows the Rejected section only under Rejected, and deletes them all after a confirm', async () => {
+    inGrid();
     const photos = mixed();
     const fetchPage = server(photos);
     vi.mocked(client.deleteRejectedPhotos).mockImplementation(async () => {

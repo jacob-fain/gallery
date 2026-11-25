@@ -4,13 +4,14 @@ export type ViewMode = 'grid' | 'review';
 
 const KEY = 'admin.photoView';
 
-// Storage can be missing or throw (private windows, blocked site data), and
-// the page must work the same without it.
+// Review until the admin picks Grid: going through photos as the site shows
+// them is what these pages are for. Storage can be missing or throw (private
+// windows, blocked site data), and the page must work the same without it.
 function readMode(): ViewMode {
   try {
-    return window.localStorage.getItem(KEY) === 'review' ? 'review' : 'grid';
+    return window.localStorage.getItem(KEY) === 'grid' ? 'grid' : 'review';
   } catch {
-    return 'grid';
+    return 'review';
   }
 }
 

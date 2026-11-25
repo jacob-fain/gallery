@@ -25,7 +25,8 @@ test('an upload is reviewed in the viewer: shown, rejected, back to review, then
   };
 
   await page.goto(`${ADMIN}/galleries/${gallery.id}/photos`);
-  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  // Review is the default view.
+  await expect(page.getByRole('button', { name: 'Review', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.locator('input[type="file"]').setInputFiles({
     name: 'review-smoke.jpg',
     mimeType: 'image/jpeg',
