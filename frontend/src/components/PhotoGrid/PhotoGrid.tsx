@@ -12,7 +12,6 @@ import { ReviewActions, ViewerLabel, ZoomButtons, type ActOutcome, type ReviewTo
 import type { ReviewStatus } from '../../types';
 import { useViewerIdle } from './viewerIdle';
 import viewerStyles from './Viewer.module.css';
-import { IMAGE_FADE_PROPS } from '../../utils/imageFade';
 import { createRefreshGuard } from '../../utils/expiredImages';
 import {
   GRID_SIZES,
@@ -26,6 +25,7 @@ import {
 import styles from './PhotoGrid.module.css';
 import { TILE_KEYBOARD_PROPS, useLightboxFocusTrap } from './keyboard';
 import { useLightboxHistory } from './lightboxHistory';
+import { TILE_IMAGE_PROPS } from './tileImage';
 import { createHistoryMemory, entryKey } from '../../utils/historyMemory';
 
 /**
@@ -76,7 +76,7 @@ const LIGHTBOX_CLASS = 'photo-grid-lightbox';
 const LIGHTBOX_PLUGINS = [Download, Zoom];
 // The public download route serves only shown photos.
 const REVIEW_PLUGINS = [Zoom];
-const TILE_PROPS = { ...TILE_KEYBOARD_PROPS, image: IMAGE_FADE_PROPS };
+const TILE_PROPS = { ...TILE_KEYBOARD_PROPS, image: TILE_IMAGE_PROPS };
 // More tiles are added while the end of the grid is this far below the
 // viewport, so they are laid out before the visitor reaches them.
 const MORE_TILES_MARGIN = '0px 0px 1500px 0px';

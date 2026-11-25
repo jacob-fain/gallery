@@ -316,18 +316,15 @@ describe('grid tiles', () => {
     vi.restoreAllMocks();
   });
 
-  it('stay on their placeholder until each photo loads, then fade it in', () => {
-    let now = 1000;
-    vi.spyOn(performance, 'now').mockImplementation(() => now);
+  it('show each photo as it loads, and hide only a failed one', () => {
     render(<PhotoGrid photos={photos} />);
     const first = screen.getByAltText('Photo 1 of 3');
     const second = screen.getByAltText('Photo 2 of 3');
-    expect(first.dataset.loaded).toBeUndefined();
-    expect(second.dataset.loaded).toBeUndefined();
+    expect(first.dataset.failed).toBeUndefined();
 
-    now += 500;
-    fireEvent.load(first);
-    expect(first.dataset.loaded).toBe('fade');
-    expect(second.dataset.loaded).toBeUndefined();
+    fireEvent.error(first);
+    fireEvent.load(second);
+    expect(first.dataset.failed).toBe('');
+    expect(second.dataset.failed).toBeUndefined();
   });
 });
