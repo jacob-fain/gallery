@@ -109,7 +109,7 @@ function Section({
           {photos.error}
         </p>
       ) : (
-        <div className={photos.stale ? styles.stale : undefined} aria-busy={photos.stale} inert={photos.stale}>
+        <div className={photos.stale ? `${styles.listArea} ${styles.stale}` : styles.listArea} aria-busy={photos.stale} inert={photos.stale}>
           {view === 'grid' ? (
             <PhotoManager photos={photos} gallery={gallery} statusFilter={status} onPhotosChange={handlePhotosChange} />
           ) : (

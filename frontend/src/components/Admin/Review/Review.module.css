@@ -34,7 +34,8 @@
     scrollbar-width: none;
     /* A fade at the right edge shows the row continues past the screen. */
     mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
-    padding-right: 24px;
+    /* At least the fade's width, so the last pill can scroll fully clear of it. */
+    padding-right: 32px;
   }
 
   .pill {
@@ -235,6 +236,13 @@
   color: var(--color-text);
   font: inherit;
   cursor: pointer;
+}
+
+/* Holds the photo list. Chrome's scroll anchoring would otherwise move the
+   page when the new filter's list replaces the old one; the admin stays
+   where they were instead. */
+.listArea {
+  overflow-anchor: none;
 }
 
 /* The previous filter's photos while the new filter loads: kept so the page
