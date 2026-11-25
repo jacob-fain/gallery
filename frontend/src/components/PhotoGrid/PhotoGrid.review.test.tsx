@@ -38,63 +38,78 @@ const photo = (id: string, review_status: ReviewStatus): GridPhoto => ({
   review_status,
 });
 
-type Save = (id: string, status: ReviewStatus) => Promise<string | null>;
+type Save = (id: string, status: ReviewStatus) => void;
 
-// Holds the photos as the Review view does: the change applies at once, and
-// goes back when the save reports an error.
-function Harness({ initial, save }: { initial: GridPhoto[]; save: Save }) {
+// Holds the photos as the Review view does, under a status filter (null for
+// All): a photo whose new state is outside the filter leaves at once.
+function Harness({ initial, save, filter = null }: { initial: GridPhoto[]; save: Save; filter?: ReviewStatus | null }) {
   const [photos, setPhotos] = useState(initial);
-  const set = (id: string, status: ReviewStatus) =>
-    setPhotos((list) => list.map((p) => (p.id === id ? { ...p, review_status: status } : p)));
+  const keeps = (status: ReviewStatus) => !filter || status === filter;
   const review = {
-    onSetStatus: async (id: string, status: ReviewStatus) => {
-      const before = photos.find((p) => p.id === id)!.review_status!;
-      set(id, status);
-      const error = await save(id, status);
-      if (error) set(id, before);
-      return error;
+    keeps,
+    toast: null,
+    onSetStatus: (id: string, status: ReviewStatus) => {
+      if (photos.find((p) => p.id === id)?.review_status === status) return false;
+      setPhotos((list) =>
+        keeps(status) ? list.map((p) => (p.id === id ? { ...p, review_status: status } : p)) : list.filter((p) => p.id !== id)
+      );
+      save(id, status);
+      return true;
     },
   };
   return <PhotoGrid photos={photos} galleryTitle="People" review={review} />;
 }
 
+// The double-tap guard reads Date.now; each step of a test moves it on.
+let now = 0;
+const later = () => {
+  now += 1000;
+};
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+});
+
 const tiles = () => Array.from(document.querySelectorAll<HTMLElement>('[data-photo-index]'));
 const lightbox = () => screen.getByRole('dialog', { name: 'Lightbox' });
-const buttons = () =>
-  within(lightbox())
-    .getAllByRole('button')
-    .map((b) => b.textContent?.trim())
-    .filter((t) => t === 'Show on site' || t === 'Reject' || t === 'Back to review');
+const actions = () => within(within(lightbox()).getByRole('group', { name: 'Review' })).getAllByRole('button');
+const buttons = () => actions().map((b) => b.textContent?.trim());
+const current = () => actions().filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent?.trim());
 
-async function open(initial: GridPhoto[], index: number, save: Save = async () => null) {
+async function open(initial: GridPhoto[], index: number, save: Save = () => {}, filter: ReviewStatus | null = null) {
   const user = userEvent.setup();
-  render(<Harness initial={initial} save={save} />);
+  render(<Harness initial={initial} save={save} filter={filter} />);
   await user.click(tiles()[index]);
   return user;
 }
 
 describe('PhotoGrid in the admin Review view', () => {
   it('badges the tiles that are not shown with their state', () => {
-    render(<Harness initial={[photo('a', 'review'), photo('b', 'shown'), photo('c', 'rejected')]} save={async () => null} />);
+    render(<Harness initial={[photo('a', 'review'), photo('b', 'shown'), photo('c', 'rejected')]} save={() => {}} />);
     expect(screen.getByText('Needs review')).toBeTruthy();
     expect(screen.getByText('Rejected')).toBeTruthy();
     expect(screen.queryByText('Shown')).toBeNull();
   });
 
   it('dims only the rejected tiles', () => {
-    render(<Harness initial={[photo('a', 'review'), photo('b', 'shown'), photo('c', 'rejected')]} save={async () => null} />);
+    render(<Harness initial={[photo('a', 'review'), photo('b', 'shown'), photo('c', 'rejected')]} save={() => {}} />);
     const dimmed = tiles().filter((t) => t.closest('.react-photo-album--photo')?.querySelector('[class*="dim"]'));
     expect(dimmed.map((t) => t.getAttribute('data-photo-index'))).toEqual(['2']);
   });
 
   it.each([
-    ['review', 'People · 1 / 1 · Needs review', ['Show on site', 'Reject']],
-    ['shown', 'People · 1 / 1 · Shown', ['Reject', 'Back to review']],
-    ['rejected', 'People · 1 / 1 · Rejected', ['Show on site', 'Back to review']],
-  ] as const)('labels a %s photo with its state and offers the other states', async (status, label, actions) => {
-    await open([photo('a', status)], 0);
+    ['review', 'People · 1 / 1 · Needs review', ['Show on site', 'Reject', 'Needs review']],
+    ['shown', 'People · 1 / 1 · Shown', ['Shown', 'Reject', 'Back to review']],
+    ['rejected', 'People · 1 / 1 · Rejected', ['Show on site', 'Rejected', 'Back to review']],
+  ] as const)('labels a %s photo and keeps the three actions in place, its own pressed', async (status, label, shown) => {
+    const save = vi.fn<Save>();
+    const user = await open([photo('a', status)], 0, save);
     expect(within(lightbox()).getByText(label)).toBeTruthy();
-    expect(buttons()).toEqual(actions);
+    expect(buttons()).toEqual(shown);
+    const own = actions().find((b) => b.getAttribute('aria-pressed') === 'true')!;
+    expect(own.hasAttribute('disabled')).toBe(true);
+    expect(actions().filter((b) => b.getAttribute('aria-pressed') === 'false')).toHaveLength(2);
+    await user.click(own);
+    expect(save).not.toHaveBeenCalled();
   });
 
   it('keeps zoom and close, and offers no download or delete', async () => {
@@ -105,42 +120,75 @@ describe('PhotoGrid in the admin Review view', () => {
     expect(within(lightbox()).queryByRole('button', { name: /delete/i })).toBeNull();
   });
 
-  it('acts at once and moves on to the next photo', async () => {
-    const save = vi.fn<Save>(async () => null);
+  it('under All, acts at once and moves on to the next photo, which keeps its new state', async () => {
+    const save = vi.fn<Save>();
     const user = await open([photo('a', 'review'), photo('b', 'review'), photo('c', 'shown')], 0, save);
 
     await user.click(within(lightbox()).getByRole('button', { name: 'Show on site' }));
     expect(save).toHaveBeenCalledWith('a', 'shown');
     await waitFor(() => expect(within(lightbox()).getByText('People · 2 / 3 · Needs review')).toBeTruthy());
 
+    later();
     await user.click(within(lightbox()).getByRole('button', { name: 'Reject' }));
     expect(save).toHaveBeenLastCalledWith('b', 'rejected');
     await waitFor(() => expect(within(lightbox()).getByText('People · 3 / 3 · Shown')).toBeTruthy());
-    // The photos acted on keep their new state.
     await user.keyboard('{ArrowLeft}');
     await waitFor(() => expect(within(lightbox()).getByText('People · 2 / 3 · Rejected')).toBeTruthy());
   });
 
-  it('stays on the last photo and says so', async () => {
-    const user = await open([photo('a', 'shown'), photo('b', 'review')], 1);
+  it('under All, stays on the last photo, says so, and keeps every action where it was', async () => {
+    const save = vi.fn<Save>();
+    const user = await open([photo('a', 'shown'), photo('b', 'review')], 1, save);
     await user.click(within(lightbox()).getByRole('button', { name: 'Show on site' }));
     expect(await within(lightbox()).findByText('That was the last photo in this list.')).toBeTruthy();
     expect(within(lightbox()).getByText('People · 2 / 2 · Shown')).toBeTruthy();
-    // Back to review undoes it.
-    await user.click(within(lightbox()).getByRole('button', { name: 'Back to review' }));
-    await waitFor(() => expect(within(lightbox()).getByText('People · 2 / 2 · Needs review')).toBeTruthy());
+    expect(buttons()).toEqual(['Shown', 'Reject', 'Back to review']);
+    expect(current()).toEqual(['Shown']);
   });
 
-  it('puts the state back and says so when the save fails', async () => {
-    const user = await open([photo('a', 'review'), photo('b', 'review')], 0, async () => 'Server error: the photo was not changed.');
-    await user.click(within(lightbox()).getByRole('button', { name: 'Reject' }));
-    expect((await within(lightbox()).findByRole('alert')).textContent).toBe('Server error: the photo was not changed.');
-    await user.keyboard('{ArrowLeft}');
+  it('in a status filter, drops the photo acted on and shows the next one', async () => {
+    const save = vi.fn<Save>();
+    const user = await open([photo('a', 'review'), photo('b', 'review'), photo('c', 'review')], 0, save, 'review');
+    await user.click(within(lightbox()).getByRole('button', { name: 'Show on site' }));
+    expect(save).toHaveBeenCalledWith('a', 'shown');
     await waitFor(() => expect(within(lightbox()).getByText('People · 1 / 2 · Needs review')).toBeTruthy());
+    expect(new URLSearchParams(window.location.search).get('photo')).toBe('b');
+    expect(tiles()).toHaveLength(2);
+    expect(buttons()).toEqual(['Show on site', 'Reject', 'Needs review']);
+  });
+
+  it('in a status filter, goes on from the last photo to the first one left', async () => {
+    const user = await open([photo('a', 'review'), photo('b', 'review'), photo('c', 'review')], 2, () => {}, 'review');
+    await user.click(within(lightbox()).getByRole('button', { name: 'Reject' }));
+    await waitFor(() => expect(within(lightbox()).getByText('People · 1 / 2 · Needs review')).toBeTruthy());
+    expect(new URLSearchParams(window.location.search).get('photo')).toBe('a');
+  });
+
+  it('in a status filter, closes once the last photo left', async () => {
+    const user = await open([photo('a', 'review')], 0, () => {}, 'review');
+    await user.click(within(lightbox()).getByRole('button', { name: 'Show on site' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Lightbox' })).toBeNull());
+    expect(tiles()).toHaveLength(0);
+  });
+
+  it('ignores a second tap right after an action', async () => {
+    const save = vi.fn<Save>();
+    const user = await open([photo('a', 'review'), photo('b', 'review'), photo('c', 'review')], 0, save, 'review');
+    await user.click(actions()[0]);
+    await waitFor(() => expect(within(lightbox()).getByText('People · 1 / 2 · Needs review')).toBeTruthy());
+    await user.click(actions()[0]);
+    await user.click(actions()[1]);
+    expect(save.mock.calls).toEqual([['a', 'shown']]);
+    later();
+    await user.click(actions()[1]);
+    expect(save.mock.calls).toEqual([
+      ['a', 'shown'],
+      ['b', 'rejected'],
+    ]);
   });
 
   it('has no keyboard shortcut for the actions', async () => {
-    const save = vi.fn<Save>(async () => null);
+    const save = vi.fn<Save>();
     const user = await open([photo('a', 'review'), photo('b', 'review')], 0, save);
     await user.keyboard('srbSRB');
     expect(save).not.toHaveBeenCalled();

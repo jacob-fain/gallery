@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addUploaded, appendPage, emptyList, hasMore, mapPhotos, removePhotos, type PhotoList } from './photoList';
+import { addUploaded, appendPage, emptyList, hasMore, insertPhoto, mapPhotos, removePhotos, type PhotoList } from './photoList';
 
 type P = { id: string; hidden?: boolean };
 const p = (id: string): P => ({ id });
@@ -90,5 +90,19 @@ describe('mapPhotos', () => {
     const next = mapPhotos(current, (x) => (x.id === 'b' ? { ...x, hidden: true } : x));
     expect(next.items[0]).toBe(current.items[0]);
     expect(next.items[1]).toEqual({ id: 'b', hidden: true });
+  });
+});
+
+describe('insertPhoto', () => {
+  it('puts a photo back at its index and counts it', () => {
+    const next = insertPhoto(list(['a', 'c'], 10), p('b'), 1);
+    expect(ids(next)).toEqual(['a', 'b', 'c']);
+    expect(next.total).toBe(11);
+  });
+
+  it('clamps the index to the loaded photos and never adds a photo twice', () => {
+    expect(ids(insertPhoto(list(['a'], 1), p('b'), 5))).toEqual(['a', 'b']);
+    const same = list(['a', 'b'], 2);
+    expect(insertPhoto(same, p('b'), 0)).toBe(same);
   });
 });

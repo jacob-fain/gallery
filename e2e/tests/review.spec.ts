@@ -6,7 +6,7 @@ test.use({ storageState: ADMIN_STATE });
 const saved = (page: Page) =>
   page.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/photos\/status$/.test(r.url()));
 
-test('an upload is reviewed in the viewer: shown, rejected, back to review, then deleted with the rejected', async ({
+test('an upload is reviewed in the viewer: shown, rejected, back to review and undone, then deleted with the rejected', async ({
   page,
   browser,
 }) => {
@@ -40,38 +40,54 @@ test('an upload is reviewed in the viewer: shown, rejected, back to review, then
   await expect(tile.getByText('Needs review', { exact: true })).toBeVisible();
   await visitorSees(0);
 
-  // In the viewer: Show on site publishes it. It is the only photo, so the
-  // viewer stays and says so.
+  // The gallery had nothing to review when the page opened, so it lists All.
+  // In the viewer, Show on site publishes it; under All it stays, the only
+  // photo, with Shown pressed in the place Show on site was.
   await tile.click();
   const viewer = page.locator('.yarl__root');
+  const toast = page.getByRole('status').filter({ hasText: 'Undo' });
   await expect(viewer.getByText('Review smoke · 1 / 1 · Needs review')).toBeVisible();
+  await expect(viewer.getByRole('button', { name: 'Needs review' })).toHaveAttribute('aria-pressed', 'true');
   let response = saved(page);
   await viewer.getByRole('button', { name: 'Show on site' }).click();
   expect((await response).ok()).toBe(true);
   await expect(viewer.getByText('Review smoke · 1 / 1 · Shown')).toBeVisible();
   await expect(viewer.getByText('That was the last photo in this list.')).toBeVisible();
+  await expect(toast).toHaveText('Shown on site · Undo');
+  await expect(viewer.getByRole('button', { name: 'Shown' })).toBeDisabled();
   await visitorSees(1);
-
-  // Reject makes it private again.
-  response = saved(page);
-  await viewer.getByRole('button', { name: 'Reject' }).click();
-  expect((await response).ok()).toBe(true);
-  await expect(viewer.getByText('Review smoke · 1 / 1 · Rejected')).toBeVisible();
-  await visitorSees(0);
-
-  // Back to review, and rejected once more for the delete below.
-  response = saved(page);
-  await viewer.getByRole('button', { name: 'Back to review' }).click();
-  expect((await response).ok()).toBe(true);
-  await expect(viewer.getByText('Review smoke · 1 / 1 · Needs review')).toBeVisible();
-  response = saved(page);
-  await viewer.getByRole('button', { name: 'Reject' }).click();
-  expect((await response).ok()).toBe(true);
   await viewer.getByRole('button', { name: 'Close' }).click();
   await expect(viewer).toHaveCount(0);
 
-  // Delete all rejected removes it, after a confirm.
+  // Under Shown, Reject makes it private again. It leaves the filter, and as
+  // the only photo there the viewer closes with All done and an undo.
+  await status.getByRole('button', { name: 'Shown · 1' }).click();
+  await tile.click();
+  await expect(viewer.getByText('Review smoke · 1 / 1 · Shown')).toBeVisible();
+  response = saved(page);
+  await viewer.getByRole('button', { name: 'Reject' }).click();
+  expect((await response).ok()).toBe(true);
+  await expect(viewer).toHaveCount(0);
+  await expect(toast).toHaveText('All done. Rejected · Undo');
+  await expect(page.getByText('No photos are shown on the site.')).toBeVisible();
+  await visitorSees(0);
+
+  // Under Rejected, Back to review, then Undo puts it back as rejected for
+  // the delete below.
   await status.getByRole('button', { name: 'Rejected · 1' }).click();
+  await tile.click();
+  response = saved(page);
+  await viewer.getByRole('button', { name: 'Back to review' }).click();
+  expect((await response).ok()).toBe(true);
+  await expect(toast).toHaveText('All done. Moved to review · Undo');
+  await expect(status.getByRole('button', { name: 'Needs review · 1' })).toBeVisible();
+  response = saved(page);
+  await toast.getByRole('button', { name: 'Undo' }).click();
+  expect((await response).ok()).toBe(true);
+  await expect(tile).toHaveCount(1);
+  await expect(status.getByRole('button', { name: 'Rejected · 1' })).toBeVisible();
+
+  // Delete all rejected removes it, after a confirm.
   await page.getByRole('button', { name: 'Delete all rejected (1)' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete 1' }).click();
   await expect(page.getByText('No rejected photos.')).toBeVisible();

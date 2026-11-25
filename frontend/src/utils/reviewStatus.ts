@@ -17,6 +17,13 @@ export const STATUS_ACTIONS: Record<ReviewStatus, string> = {
   rejected: 'Reject',
 };
 
+/** What the admin's undo toast says a state change did. */
+export const STATUS_DONE: Record<ReviewStatus, string> = {
+  review: 'Moved to review',
+  shown: 'Shown on site',
+  rejected: 'Rejected',
+};
+
 /** What an admin list filtered to a state (or to all, null) says when empty. */
 export const emptyListMessage = (filter: ReviewStatus | null): string =>
   filter === 'review'

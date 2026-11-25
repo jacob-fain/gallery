@@ -166,7 +166,7 @@ describe('PhotoReviewSection', () => {
     expect(pressed('View')).toEqual(['Grid']);
   });
 
-  it('updates the counts after a Review action, and drops the photo from the filter on close', async () => {
+  it('drops a photo from the filter at once, updates the counts, and closes with All done on the last one', async () => {
     vi.mocked(client.setPhotosStatus).mockResolvedValue({ updated: 1 });
     const user = renderSection(server(mixed()));
     await waitFor(() => expect(document.querySelectorAll('[data-photo-index]')).toHaveLength(1));
@@ -175,13 +175,17 @@ describe('PhotoReviewSection', () => {
     const lightbox = screen.getByRole('dialog', { name: 'Lightbox' });
     await user.click(within(lightbox).getByRole('button', { name: 'Show on site' }));
     expect(client.setPhotosStatus).toHaveBeenCalledWith(['new1'], 'shown');
-    // The page is hidden from the accessibility tree while the viewer is open.
-    const pills = document.querySelector('[aria-label="Status"]')!;
-    await waitFor(() => expect(pills.textContent).toContain('Needs review · 0'));
-    expect(pills.textContent).toContain('Shown · 2');
-
-    await user.click(within(lightbox).getByRole('button', { name: 'Close' }));
     expect(await screen.findByText('No photos need review.')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Lightbox' })).toBeNull();
+    expect(screen.getByRole('status').textContent).toBe('All done. Shown on site · Undo');
+    expect(pill(/^Needs review/).textContent).toBe('Needs review · 0');
+    expect(pill(/^Shown/).textContent).toBe('Shown · 2');
+
+    // Undo from the page puts it back in the list.
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(document.querySelectorAll('[data-photo-index]')).toHaveLength(1));
+    expect(client.setPhotosStatus).toHaveBeenLastCalledWith(['new1'], 'review');
+    expect(pill(/^Needs review/).textContent).toBe('Needs review · 1');
   });
 
   it('shows the Rejected section only under Rejected, and deletes them all after a confirm', async () => {
