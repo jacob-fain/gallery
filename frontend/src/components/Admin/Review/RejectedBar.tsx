@@ -37,17 +37,19 @@ export default function RejectedBar({ count, onDeleteAll }: RejectedBarProps) {
         <span>
           Rejected photos are private and kept until you delete them. Open one to send it back to review.
         </span>
-        <button
-          type="button"
-          className={styles.deleteAll}
-          disabled={count === 0 || confirming}
-          onClick={() => {
-            setError(null);
-            setConfirming(true);
-          }}
-        >
-          Delete all rejected ({count})
-        </button>
+        {count > 0 && (
+          <button
+            type="button"
+            className={styles.deleteAll}
+            disabled={confirming}
+            onClick={() => {
+              setError(null);
+              setConfirming(true);
+            }}
+          >
+            Delete all rejected ({count})
+          </button>
+        )}
       </div>
       {error && (
         <p className={styles.error} role="alert">
