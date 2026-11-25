@@ -84,6 +84,31 @@ export class PhotoListStore<T extends { id: string }> {
     return gen === this.generation ? this.state.list.items : null;
   };
 
+  /**
+   * Refetches the photos loaded so far and hands them to merge with the
+   * current ones, leaving the list's length, paging, and status alone. For
+   * replacing signed URLs that expired while the page stayed open. A failed
+   * fetch changes nothing, and so does a reload that replaced the list
+   * meanwhile.
+   */
+  refresh = async (merge: (current: T[], fresh: T[]) => T[]): Promise<void> => {
+    const gen = this.generation;
+    const wanted = this.state.list.items.length;
+    const fresh: T[] = [];
+    try {
+      while (fresh.length < wanted) {
+        const page = await this.loadPage(fresh.length, Math.min(LOAD_ALL_PAGE_SIZE, wanted - fresh.length));
+        if (gen !== this.generation) return;
+        fresh.push(...page.photos);
+        if (page.photos.length === 0 || fresh.length >= page.total) break;
+      }
+    } catch {
+      return;
+    }
+    if (gen !== this.generation || fresh.length === 0) return;
+    this.set({ list: { ...this.state.list, items: merge(this.state.list.items, fresh) } });
+  };
+
   /** Drops responses still on their way, for an unmounted list. */
   dispose = () => {
     this.generation++;

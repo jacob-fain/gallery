@@ -142,4 +142,80 @@ describe('PhotoListStore', () => {
     store.update((l) => l);
     expect(listener).not.toHaveBeenCalled();
   });
+
+  describe('refresh', () => {
+    type Signed = { id: string; sig: number };
+    const signedLoader = (count: number) => {
+      let sig = 0;
+      const calls: [number, number][] = [];
+      const load = vi.fn(async (offset: number, limit: number) => {
+        calls.push([offset, limit]);
+        sig++;
+        const rows = Array.from({ length: count }, (_, i) => ({ id: `p${i}`, sig }));
+        return { photos: rows.slice(offset, offset + limit), total: rows.length };
+      });
+      return { load, calls };
+    };
+    const takeFresh = (current: Signed[], fresh: Signed[]) => {
+      const byId = new Map(fresh.map((p) => [p.id, p]));
+      return current.map((p) => byId.get(p.id) ?? p);
+    };
+
+    it('refetches exactly the loaded photos, in pages, and keeps the paging', async () => {
+      const { load, calls } = signedLoader(450);
+      const store = new PhotoListStore<Signed>(load);
+      await store.reload();
+      await store.loadMore();
+      await store.loadMore();
+      calls.length = 0;
+
+      await store.refresh(takeFresh);
+
+      expect(calls).toEqual([
+        [0, LOAD_ALL_PAGE_SIZE],
+        [LOAD_ALL_PAGE_SIZE, 300 - LOAD_ALL_PAGE_SIZE],
+      ]);
+      expect(store.latest().items).toHaveLength(300);
+      expect(store.latest().total).toBe(450);
+      expect(store.latest().items[0].sig).toBe(4);
+      expect(store.latest().items[299].sig).toBe(5);
+    });
+
+    it('merges into the list as it is when the fetch returns', async () => {
+      const { load } = signedLoader(3);
+      const store = new PhotoListStore<Signed>(load);
+      await store.reload();
+      const pending = store.refresh(takeFresh);
+      store.update((list) => removePhotos(list, ['p1']));
+      await pending;
+      expect(store.latest().items.map((p) => [p.id, p.sig])).toEqual([
+        ['p0', 2],
+        ['p2', 2],
+      ]);
+    });
+
+    it('changes nothing when the fetch fails', async () => {
+      const { load } = signedLoader(3);
+      const store = new PhotoListStore<Signed>(load);
+      await store.reload();
+      const before = store.getState();
+      load.mockRejectedValueOnce(new Error('offline'));
+      await store.refresh(takeFresh);
+      expect(store.getState()).toBe(before);
+    });
+
+    it('drops a refresh that a reload overtook', async () => {
+      const { load } = signedLoader(3);
+      const store = new PhotoListStore<Signed>(load);
+      await store.reload();
+      const slow = deferred<{ photos: Signed[]; total: number }>();
+      load.mockReturnValueOnce(slow.promise);
+      const pending = store.refresh(takeFresh);
+      await store.reload();
+      // The reload signed its URLs second (sig 2); the stale refresh must not land.
+      slow.resolve({ photos: [{ id: 'p0', sig: 99 }], total: 3 });
+      await pending;
+      expect(store.latest().items.map((p) => p.sig)).toEqual([2, 2, 2]);
+    });
+  });
 });

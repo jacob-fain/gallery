@@ -30,6 +30,7 @@ const handle = (items: Photo[], total: number): PhotoListHandle => ({
   update: () => {},
   latest: () => ({ items, total }),
   reload: () => {},
+  refreshUrls: () => {},
 });
 
 const render = (photos: PhotoListHandle) =>
