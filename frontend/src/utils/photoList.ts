@@ -62,6 +62,16 @@ export function removePhotos<T extends { id: string }>(
   return { items, total: Math.max(items.length, list.total - removed) };
 }
 
+/**
+ * The list with a photo put back at the index it was removed from (an undo),
+ * which is where the server lists it again.
+ */
+export function insertPhoto<T extends { id: string }>(list: PhotoList<T>, photo: T, index: number): PhotoList<T> {
+  if (list.items.some((p) => p.id === photo.id)) return list;
+  const at = Math.max(0, Math.min(index, list.items.length));
+  return { items: [...list.items.slice(0, at), photo, ...list.items.slice(at)], total: list.total + 1 };
+}
+
 /** The list with each photo passed through change; unchanged photos keep their identity. */
 export function mapPhotos<T extends { id: string }>(list: PhotoList<T>, change: (photo: T) => T): PhotoList<T> {
   return { ...list, items: list.items.map(change) };

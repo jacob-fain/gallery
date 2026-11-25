@@ -90,12 +90,13 @@ export function useLightboxHistory(photos: PublicPhoto[], controller: RefObject<
     [photos]
   );
 
+  // photoId names the photo when the move goes with a change to the photos
+  // (one left the list), so photos[next] is not yet the photo shown.
   const view = useCallback(
-    (next: number) => {
+    (next: number, photoId: string | undefined = photos[next]?.id) => {
       setIndex(next);
-      const photo = photos[next];
-      if (photo && hasMarker(window.history.state)) {
-        window.history.replaceState(window.history.state, '', urlWithPhoto(photo.id));
+      if (photoId && hasMarker(window.history.state)) {
+        window.history.replaceState(window.history.state, '', urlWithPhoto(photoId));
       }
     },
     [photos]

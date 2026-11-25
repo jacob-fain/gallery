@@ -8,7 +8,7 @@ import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import { trackPhotoView, getPhotoDownloadUrl } from '../../api/client';
 import { STATUS_LABELS } from '../../utils/reviewStatus';
 import ExifOverlay from './ExifOverlay';
-import { ReviewActions, ViewerLabel, ZoomButtons, type SetPhotoStatus } from './ViewerChrome';
+import { ReviewActions, ViewerLabel, ZoomButtons, type ActOutcome, type ReviewToast, type SetPhotoStatus } from './ViewerChrome';
 import type { ReviewStatus } from '../../types';
 import { useViewerIdle } from './viewerIdle';
 import viewerStyles from './Viewer.module.css';
@@ -35,8 +35,11 @@ import { createHistoryMemory, entryKey } from '../../utils/historyMemory';
  */
 export interface GridReview {
   onSetStatus: SetPhotoStatus;
-  // Called when the viewer closes.
-  onClose?: () => void;
+  // Whether a photo in this state stays in the list. One that does not
+  // leaves it at once (a status filter), and the viewer shows the next.
+  keeps: (status: ReviewStatus) => boolean;
+  // The last change and its undo, shown above the viewer's actions.
+  toast: ReviewToast | null;
   // Names each photo's gallery on its tile (All Photos).
   galleryLabels?: boolean;
 }
@@ -63,6 +66,12 @@ interface PhotoGridProps {
 }
 
 const REFRESH_INTERVAL_MS = 60 * 1000;
+/**
+ * A second review action this soon after one is taken for a double tap and
+ * ignored: the viewer has just moved on, and the photo now under the finger
+ * is one the admin has not looked at yet.
+ */
+const ACT_GUARD_MS = 400;
 const LIGHTBOX_CLASS = 'photo-grid-lightbox';
 const LIGHTBOX_PLUGINS = [Download, Zoom];
 // The public download route serves only shown photos.
@@ -206,21 +215,47 @@ export default function PhotoGrid({
   const lightboxSlides = useMemo(() => toLightboxSlides(photos, galleryTitle), [photos, galleryTitle]);
   const onSetStatus = review?.onSetStatus;
   const view = lightbox.view;
-  const reviewAct = useCallback(
-    (index: number, status: ReviewStatus) => {
-      const photo = photos[index];
-      if (!photo || !onSetStatus) return Promise.resolve(null);
-      if (index < photos.length - 1) view(index + 1);
-      return onSetStatus(photo.id, status);
-    },
-    [photos, onSetStatus, view]
-  );
-  const onReviewClose = review?.onClose;
+  const keeps = review?.keeps;
   const close = lightbox.close;
-  const closeViewer = useCallback(() => {
-    close();
-    onReviewClose?.();
-  }, [close, onReviewClose]);
+  const lastAct = useRef(-Infinity);
+  const reviewAct = useCallback(
+    (index: number, status: ReviewStatus): ActOutcome => {
+      const photo = photos[index];
+      const now = Date.now();
+      if (!photo || !onSetStatus || !keeps || now - lastAct.current < ACT_GUARD_MS) return 'ignored';
+      const accepted = onSetStatus(photo.id, status);
+      if (!accepted) return 'ignored';
+      lastAct.current = now;
+      if (keeps(status)) {
+        if (index >= photos.length - 1) return 'stayed';
+        view(index + 1);
+        return 'moved';
+      }
+      // The photo leaves the list, so the next one takes its index; past
+      // the end, the viewer starts over at the first photo still listed.
+      const remaining = photos.length - 1;
+      if (remaining === 0) close();
+      else if (index < remaining) view(index, photos[index + 1].id);
+      else view(0, photos[0].id);
+      return 'moved';
+    },
+    [photos, onSetStatus, keeps, view, close]
+  );
+
+  // Undo from the viewer also shows the photo it put back.
+  const toast = review?.toast ?? null;
+  const viewerToast = useMemo((): ReviewToast | null => {
+    const undo = toast?.undo;
+    if (!toast || !undo) return toast;
+    return {
+      ...toast,
+      undo: () => {
+        const restored = undo();
+        if (restored && lightboxIndex >= 0) view(restored.index, restored.photoId);
+        return restored;
+      },
+    };
+  }, [toast, lightboxIndex, view]);
 
   return (
     <div className={`${styles.grid}${review ? ` ${styles.reviewGrid}` : ''}`} ref={gridRef}>
@@ -232,7 +267,7 @@ export default function PhotoGrid({
         slides={lightboxSlides}
         open={lightboxIndex >= 0}
         index={lightboxIndex}
-        close={closeViewer}
+        close={close}
         on={{
           view: ({ index }) => lightbox.view(index),
         }}
@@ -255,7 +290,7 @@ export default function PhotoGrid({
           controls: () => (
             <>
               <ViewerLabel />
-              {review && <ReviewActions onAct={reviewAct} />}
+              {review && <ReviewActions onAct={reviewAct} toast={viewerToast} />}
             </>
           ),
           buttonZoom: (zoom) => <ZoomButtons {...zoom} />,

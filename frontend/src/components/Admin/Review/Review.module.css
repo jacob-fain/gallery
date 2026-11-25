@@ -251,3 +251,23 @@
   opacity: 0.5;
   transition: opacity 0.15s ease;
 }
+
+/* The undo toast left on the page once the viewer closed on an empty list.
+   Dark in both themes, as the viewer's own toast is. */
+.pageToast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 6px 16px;
+  border-radius: 18px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 13px;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}

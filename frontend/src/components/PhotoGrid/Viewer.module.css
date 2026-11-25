@@ -61,19 +61,22 @@
   pointer-events: none;
 }
 
+/* Three equal columns, so each action keeps its place whatever the labels say. */
 .actionButtons {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+  width: min(100%, 600px);
 }
 
 .action {
   pointer-events: auto;
+  min-width: 0;
   min-height: 44px;
-  padding: 0 22px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 22px;
@@ -81,10 +84,15 @@
   color: #ffffff;
   font: 500 14px var(--font-sans);
   letter-spacing: 0.04em;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.action:hover {
+.action svg {
+  flex: none;
+}
+
+.action:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.16);
 }
 
@@ -104,7 +112,34 @@
   background: #e5e5e5;
 }
 
+/* The photo's own state: pressed in, and not a button to tap. */
+.action.current {
+  border: 2px solid #ffffff;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.45);
+  font-weight: 600;
+  cursor: default;
+}
+
+/* On phones the labels sit under their icons, so three fit across. */
+@media (max-width: 480px) {
+  .actionButtons {
+    gap: 8px;
+  }
+
+  .action {
+    flex-direction: column;
+    gap: 2px;
+    min-height: 52px;
+    padding: 4px 4px;
+    border-radius: 16px;
+    font-size: 13px;
+    letter-spacing: 0;
+  }
+}
+
 .notice {
+  pointer-events: auto;
   margin: 0;
   padding: 6px 14px;
   border-radius: 16px;
@@ -112,6 +147,23 @@
   color: #ffffff;
   font-size: 13px;
   text-align: center;
+}
+
+.undo {
+  min-height: 32px;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: #ffffff;
+  font: 600 13px var(--font-sans);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.undo:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {
