@@ -7,6 +7,9 @@ import styles from './Review.module.css';
 
 const FILTERS: StatusFilter[] = ['review', 'shown', 'rejected', null];
 
+/** Width of the pill row's right-edge fade on phones, in px. */
+const FADE = 32;
+
 interface StatusPillsProps {
   value: StatusFilter | undefined;
   counts: StatusCounts | null;
@@ -18,7 +21,8 @@ export function StatusPills({ value, counts, onChange }: StatusPillsProps) {
   const groupRef = useRef<HTMLDivElement>(null);
 
   // On phones the row scrolls sideways; keep the selected pill in view.
-  // Only the row's own scroll moves, never the page.
+  // Only the row's own scroll moves, never the page. The last FADE pixels
+  // are under the edge fade (Review.module.css), so they count as hidden.
   useEffect(() => {
     const group = groupRef.current;
     const active = group?.querySelector<HTMLElement>('[aria-pressed="true"]');
@@ -26,7 +30,7 @@ export function StatusPills({ value, counts, onChange }: StatusPillsProps) {
     const left = active.offsetLeft - group.offsetLeft;
     const right = left + active.offsetWidth;
     if (left < group.scrollLeft) group.scrollLeft = left;
-    else if (right > group.scrollLeft + group.clientWidth) group.scrollLeft = right - group.clientWidth + 24;
+    else if (right > group.scrollLeft + group.clientWidth - FADE) group.scrollLeft = right - group.clientWidth + FADE;
   }, [value]);
 
   return (
