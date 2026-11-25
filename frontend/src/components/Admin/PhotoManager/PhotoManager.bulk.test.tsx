@@ -22,9 +22,10 @@ const photo = (id: string, review_status: ReviewStatus) =>
 
 const PHOTOS = [photo('shown1', 'shown'), photo('shown2', 'shown'), photo('new1', 'review'), photo('out1', 'rejected')];
 
-function Harness() {
-  const photos = usePhotoList(async () => ({ photos: PHOTOS, total: PHOTOS.length }));
-  return <PhotoManager photos={photos} gallery={null} />;
+function Harness({ statusFilter = null }: { statusFilter?: ReviewStatus | null }) {
+  const listed = statusFilter ? PHOTOS.filter((p) => p.review_status === statusFilter) : PHOTOS;
+  const photos = usePhotoList(async () => ({ photos: listed, total: listed.length }));
+  return <PhotoManager photos={photos} gallery={null} statusFilter={statusFilter} />;
 }
 
 type Action = 'Show on site' | 'Reject' | 'Back to review';
@@ -124,5 +125,16 @@ describe('PhotoManager bulk review actions', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByText('1 selected')).toBeNull();
     expect((checkbox('shown1') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('under a status filter, drops the photos a change moves out of it', async () => {
+    const user = userEvent.setup();
+    render(<Harness statusFilter="review" />);
+    await screen.findByText('new1.jpg');
+    await user.click(screen.getAllByRole('checkbox')[1]);
+    await user.click(within(screen.getByText(/selected$/).parentElement as HTMLElement).getByRole('button', { name: 'Show on site' }));
+
+    expect(client.setPhotosStatus).toHaveBeenCalledWith(['new1'], 'shown');
+    expect(await screen.findByText('No photos need review.')).toBeTruthy();
   });
 });

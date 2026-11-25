@@ -58,6 +58,14 @@ function AdminShell({ children }: AdminLayoutProps) {
                 Galleries
               </NavLink>
               <NavLink
+                to="/photos"
+                className={({ isActive }) =>
+                  isActive ? `${styles.link} ${styles.active}` : styles.link
+                }
+              >
+                Photos
+              </NavLink>
+              <NavLink
                 to="/homepage"
                 className={({ isActive }) =>
                   isActive ? `${styles.link} ${styles.active}` : styles.link

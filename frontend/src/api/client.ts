@@ -10,6 +10,7 @@ import type {
   PrivateGalleryResponse,
   GalleryAccessResponse,
   ReviewStatus,
+  StatusCounts,
 } from '../types';
 import { ApiError } from './errors';
 
@@ -75,7 +76,7 @@ export interface FetchOptions {
 }
 
 // The list endpoints put paging fields beside data.
-type ApiBody<T> = ApiResponse<T> & { nextCursor?: string | null; total?: number };
+type ApiBody<T> = ApiResponse<T> & { nextCursor?: string | null; total?: number; counts?: StatusCounts };
 
 // A private gallery's access token travels in this header, never in a URL:
 // nginx's error log records the full request line when the API fails.
@@ -378,21 +379,57 @@ export async function setCoverImage(
 /** A page of an admin photo list, and the length of the whole list. */
 export interface PhotoPage {
   photos: Photo[];
+  // The length of the filtered list.
   total: number;
+  // Photos of the unfiltered list in each state.
+  counts?: StatusCounts;
 }
 
-async function fetchPhotoPage(endpoint: string, offset: number, limit: number): Promise<PhotoPage> {
-  const body = await fetchApiAuthBody<Photo[]>(`${endpoint}?limit=${limit}&offset=${offset}`);
+/** A review state, or null for every photo. */
+export type StatusFilter = ReviewStatus | null;
+
+/** Which photos an admin-wide list or Delete all rejected covers. */
+export type PhotoScope = 'all' | 'unassigned' | { galleryId: string };
+
+const scopeParam = (scope: PhotoScope) => (typeof scope === 'string' ? scope : scope.galleryId);
+
+async function fetchPhotoPage(
+  endpoint: string,
+  offset: number,
+  limit: number,
+  params: Record<string, string> = {}
+): Promise<PhotoPage> {
+  const query = new URLSearchParams({ ...params, limit: String(limit), offset: String(offset) });
+  const body = await fetchApiAuthBody<Photo[]>(`${endpoint}?${query}`);
   const photos = body.data ?? [];
-  return { photos, total: body.total ?? photos.length };
+  return { photos, total: body.total ?? photos.length, counts: body.counts };
 }
 
-export function getGalleryPhotosPage(galleryId: string, offset: number, limit: number) {
-  return fetchPhotoPage(`/galleries/${galleryId}/photos/admin`, offset, limit);
+const statusParams = (status: StatusFilter = null): Record<string, string> =>
+  status ? { status } : {};
+
+export function getGalleryPhotosPage(galleryId: string, offset: number, limit: number, status?: StatusFilter) {
+  return fetchPhotoPage(`/galleries/${galleryId}/photos/admin`, offset, limit, statusParams(status));
 }
 
-export function getUnassignedPhotosPage(offset: number, limit: number) {
-  return fetchPhotoPage('/photos/admin/unassigned', offset, limit);
+export function getUnassignedPhotosPage(offset: number, limit: number, status?: StatusFilter) {
+  return fetchPhotoPage('/photos/admin/unassigned', offset, limit, statusParams(status));
+}
+
+/** Photos of every gallery and Unassigned, or of one of them, newest first, with gallery_title. */
+export function getAdminPhotosPage(scope: PhotoScope, offset: number, limit: number, status?: StatusFilter) {
+  return fetchPhotoPage('/photos/admin/all', offset, limit, {
+    gallery: scopeParam(scope),
+    ...statusParams(status),
+  });
+}
+
+/** Deletes every rejected photo in the scope, with its files. */
+export async function deleteRejectedPhotos(scope: PhotoScope): Promise<{ deleted: number; counts: StatusCounts }> {
+  return fetchApiAuth<{ deleted: number; counts: StatusCounts }>(
+    `/photos/admin/rejected?gallery=${encodeURIComponent(scopeParam(scope))}`,
+    { method: 'DELETE' }
+  );
 }
 
 // Duplicate detection

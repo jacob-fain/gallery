@@ -1,4 +1,6 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { ReviewStatus } from '../../types';
+import { STATUS_ACTIONS } from '../../utils/reviewStatus';
 import {
   IconButton,
   createIcon,
@@ -95,5 +97,88 @@ export function ZoomButtons({ zoom, minZoom, maxZoom, disabled, zoomIn, zoomOut 
         }}
       />
     </>
+  );
+}
+
+/**
+ * Saves a photo's new state. Resolves with an error message when the change
+ * failed and was put back, or null when it was saved.
+ */
+export type SetPhotoStatus = (photoId: string, status: ReviewStatus) => Promise<string | null>;
+
+/**
+ * Acts on the photo at `index` and moves the viewer on to the next one, in
+ * the same update: the lightbox goes back to its index prop whenever its
+ * slides change, so moving with the controller and then changing the slide
+ * would land on the same photo again.
+ */
+export type ReviewAct = (index: number, status: ReviewStatus) => Promise<string | null>;
+
+// The actions each state offers, in the order shown: every state but its own.
+const ACTIONS: Record<ReviewStatus, ReviewStatus[]> = {
+  review: ['shown', 'rejected'],
+  shown: ['rejected', 'review'],
+  rejected: ['shown', 'review'],
+};
+
+const ACTION_ICONS: Record<ReviewStatus, React.ReactNode> = {
+  shown: <path d="M5 12l5 5L20 7" />,
+  rejected: <path d="M6 6l12 12M18 6 6 18" />,
+  review: <path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" />,
+};
+
+type Notice = { kind: 'end'; index: number } | { kind: 'error'; text: string };
+
+/**
+ * The admin viewer's actions along the bottom. Each acts at once and moves
+ * on to the next photo; on the last photo the viewer stays and says so.
+ * Deliberately no keyboard shortcuts: arrow keys already move between
+ * photos, and a stray key must not publish one.
+ */
+export function ReviewActions({ onAct }: { onAct: ReviewAct }) {
+  const { slides, currentIndex } = useLightboxState();
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const slide = slides[currentIndex] as SlideWithExif | undefined;
+  if (!slide?.status) return null;
+  const status = slide.status;
+
+  const act = (to: ReviewStatus) => {
+    const last = currentIndex >= slides.length - 1;
+    setNotice(last ? { kind: 'end', index: currentIndex } : null);
+    onAct(currentIndex, to).then((error) => {
+      if (error) setNotice({ kind: 'error', text: error });
+    });
+  };
+
+  const message =
+    notice?.kind === 'error'
+      ? notice.text
+      : notice?.kind === 'end' && notice.index === currentIndex
+        ? 'That was the last photo in this list.'
+        : null;
+
+  return (
+    <div className={`${styles.actions} ${styles.chrome}`}>
+      {message && (
+        <p className={styles.notice} role={notice?.kind === 'error' ? 'alert' : 'status'}>
+          {message}
+        </p>
+      )}
+      <div className={styles.actionButtons}>
+        {ACTIONS[status].map((to) => (
+          <button
+            key={to}
+            type="button"
+            className={`${styles.action} ${to === 'shown' ? styles.primary : ''}`}
+            onClick={() => act(to)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              {ACTION_ICONS[to]}
+            </svg>
+            {STATUS_ACTIONS[to]}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
