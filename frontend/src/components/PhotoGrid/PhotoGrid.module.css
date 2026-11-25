@@ -3,7 +3,8 @@
   padding: 0 48px;
 }
 
-/* The tile keeps the photo's shape while it loads (utils/imageFade.ts). */
+/* The tile keeps the photo's shape while it loads, and the photo paints over
+   it as its bytes arrive (tileImage.ts). */
 .grid :global(.react-photo-album--photo) {
   background: var(--color-placeholder);
 }
@@ -13,28 +14,14 @@
   transition: opacity 0.2s ease;
 }
 
-.grid img:not([data-loaded]) {
-  opacity: 0;
-}
-
-.grid img[data-loaded='fade'] {
-  animation: fadeIn 300ms ease-out;
+/* A failed load shows the placeholder, not a broken-image icon, while it
+   is retried. */
+.grid img[data-failed] {
+  visibility: hidden;
 }
 
 .grid img:hover {
   opacity: 0.9;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .grid img[data-loaded='fade'] {
-    animation: none;
-  }
 }
 
 @media (max-width: 640px) {
@@ -53,7 +40,7 @@
 }
 
 /* A rejected photo shows at 60%: the page background over it at 40%. An
-   overlay rather than the image's opacity, which the fade-in owns. */
+   overlay rather than the image's opacity, which the hover state owns. */
 .dim {
   position: absolute;
   inset: 0;

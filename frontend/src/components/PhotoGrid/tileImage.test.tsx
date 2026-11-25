@@ -1,0 +1,118 @@
+// @vitest-environment jsdom
+import { StrictMode } from 'react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { RETRY_DELAY_MS, TILE_IMAGE_PROPS } from './tileImage';
+
+function Tile({ src }: { src: string }) {
+  return <img alt="tile" src={src} srcSet={`${src} 600w`} {...TILE_IMAGE_PROPS} />;
+}
+
+function tile() {
+  return screen.getByAltText('tile') as HTMLImageElement;
+}
+
+// Calls that set a source, which is what starts a load in a browser.
+function loadsStarted(spy: MockInstance<Element['setAttribute']>) {
+  return spy.mock.calls.filter(([name]) => name === 'src').map(([, value]) => value);
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe('grid tile images', () => {
+  it('stay shown when they load', () => {
+    render(<Tile src="https://s3.test/a.webp" />);
+    fireEvent.load(tile());
+    expect(tile().dataset.failed).toBeUndefined();
+  });
+
+  it('hide a failed load and retry it once, then show it when it loads', () => {
+    render(<Tile src="https://s3.test/a.webp" />);
+    const img = tile();
+    const setAttribute = vi.spyOn(img, 'setAttribute');
+
+    fireEvent.error(img);
+    expect(img.dataset.failed).toBe('');
+    expect(loadsStarted(setAttribute)).toEqual([]);
+
+    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    expect(loadsStarted(setAttribute)).toEqual(['https://s3.test/a.webp']);
+    expect(img.getAttribute('srcset')).toBe('https://s3.test/a.webp 600w');
+
+    // The retry failed too: the same URL is not tried again.
+    fireEvent.error(img);
+    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS * 5));
+    expect(loadsStarted(setAttribute)).toHaveLength(1);
+    expect(img.dataset.failed).toBe('');
+
+    fireEvent.load(img);
+    expect(img.dataset.failed).toBeUndefined();
+  });
+
+  it('give a new src its own retry', () => {
+    const { rerender } = render(<Tile src="https://s3.test/a.webp" />);
+    const img = tile();
+    fireEvent.error(img);
+    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    fireEvent.error(img);
+
+    rerender(<Tile src="https://s3.test/a-fresh.webp" />);
+    const setAttribute = vi.spyOn(img, 'setAttribute');
+    fireEvent.error(img);
+    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    expect(loadsStarted(setAttribute)).toEqual(['https://s3.test/a-fresh.webp']);
+  });
+
+  it('leave a src that changed before the retry to load by itself', () => {
+    const { rerender } = render(<Tile src="https://s3.test/a.webp" />);
+    const img = tile();
+    fireEvent.error(img);
+
+    rerender(<Tile src="https://s3.test/a-fresh.webp" />);
+    const setAttribute = vi.spyOn(img, 'setAttribute');
+    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    expect(loadsStarted(setAttribute)).toEqual([]);
+    expect(img.getAttribute('src')).toBe('https://s3.test/a-fresh.webp');
+  });
+
+  it('stop the download of an image removed before it loaded', async () => {
+    const { unmount } = render(<Tile src="https://s3.test/a.webp" />);
+    const img = tile();
+    fireEvent.error(img);
+    unmount();
+    await act(async () => {});
+    expect(img.hasAttribute('src')).toBe(false);
+    expect(img.hasAttribute('srcset')).toBe(false);
+
+    // Nor is a removed image retried.
+    const setAttribute = vi.spyOn(img, 'setAttribute');
+    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    expect(loadsStarted(setAttribute)).toEqual([]);
+  });
+
+  it('keep the source of a removed image that had loaded', async () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    const { unmount } = render(<Tile src="https://s3.test/a.webp" />);
+    const img = tile();
+    unmount();
+    await act(async () => {});
+    expect(img.getAttribute('src')).toBe('https://s3.test/a.webp');
+  });
+
+  it('keep loading when StrictMode releases and reattaches the ref', async () => {
+    render(
+      <StrictMode>
+        <Tile src="https://s3.test/a.webp" />
+      </StrictMode>
+    );
+    await act(async () => {});
+    expect(tile().getAttribute('src')).toBe('https://s3.test/a.webp');
+  });
+});
