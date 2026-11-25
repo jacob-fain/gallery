@@ -238,3 +238,21 @@ describe('RejectedBar', () => {
     expect(screen.queryByRole('button', { name: /Delete all rejected/ })).toBeNull();
   });
 });
+
+describe('StatusPills on a narrow screen', () => {
+  it('scrolls the row, not the page, so the selected pill is visible', () => {
+    const { rerender } = render(<StatusPills value="review" counts={null} onChange={() => {}} />);
+    const group = document.querySelector<HTMLElement>('[aria-label="Status"]')!;
+    const pills = Array.from(group.querySelectorAll<HTMLElement>('button'));
+    Object.defineProperty(group, 'clientWidth', { configurable: true, value: 200 });
+    Object.defineProperty(group, 'offsetLeft', { configurable: true, value: 0 });
+    pills.forEach((pill, i) => {
+      Object.defineProperty(pill, 'offsetLeft', { configurable: true, value: i * 120 });
+      Object.defineProperty(pill, 'offsetWidth', { configurable: true, value: 110 });
+    });
+    const pageScroll = window.scrollY;
+    rerender(<StatusPills value={null} counts={null} onChange={() => {}} />);
+    expect(group.scrollLeft).toBe(3 * 120 + 110 - 200 + 24);
+    expect(window.scrollY).toBe(pageScroll);
+  });
+});
