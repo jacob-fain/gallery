@@ -14,7 +14,7 @@ const INDEX = readFileSync(path.join(__dirname, '../../../frontend/index.html'),
 vi.mock('../services/indexHtml', () => ({ getIndexHtml: async () => INDEX }));
 
 import { query } from '../config/db';
-import { resetCoverCache } from '../services/sharePreview';
+import { coverVersion, resetCoverCache } from '../services/sharePreview';
 import { useAppServer } from '../../test/appServer';
 import { tag, useFixtures } from '../../test/fixtures';
 
@@ -106,19 +106,42 @@ describe.skipIf(!db)('share routes (database)', () => {
   });
 
   describe('GET /api/share/g/:slug/cover.jpg', () => {
+    const coverPath = (slug: string, webKey: string) => `/share/g/${slug}/cover.jpg?v=${coverVersion(webKey)}`;
+
     it('serves a public gallery cover as a cacheable 1200x630 JPEG, rendered once', async () => {
       const g = await publicGallery('Cover', null);
-      const first = await request('GET', `/share/g/${g.slug}/cover.jpg`, visitor);
+      const first = await request('GET', coverPath(g.slug, g.photo.s3_web_key), visitor);
       expect(first.status).toBe(200);
       expect(first.headers.get('content-type')).toBe('image/jpeg');
-      expect(first.headers.get('cache-control')).toBe('public, max-age=3600');
+      expect(first.headers.get('cache-control')).toBe('public, max-age=300, s-maxage=300');
       const info = await sharp(first.raw).metadata();
       expect([info.format, info.width, info.height]).toEqual(['jpeg', 1200, 630]);
       expect(getFileStream).toHaveBeenCalledWith(g.photo.s3_web_key);
 
-      const again = await request('GET', `/share/g/${g.slug}/cover.jpg`, visitor);
+      const again = await request('GET', coverPath(g.slug, g.photo.s3_web_key), visitor);
       expect(again.raw.equals(first.raw)).toBe(true);
       expect(getFileStream).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops serving a cover photo once it is rejected, and redirects to the one that replaces it', async () => {
+      const g = await publicGallery('Rejected cover', null);
+      const oldUrl = coverPath(g.slug, g.photo.s3_web_key);
+      expect((await request('GET', oldUrl, visitor)).status).toBe(200);
+
+      await query(`UPDATE photos SET review_status = 'rejected' WHERE id = $1`, [g.photo.id]);
+      const stale = await request('GET', oldUrl, visitor);
+      expect(stale.status).toBe(404);
+      expect(stale.headers.get('cache-control')).toBe('no-store');
+      // The gallery has no other photo, so it has no preview at all.
+      expect((await request('GET', `/share/g/${g.slug}/cover.jpg`, { ...visitor, redirect: 'manual' })).status).toBe(404);
+
+      const next = await fixtures.photo(g.id);
+      expect((await request('GET', oldUrl, visitor)).status).toBe(404);
+      const bare = await request('GET', `/share/g/${g.slug}/cover.jpg`, { ...visitor, redirect: 'manual' });
+      expect(bare.status).toBe(302);
+      expect(bare.headers.get('cache-control')).toBe('no-store');
+      expect(bare.headers.get('location')).toBe(`https://example.com/api${coverPath(g.slug, next.s3_web_key)}`);
+      expect((await request('GET', coverPath(g.slug, next.s3_web_key), visitor)).status).toBe(200);
     });
 
     it('answers the same 404 for every gallery without a preview, without touching S3', async () => {

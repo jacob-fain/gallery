@@ -23,6 +23,8 @@ export interface RequestOptions {
   admin?: boolean;
   session?: boolean;
   headers?: Record<string, string>;
+  // 'manual' returns a redirect instead of following it.
+  redirect?: 'follow' | 'manual';
 }
 
 /**
@@ -63,7 +65,7 @@ export function useAppServer() {
   const request = async (
     method: string,
     path: string,
-    { body, admin = true, session = admin, headers: extra = {} }: RequestOptions = {}
+    { body, admin = true, session = admin, headers: extra = {}, redirect }: RequestOptions = {}
   ): Promise<ApiResponse> => {
     const headers: Record<string, string> = { ...extra };
     if (admin) headers.Origin = ADMIN_ORIGIN;
@@ -73,6 +75,7 @@ export function useAppServer() {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      redirect,
     });
     const raw = Buffer.from(await res.arrayBuffer());
     let parsed = null;

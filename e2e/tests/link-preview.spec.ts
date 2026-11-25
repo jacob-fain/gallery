@@ -53,7 +53,9 @@ test('a public gallery link previews with its title, description and cover', asy
   const cover = await crawler.get(tags.ogImage[0], { headers: CRAWLER });
   expect(cover.status()).toBe(200);
   expect(cover.headers()['content-type']).toBe('image/jpeg');
-  expect(cover.headers()['cache-control']).toBe('public, max-age=3600');
+  expect(cover.headers()['cache-control']).toBe('public, max-age=300, s-maxage=300');
+  // Only the current cover's version is served.
+  expect((await crawler.get(tags.ogImage[0].replace(/v=[0-9a-f]+$/, 'v=000000000000'))).status()).toBe(404);
 
   // A private gallery's link gives nothing away.
   const hidden = uniqueSlug('preview-private');
