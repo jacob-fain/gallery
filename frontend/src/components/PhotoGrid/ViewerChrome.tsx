@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReviewStatus } from '../../types';
-import { STATUS_ACTIONS } from '../../utils/reviewStatus';
+import { STATUS_ACTIONS, STATUS_LABELS } from '../../utils/reviewStatus';
 import {
   IconButton,
   createIcon,
@@ -101,25 +101,36 @@ export function ZoomButtons({ zoom, minZoom, maxZoom, disabled, zoomIn, zoomOut 
 }
 
 /**
- * Saves a photo's new state. Resolves with an error message when the change
- * failed and was put back, or null when it was saved.
+ * Changes a photo's state at once and saves it. false when the change was
+ * ignored: the photo is already in that state, or its last change is still
+ * being saved.
  */
-export type SetPhotoStatus = (photoId: string, status: ReviewStatus) => Promise<string | null>;
+export type SetPhotoStatus = (photoId: string, status: ReviewStatus) => boolean;
+
+/** What the viewer did after an action: moved to another photo, or stayed. */
+export type ActOutcome = 'moved' | 'stayed' | 'ignored';
 
 /**
- * Acts on the photo at `index` and moves the viewer on to the next one, in
- * the same update: the lightbox goes back to its index prop whenever its
- * slides change, so moving with the controller and then changing the slide
- * would land on the same photo again.
+ * Acts on the photo at `index` and moves the viewer on, in the same update:
+ * the lightbox goes back to its index prop whenever its slides change, so
+ * moving with the controller and then changing the slide would land on the
+ * wrong photo.
  */
-export type ReviewAct = (index: number, status: ReviewStatus) => Promise<string | null>;
+export type ReviewAct = (index: number, status: ReviewStatus) => ActOutcome;
 
-// The actions each state offers, in the order shown: every state but its own.
-const ACTIONS: Record<ReviewStatus, ReviewStatus[]> = {
-  review: ['shown', 'rejected'],
-  shown: ['rejected', 'review'],
-  rejected: ['shown', 'review'],
-};
+/** The message above the review actions: the last change with its undo, or an error. */
+export interface ReviewToast {
+  id: number;
+  text: string;
+  error?: boolean;
+  // Puts the photo back as it was; answers where it is now, or null when
+  // there was nothing left to undo.
+  undo?: () => { index: number; photoId: string } | null;
+}
+
+// Always the same three, in the same places, so a tap never lands on a
+// different action than the one that was there a moment before.
+const ACTIONS: readonly ReviewStatus[] = ['shown', 'rejected', 'review'];
 
 const ACTION_ICONS: Record<ReviewStatus, React.ReactNode> = {
   shown: <path d="M5 12l5 5L20 7" />,
@@ -127,57 +138,70 @@ const ACTION_ICONS: Record<ReviewStatus, React.ReactNode> = {
   review: <path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" />,
 };
 
-type Notice = { kind: 'end'; index: number } | { kind: 'error'; text: string };
+/** The undo toast, in the viewer above its actions or on the page. */
+export function ReviewToastMessage({ toast, className }: { toast: ReviewToast; className: string }) {
+  return (
+    <p className={className} role={toast.error ? 'alert' : 'status'}>
+      {toast.text}
+      {toast.undo && (
+        <>
+          {' · '}
+          <button type="button" className={styles.undo} onClick={() => toast.undo?.()}>
+            Undo
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
 
 /**
- * The admin viewer's actions along the bottom. Each acts at once and moves
- * on to the next photo; on the last photo the viewer stays and says so.
- * Deliberately no keyboard shortcuts: arrow keys already move between
+ * The admin viewer's actions along the bottom: the photo's own state is
+ * pressed and disabled, the other two act at once and move on to the next
+ * photo. On the last photo of a list it stays in, the viewer stays and says
+ * so. Deliberately no keyboard shortcuts: arrow keys already move between
  * photos, and a stray key must not publish one.
  */
-export function ReviewActions({ onAct }: { onAct: ReviewAct }) {
+export function ReviewActions({ onAct, toast }: { onAct: ReviewAct; toast: ReviewToast | null }) {
   const { slides, currentIndex } = useLightboxState();
-  const [notice, setNotice] = useState<Notice | null>(null);
+  const [endAt, setEndAt] = useState<number | null>(null);
   const slide = slides[currentIndex] as SlideWithExif | undefined;
   if (!slide?.status) return null;
   const status = slide.status;
 
   const act = (to: ReviewStatus) => {
-    const last = currentIndex >= slides.length - 1;
-    setNotice(last ? { kind: 'end', index: currentIndex } : null);
-    onAct(currentIndex, to).then((error) => {
-      if (error) setNotice({ kind: 'error', text: error });
-    });
+    const outcome = onAct(currentIndex, to);
+    if (outcome === 'ignored') return;
+    setEndAt(outcome === 'stayed' ? currentIndex : null);
   };
-
-  const message =
-    notice?.kind === 'error'
-      ? notice.text
-      : notice?.kind === 'end' && notice.index === currentIndex
-        ? 'That was the last photo in this list.'
-        : null;
 
   return (
     <div className={`${styles.actions} ${styles.chrome}`}>
-      {message && (
-        <p className={styles.notice} role={notice?.kind === 'error' ? 'alert' : 'status'}>
-          {message}
+      {endAt === currentIndex && (
+        <p className={styles.notice} role="status">
+          That was the last photo in this list.
         </p>
       )}
-      <div className={styles.actionButtons}>
-        {ACTIONS[status].map((to) => (
-          <button
-            key={to}
-            type="button"
-            className={`${styles.action} ${to === 'shown' ? styles.primary : ''}`}
-            onClick={() => act(to)}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              {ACTION_ICONS[to]}
-            </svg>
-            {STATUS_ACTIONS[to]}
-          </button>
-        ))}
+      {toast && <ReviewToastMessage key={toast.id} toast={toast} className={styles.notice} />}
+      <div className={styles.actionButtons} role="group" aria-label="Review">
+        {ACTIONS.map((to) => {
+          const current = to === status;
+          return (
+            <button
+              key={to}
+              type="button"
+              className={`${styles.action} ${current ? styles.current : to === 'shown' ? styles.primary : ''}`}
+              disabled={current}
+              aria-pressed={current}
+              onClick={() => act(to)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                {ACTION_ICONS[to]}
+              </svg>
+              {current ? STATUS_LABELS[to] : STATUS_ACTIONS[to]}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
