@@ -24,6 +24,22 @@
   font-weight: 500;
 }
 
+/* On phones the four pills don't fit one line; scroll them sideways rather
+   than leaving "All" alone on a second line. */
+@media (max-width: 480px) {
+  .pills {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .pill {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
 .pill {
   min-height: 36px;
   padding: 0 14px;

@@ -233,8 +233,8 @@ describe('RejectedBar', () => {
     expect(screen.getByRole('alertdialog')).toBeTruthy();
   });
 
-  it('cannot delete when there is nothing rejected', () => {
+  it('offers no delete when there is nothing rejected', () => {
     render(<RejectedBar count={0} onDeleteAll={async () => {}} />);
-    expect((screen.getByRole('button', { name: 'Delete all rejected (0)' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: /Delete all rejected/ })).toBeNull();
   });
 });
