@@ -58,8 +58,9 @@ describe.skipIf(!db)('share routes (database)', () => {
       await query(`UPDATE galleries SET description = 'Secret description' WHERE id = $1`, [g.id]);
       await fixtures.photo(g.id);
     }
+    // Photos that are not shown never make a preview.
     const hiddenOnly = await fixtures.gallery();
-    await fixtures.photo(hiddenOnly.id, { hidden: true });
+    await fixtures.privatePhotos(hiddenOnly.id);
     return {
       private: privateGallery,
       password: passworded,

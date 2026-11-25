@@ -35,14 +35,10 @@ export const getPublicGalleries = async (): Promise<Gallery[]> => {
 };
 
 /**
- * Get public galleries with cover photo URLs
- * Uses explicit cover_image_id if set, otherwise falls back to first photo
- */
-/**
  * Public galleries with the thumbnail key of the photo to show as each cover.
- * The chosen cover is used only while it is visible and still in the
- * gallery; otherwise the first visible photo stands in, so hiding a photo
- * always removes it from the public site.
+ * The chosen cover is used only while it is shown and still in the gallery;
+ * otherwise the first shown photo stands in, so a photo that is not shown
+ * never appears on the public site.
  */
 export interface GalleryCoverRow extends Gallery {
   cover_thumbnail_key: string | null;
@@ -53,17 +49,17 @@ export interface GalleryCoverRow extends Gallery {
 }
 
 /**
- * The one definition of a gallery's visible photo count, shared by the
+ * The one definition of a gallery's public photo count, shared by the
  * gallery list and a single gallery so the two never disagree. galleryId is
  * a SQL expression (a parameter or a column), never a value.
  */
 const visiblePhotoCount = (galleryId: string) =>
-  `(SELECT COUNT(*)::int FROM photos WHERE gallery_id = ${galleryId} AND is_hidden = false)`;
+  `(SELECT COUNT(*)::int FROM photos WHERE gallery_id = ${galleryId} AND review_status = 'shown')`;
 
 /** Every public gallery, or with `slug` only that one (if it is public). */
 export const getPublicGalleryCoverKeys = async (slug?: string): Promise<GalleryCoverRow[]> => {
   // Every cover field comes from the same photo: the chosen cover when it
-  // qualifies, otherwise the first visible one.
+  // qualifies, otherwise the first shown one.
   const result = await query(
     `SELECT g.*,
             CASE WHEN cover.id IS NOT NULL THEN cover.s3_thumbnail_key ELSE first_photo.s3_thumbnail_key END AS cover_thumbnail_key,
@@ -75,11 +71,11 @@ export const getPublicGalleryCoverKeys = async (slug?: string): Promise<GalleryC
      LEFT JOIN photos cover
        ON cover.id = g.cover_image_id
       AND cover.gallery_id = g.id
-      AND cover.is_hidden = false
+      AND cover.review_status = 'shown'
      LEFT JOIN LATERAL (
        SELECT s3_thumbnail_key, s3_web_key, width, height
        FROM photos
-       WHERE gallery_id = g.id AND is_hidden = false
+       WHERE gallery_id = g.id AND review_status = 'shown'
        ORDER BY sort_order ASC, uploaded_at ASC
        LIMIT 1
      ) first_photo ON cover.id IS NULL
@@ -131,7 +127,7 @@ export const getGalleryById = async (id: string): Promise<Gallery | null> => {
   return result.rows[0] || null;
 };
 
-/** How many photos a visitor sees in a gallery: hidden ones are not counted. */
+/** How many photos a visitor sees in a gallery: only shown ones are counted. */
 export const countVisiblePhotos = async (galleryId: string): Promise<number> => {
   const result = await query(`SELECT ${visiblePhotoCount('$1')} AS count`, [galleryId]);
   return result.rows[0].count;
@@ -140,7 +136,7 @@ export const countVisiblePhotos = async (galleryId: string): Promise<number> => 
 export const getGalleryPhotos = async (galleryId: string): Promise<Photo[]> => {
   const result = await query(
     `SELECT * FROM photos
-     WHERE gallery_id = $1 AND is_hidden = false
+     WHERE gallery_id = $1 AND review_status = 'shown'
      ORDER BY sort_order ASC, uploaded_at ASC`,
     [galleryId]
   );

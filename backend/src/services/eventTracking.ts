@@ -30,12 +30,12 @@ export const drainTracking = async (): Promise<void> => {
   }
 };
 
-// Hidden photos are not counted. The UPDATE doubles as that check and as the
+// Only shown photos are counted. The UPDATE doubles as that check and as the
 // lookup of the photo's gallery for the event row.
 const PHOTO_EVENT_SQL = (counter: 'view_count' | 'download_count', eventType: string) =>
   `WITH counted AS (
      UPDATE photos SET ${counter} = ${counter} + 1
-     WHERE id = $1 AND is_hidden = false
+     WHERE id = $1 AND review_status = 'shown'
      RETURNING id, gallery_id
    )
    INSERT INTO analytics_events (event_type, gallery_id, photo_id)

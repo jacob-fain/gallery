@@ -22,6 +22,7 @@ const row: Photo = {
   sort_order: 3,
   is_featured: false,
   is_hidden: false,
+  review_status: 'shown',
   featured_order: 2,
   view_count: 10,
   download_count: 4,
@@ -61,6 +62,7 @@ describe('publicPhoto', () => {
       'featured_order',
       'is_featured',
       'is_hidden',
+      'review_status',
       'uploaded_at',
       'url',
     ]) {

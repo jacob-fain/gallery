@@ -17,14 +17,14 @@ const { default: PhotoManager } = await import('./PhotoManager');
 const { usePhotoList } = await import('./usePhotoList');
 const { REFRESH_INTERVAL_MS } = await import('./useRefreshOnImageError');
 
-const photo = (id: string, signing: number, is_hidden = false) =>
+const photo = (id: string, signing: number, review_status: Photo['review_status'] = 'shown') =>
   ({
     id,
     gallery_id: null,
     original_filename: `${id}.jpg`,
     width: 4344,
     height: 7728,
-    is_hidden,
+    review_status,
     thumbnailUrl: `https://s3.test/${id}-thumb.webp?sig=${signing}`,
     webUrl: `https://s3.test/${id}-web.webp?sig=${signing}`,
   }) as Photo;

@@ -32,7 +32,7 @@ describe.skipIf(!db)('paged photo lists (database)', () => {
   const upload = async (
     galleryId: string | null,
     name: string,
-    opts: { uploadedAt?: string; hidden?: boolean } = {}
+    opts: { uploadedAt?: string; status?: 'review' | 'shown' | 'rejected' } = {}
   ) => {
     const tag = crypto.randomBytes(4).toString('hex');
     const photo = await createPhoto({
@@ -48,8 +48,8 @@ describe.skipIf(!db)('paged photo lists (database)', () => {
     });
     photos.push(photo.id);
     await query(
-      `UPDATE photos SET is_hidden = $2, uploaded_at = COALESCE($3::timestamptz, uploaded_at) WHERE id = $1`,
-      [photo.id, opts.hidden ?? false, opts.uploadedAt ?? null]
+      `UPDATE photos SET review_status = $2, uploaded_at = COALESCE($3::timestamptz, uploaded_at) WHERE id = $1`,
+      [photo.id, opts.status ?? 'shown', opts.uploadedAt ?? null]
     );
     return photo.id;
   };
@@ -73,7 +73,8 @@ describe.skipIf(!db)('paged photo lists (database)', () => {
     // One public photo older than the five under test, so the fifth page is
     // never the last one, even on an otherwise empty database.
     await upload(pub, 'older', { uploadedAt: '2999-05-31 12:00:00+00' });
-    await upload(pub, 'hidden', { uploadedAt: `${t}.000004+00`, hidden: true });
+    await upload(pub, 'review', { uploadedAt: `${t}.000004+00`, status: 'review' });
+    await upload(pub, 'rejected', { uploadedAt: `${t}.000004+00`, status: 'rejected' });
     await upload(priv, 'private', { uploadedAt: `${t}.000004+00` });
     const ties = [tieA, tieB].sort().reverse();
     const expected = [newest, loose, ...ties, oldest];
@@ -105,16 +106,17 @@ describe.skipIf(!db)('paged photo lists (database)', () => {
   it('returns no next cursor on the last page', async () => {
     const { rows } = await query(
       `SELECT COUNT(*)::int AS n FROM photos p LEFT JOIN galleries g ON g.id = p.gallery_id
-       WHERE p.is_hidden = false AND (g.is_public = true OR p.gallery_id IS NULL)`
+       WHERE p.review_status = 'shown' AND (g.is_public = true OR p.gallery_id IS NULL)`
     );
     const all = await getPublicPhotosPage(rows[0].n + 1000);
     expect(all.next).toBeNull();
   });
 
-  it('pages a gallery for the admin in gallery order, hidden photos included', async () => {
+  it('pages a gallery for the admin in gallery order, every state included', async () => {
     const g = await gallery();
     const ids: string[] = [];
-    for (const name of ['a', 'b', 'c', 'd', 'e']) ids.push(await upload(g, name, { hidden: name === 'c' }));
+    const states = { a: 'shown', b: 'shown', c: 'rejected', d: 'review', e: 'shown' } as const;
+    for (const [name, status] of Object.entries(states)) ids.push(await upload(g, name, { status }));
 
     const first = await getGalleryPhotosAdmin(g, { limit: 2, offset: 0 });
     const second = await getGalleryPhotosAdmin(g, { limit: 2, offset: 2 });
@@ -127,12 +129,21 @@ describe.skipIf(!db)('paged photo lists (database)', () => {
     const whole = await getGalleryPhotosAdmin(g);
     expect(whole.total).toBe(5);
     expect(whole.photos.map((p) => p.id)).toEqual(ids);
+    expect(whole.counts).toEqual({ review: 1, shown: 3, rejected: 1, all: 5 });
+
+    // A filtered page keeps gallery order; total is the filtered length and
+    // counts still cover the whole gallery.
+    const shown = await getGalleryPhotosAdmin(g, { limit: 2, offset: 0 }, 'shown');
+    const shownRest = await getGalleryPhotosAdmin(g, { limit: 2, offset: 2 }, 'shown');
+    expect([...shown.photos, ...shownRest.photos].map((p) => p.id)).toEqual([ids[0], ids[1], ids[4]]);
+    expect(shown.total).toBe(3);
+    expect(shown.counts).toEqual(whole.counts);
   });
 
   it('pages the unassigned photos newest first', async () => {
     const t = '3000-01-01 00:00:00';
-    const older = await upload(null, 'u-older', { uploadedAt: `${t}.000001+00`, hidden: true });
-    const newer = await upload(null, 'u-newer', { uploadedAt: `${t}.000002+00`, hidden: true });
+    const older = await upload(null, 'u-older', { uploadedAt: `${t}.000001+00`, status: 'rejected' });
+    const newer = await upload(null, 'u-newer', { uploadedAt: `${t}.000002+00`, status: 'review' });
     const page = await getUnassignedPhotos({ limit: 2, offset: 0 });
     expect(page.photos.map((p) => p.id)).toEqual([newer, older]);
     expect(page.total).toBeGreaterThanOrEqual(2);

@@ -36,8 +36,8 @@ describe.skipIf(!db)('photo routes (database)', () => {
       expect(res.body.data).not.toHaveProperty('s3_key');
     });
 
-    it('answers a hidden photo exactly like a missing one', async () => {
-      const hidden = await fixtures.photo((await fixtures.gallery()).id, { hidden: true });
+    it.each(['review', 'rejected'] as const)('answers a %s photo exactly like a missing one', async (status) => {
+      const hidden = await fixtures.photo((await fixtures.gallery()).id, { status });
       const a = await request('GET', `/photos/${hidden.id}`, { admin: false });
       const b = await request('GET', `/photos/${MISSING_ID}`, { admin: false });
       expect(a.status).toBe(404);
@@ -63,8 +63,8 @@ describe.skipIf(!db)('photo routes (database)', () => {
       expect(res.body.data.filename).toMatch(/\.jpg$/);
     });
 
-    it('answers 404 for a hidden photo', async () => {
-      const p = await fixtures.photo(null, { hidden: true });
+    it.each(['review', 'rejected'] as const)('answers 404 for a %s photo', async (status) => {
+      const p = await fixtures.photo(null, { status });
       expect((await request('GET', `/photos/${p.id}/download`, { admin: false })).status).toBe(404);
     });
   });
@@ -93,11 +93,12 @@ describe.skipIf(!db)('photo routes (database)', () => {
   });
 
   describe('GET /photos/admin/unassigned', () => {
-    it('lists photos with no gallery, hidden ones included', async () => {
-      const hidden = await fixtures.photo(null, { hidden: true });
+    it('lists photos with no gallery, every state included', async () => {
+      const hidden = await fixtures.photo(null, { status: 'rejected' });
       const res = await request('GET', '/photos/admin/unassigned');
       expect(res.status).toBe(200);
-      expect(res.body.data).toContainEqual(expect.objectContaining({ id: hidden.id, is_hidden: true }));
+      expect(res.body.data).toContainEqual(expect.objectContaining({ id: hidden.id, review_status: 'rejected' }));
+      expect(res.body.counts).toEqual(expect.objectContaining({ rejected: expect.any(Number), all: expect.any(Number) }));
       expect(res.body.nextOffset).toBeNull();
     });
 
@@ -116,8 +117,21 @@ describe.skipIf(!db)('photo routes (database)', () => {
       const res = await request('POST', '/photos/admin/check-duplicates', { body: { hashes: [hash, unknown] } });
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual({
-        [hash]: { id: p.id, original_filename: p.original_filename, gallery_id: g.id, gallery_title: g.title },
+        [hash]: {
+          id: p.id,
+          original_filename: p.original_filename,
+          gallery_id: g.id,
+          gallery_title: g.title,
+          review_status: 'shown',
+        },
       });
+    });
+
+    it('reports a rejected match as rejected, so a re-upload says why it is not on the site', async () => {
+      const hash = sha();
+      await fixtures.photo(null, { contentHash: hash, status: 'rejected' });
+      const res = await request('POST', '/photos/admin/check-duplicates', { body: { hashes: [hash] } });
+      expect(res.body.data[hash]).toMatchObject({ gallery_id: null, gallery_title: null, review_status: 'rejected' });
     });
 
     it.each([
@@ -133,19 +147,31 @@ describe.skipIf(!db)('photo routes (database)', () => {
   });
 
   describe('PUT /photos/:id', () => {
-    it('hides and shows a photo, and ignores is_featured', async () => {
+    it('sets the review status, keeps is_hidden in step, and ignores is_featured', async () => {
       const p = await fixtures.photo(null);
+      const rejected = await request('PUT', `/photos/${p.id}`, { body: { review_status: 'rejected', is_featured: true } });
+      expect(rejected.status).toBe(200);
+      expect(rejected.body.data).toMatchObject({ id: p.id, review_status: 'rejected', is_hidden: true, featured_order: null });
 
-      const hidden = await request('PUT', `/photos/${p.id}`, { body: { is_hidden: true, is_featured: true } });
-      expect(hidden.status).toBe(200);
-      expect(hidden.body.data).toMatchObject({ id: p.id, is_hidden: true, featured_order: null });
+      const review = await request('PUT', `/photos/${p.id}`, { body: { review_status: 'review' } });
+      expect(review.body.data).toMatchObject({ review_status: 'review', is_hidden: true });
 
-      const shown = await request('PUT', `/photos/${p.id}`, { body: { is_hidden: false } });
-      expect(shown.body.data.is_hidden).toBe(false);
+      const shown = await request('PUT', `/photos/${p.id}`, { body: { review_status: 'shown' } });
+      expect(shown.body.data).toMatchObject({ review_status: 'shown', is_hidden: false });
+    });
+
+    it('refuses an unknown status and the retired is_hidden field', async () => {
+      const p = await fixtures.photo(null);
+      const bad = await request('PUT', `/photos/${p.id}`, { body: { review_status: 'hidden' } });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error).toBe('review_status must be one of review, shown, rejected');
+      const old = await request('PUT', `/photos/${p.id}`, { body: { is_hidden: true } });
+      expect(old.status).toBe(400);
+      expect((await query(`SELECT review_status FROM photos WHERE id = $1`, [p.id])).rows[0].review_status).toBe('shown');
     });
 
     it('answers 404 for an unknown photo', async () => {
-      expect((await request('PUT', `/photos/${MISSING_ID}`, { body: { is_hidden: true } })).status).toBe(404);
+      expect((await request('PUT', `/photos/${MISSING_ID}`, { body: { review_status: 'shown' } })).status).toBe(404);
     });
   });
 

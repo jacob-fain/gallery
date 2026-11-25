@@ -65,8 +65,8 @@ export function adminApi(request: APIRequestContext) {
           multipart: { galleryId, photo: { name, mimeType: 'image/jpeg', buffer } },
         })
       ),
-    setHidden: async (photoId: string, isHidden: boolean) =>
-      ok(await request.put(`${ADMIN}/api/photos/${photoId}`, { headers, data: { is_hidden: isHidden } })),
+    setStatus: async (photoId: string, status: 'review' | 'shown' | 'rejected') =>
+      ok(await request.put(`${ADMIN}/api/photos/${photoId}`, { headers, data: { review_status: status } })),
   };
 }
 

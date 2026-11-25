@@ -44,9 +44,9 @@ describe.skipIf(!db)('photo ordering and moves (database)', () => {
     if (galleries.length) await query(`DELETE FROM galleries WHERE id = ANY($1)`, [galleries]);
   });
 
-  it('stores a new upload hidden, so it is not public until shown', async () => {
+  it('stores a new upload in review, so it is not public until shown', async () => {
     const photo = await upload(await gallery(), 'fresh');
-    expect(photo.is_hidden).toBe(true);
+    expect(photo).toMatchObject({ review_status: 'review', is_hidden: true });
   });
 
   it('stores the original content type, and leaves it null when none is given', async () => {

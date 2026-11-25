@@ -77,12 +77,26 @@ describe('uploadPhoto cleanup', () => {
   it('answers a duplicate that lost the insert race with 409 and deletes its files', async () => {
     vi.mocked(photoService.getPhotoByContentHash)
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ original_filename: 'first.jpg' } as never);
+      .mockResolvedValueOnce({ original_filename: 'first.jpg', review_status: 'shown' } as never);
     vi.mocked(photoService.createPhoto).mockRejectedValue(uniqueViolation);
     const res = await call();
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Already uploaded as first.jpg' });
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Already uploaded as first.jpg (shown)' });
     expect(s3Service.deleteFiles).toHaveBeenCalledWith(KEYS);
+  });
+
+  it.each([
+    ['rejected', 'rejected'],
+    ['review', 'needs review'],
+  ])('names the state of a %s duplicate', async (status, name) => {
+    vi.mocked(photoService.getPhotoByContentHash).mockResolvedValue({
+      original_filename: 'first.jpg',
+      review_status: status,
+    } as never);
+    const res = await call();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: `Already uploaded as first.jpg (${name})` });
+    expect(photoService.createPhoto).not.toHaveBeenCalled();
   });
 
   it('waits for every upload to settle before deleting when one fails', async () => {

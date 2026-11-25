@@ -9,7 +9,7 @@ test('a shared photo link opens that photo, Back closes it, and the photo counts
   const gallery = await api.createGallery({ title: 'Link smoke', slug, is_public: true });
   for (const name of ['first.jpg', 'second.jpg']) {
     const photo = await api.upload(gallery.id, name, uniqueJpeg(name));
-    await api.setHidden(photo.id, false);
+    await api.setStatus(photo.id, 'shown');
   }
 
   const visitor = await browser.newPage();

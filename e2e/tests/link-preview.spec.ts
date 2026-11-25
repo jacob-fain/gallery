@@ -35,7 +35,7 @@ test('a public gallery link previews with its title, description and cover', asy
     description: 'Shared links show this gallery.',
   });
   const photo = await api.upload(gallery.id, 'preview.jpg', uniqueJpeg('preview'));
-  await api.setHidden(photo.id, false);
+  await api.setStatus(photo.id, 'shown');
 
   const crawler = await playwright.request.newContext({ ignoreHTTPSErrors: true });
   const tags = await previewTags(crawler, `/g/${slug}`);
@@ -64,7 +64,7 @@ test('a public gallery link previews with its title, description and cover', asy
     password: 'open-sesame',
     description: 'Never in a preview.',
   });
-  await api.setHidden((await api.upload(secret.id, 'secret.jpg', uniqueJpeg('secret'))).id, false);
+  await api.setStatus((await api.upload(secret.id, 'secret.jpg', uniqueJpeg('secret'))).id, 'shown');
   const siteDefaults = await previewTags(crawler, '/galleries');
   const privateTags = await previewTags(crawler, `/g/${hidden}`);
   expect(privateTags.html).toBe(siteDefaults.html);

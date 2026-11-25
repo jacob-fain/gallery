@@ -15,7 +15,7 @@ const photo = (id: string, width = 6000, height = 4000) =>
     original_filename: `${id}.jpg`,
     width,
     height,
-    is_hidden: false,
+    review_status: 'shown',
     thumbnailUrl: `${id}-thumb.webp`,
   }) as Photo;
 

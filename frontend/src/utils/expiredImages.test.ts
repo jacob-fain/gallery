@@ -38,10 +38,10 @@ describe('withFreshUrls', () => {
 
 describe('withFreshSignedUrls', () => {
   it('swaps only the signed URLs and keeps every other field as it is now', () => {
-    const current = [{ ...photo('a', 'old-a'), url: 'old-orig', is_hidden: true }];
-    const fresh = [{ ...photo('a', 'new-a'), url: 'new-orig', is_hidden: false }];
+    const current = [{ ...photo('a', 'old-a'), url: 'old-orig', review_status: 'rejected' }];
+    const fresh = [{ ...photo('a', 'new-a'), url: 'new-orig', review_status: 'shown' }];
     expect(withFreshSignedUrls(current, fresh)).toEqual([
-      { id: 'a', webUrl: 'new-a', thumbnailUrl: 'new-a', url: 'new-orig', is_hidden: true },
+      { id: 'a', webUrl: 'new-a', thumbnailUrl: 'new-a', url: 'new-orig', review_status: 'rejected' },
     ]);
   });
 

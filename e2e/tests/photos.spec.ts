@@ -4,7 +4,7 @@ import { ADMIN_STATE, ADMIN, PUBLIC, adminApi, expectImagesLoaded, uniqueJpeg, u
 
 test.use({ storageState: ADMIN_STATE });
 
-test('an upload lands hidden in the photo manager and Show publishes it', async ({ page, browser }) => {
+test('an upload lands in Needs review in the photo manager and Show on site publishes it', async ({ page, browser }) => {
   const slug = uniqueSlug('upload');
   const gallery = await adminApi(page.request).createGallery({ title: 'Upload smoke', slug, is_public: true });
 
@@ -16,19 +16,19 @@ test('an upload lands hidden in the photo manager and Show publishes it', async 
   });
 
   const card = page.locator('[class*="card"]', { hasText: 'upload-smoke.jpg' });
-  await expect(card.getByText('Hidden', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByText('Needs review', { exact: true })).toBeVisible({ timeout: 30_000 });
   // The thumbnail comes from S3 through a signed URL.
   await expectImagesLoaded(page, '[class*="card"]:has-text("upload-smoke.jpg") img');
 
-  // A visitor sees nothing while the photo is hidden.
+  // A visitor sees nothing while the photo waits for review.
   const visitor = await browser.newPage();
   await visitor.goto(`${PUBLIC}/g/${slug}`);
   await expect(visitor.getByText('No photos in this gallery yet.')).toBeVisible();
 
-  const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/photos\/[^/]+$/.test(r.url()));
-  await card.getByTitle('Show photo').click();
+  const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/photos\/status$/.test(r.url()));
+  await card.getByTitle('Show on site').click();
   expect((await saved).ok()).toBe(true);
-  await expect(card.getByText('Hidden', { exact: true })).toHaveCount(0);
+  await expect(card.getByText('Needs review', { exact: true })).toHaveCount(0);
 
   await visitor.reload();
   await expectImagesLoaded(visitor, 'img[alt="Photo 1 of 1 in Upload smoke"]');
@@ -41,7 +41,7 @@ test('the lightbox opens a photo and downloads the original under its filename',
   const gallery = await api.createGallery({ title: 'Lightbox smoke', slug, is_public: true });
   const original = uniqueJpeg('lightbox');
   const photo = await api.upload(gallery.id, 'Lightbox Original.jpg', original);
-  await api.setHidden(photo.id, false);
+  await api.setStatus(photo.id, 'shown');
 
   const visitor = await browser.newPage();
   await visitor.goto(`${PUBLIC}/g/${slug}`);

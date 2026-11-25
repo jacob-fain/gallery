@@ -29,13 +29,13 @@ describe.skipIf(!db)('event tracking (database)', () => {
   const viewCount = async (galleryId: string) =>
     (await query(`SELECT view_count FROM galleries WHERE id = $1`, [galleryId])).rows[0].view_count;
 
-  const photo = async (galleryId: string, hidden = false) => {
+  const photo = async (galleryId: string, status: 'review' | 'shown' | 'rejected' = 'shown') => {
     const name = `p-${tag()}`;
     const { rows } = await query(
       `INSERT INTO photos (gallery_id, filename, original_filename, s3_key, s3_thumbnail_key,
-                           s3_web_key, width, height, file_size, is_hidden)
+                           s3_web_key, width, height, file_size, review_status)
        VALUES ($1, $2, $2, $3, $4, $5, 100, 100, 1, $6) RETURNING id`,
-      [galleryId, name, `o/${name}`, `t/${name}`, `w/${name}`, hidden]
+      [galleryId, name, `o/${name}`, `t/${name}`, `w/${name}`, status]
     );
     return rows[0].id as string;
   };
@@ -70,17 +70,22 @@ describe.skipIf(!db)('event tracking (database)', () => {
     ]);
   });
 
-  it('does not count hidden or missing photos', async () => {
+  it('does not count photos that are not shown, or missing ones', async () => {
     const g = await gallery();
-    const hidden = await photo(g, true);
+    const hidden = [await photo(g, 'review'), await photo(g, 'rejected')];
 
-    recordPhotoView(hidden);
-    recordPhotoDownload(hidden);
+    for (const id of hidden) {
+      recordPhotoView(id);
+      recordPhotoDownload(id);
+    }
     recordPhotoView(crypto.randomUUID());
     await drainTracking();
 
-    const { rows } = await query(`SELECT view_count, download_count FROM photos WHERE id = $1`, [hidden]);
-    expect(rows[0]).toEqual({ view_count: 0, download_count: 0 });
+    const { rows } = await query(`SELECT view_count, download_count FROM photos WHERE id = ANY($1)`, [hidden]);
+    expect(rows).toEqual([
+      { view_count: 0, download_count: 0 },
+      { view_count: 0, download_count: 0 },
+    ]);
     expect(await eventsFor(g)).toEqual([]);
   });
 
