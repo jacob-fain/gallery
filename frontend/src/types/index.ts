@@ -74,8 +74,9 @@ export interface Photo {
   exif_data?: ExifData;
   // SHA-256 of the original file (duplicate detection)
   content_hash?: string | null;
-  // Joined fields from featured query
-  gallery_title?: string;
+  // Joined by the featured query and the admin All Photos list; null for a
+  // photo in no gallery.
+  gallery_title?: string | null;
   gallery_slug?: string;
 }
 

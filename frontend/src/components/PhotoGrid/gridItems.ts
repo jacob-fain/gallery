@@ -1,6 +1,13 @@
-import type { ExifData, PublicPhoto } from '../../types';
+import type { ExifData, PublicPhoto, ReviewStatus } from '../../types';
 import { derivedImages, type ImageCandidate } from '../../utils/imageSizes';
 import { photoAlt } from '../../utils/photoAlt';
+import { STATUS_LABELS } from '../../utils/reviewStatus';
+
+/**
+ * A photo the grid can show. The admin's Review view adds each photo's
+ * review state; the public pages never have one.
+ */
+export type GridPhoto = PublicPhoto & { review_status?: ReviewStatus };
 
 export interface AlbumPhoto {
   key: string;
@@ -9,6 +16,10 @@ export interface AlbumPhoto {
   width: number;
   height: number;
   alt: string;
+  // Review view only: badged on the tile when it is not shown.
+  status?: ReviewStatus;
+  // Review view only: the gallery named on the tile (All Photos).
+  galleryLabel?: string;
 }
 
 export interface SlideWithExif {
@@ -21,6 +32,8 @@ export interface SlideWithExif {
   exif?: ExifData;
   // Named in the viewer's label. Unset for a photo in no gallery.
   galleryName?: string;
+  // Review view only: named in the viewer's label, and picks its actions.
+  status?: ReviewStatus;
 }
 
 function fallbackUrl(photo: PublicPhoto): string {
@@ -31,7 +44,11 @@ function altFor(photo: PublicPhoto, index: number, total: number, galleryTitle?:
   return photoAlt(index, total, galleryTitle ?? photo.gallery_title);
 }
 
-export function toAlbumPhotos(photos: PublicPhoto[], galleryTitle?: string): AlbumPhoto[] {
+export function toAlbumPhotos(
+  photos: GridPhoto[],
+  galleryTitle?: string,
+  { galleryLabels = false }: { galleryLabels?: boolean } = {}
+): AlbumPhoto[] {
   return photos.map((photo, index) => {
     const candidates = derivedImages(photo);
     const largest = candidates[candidates.length - 1];
@@ -47,11 +64,13 @@ export function toAlbumPhotos(photos: PublicPhoto[], galleryTitle?: string): Alb
       width: largest?.width ?? photo.width,
       height: largest?.height ?? photo.height,
       alt: altFor(photo, index, photos.length, galleryTitle),
+      ...(photo.review_status && { status: photo.review_status }),
+      ...(galleryLabels && { galleryLabel: galleryTitle ?? photo.gallery_title ?? undefined }),
     };
   });
 }
 
-export function toLightboxSlides(photos: PublicPhoto[], galleryTitle?: string): SlideWithExif[] {
+export function toLightboxSlides(photos: GridPhoto[], galleryTitle?: string): SlideWithExif[] {
   return photos.map((photo, index) => {
     const candidates = derivedImages(photo);
     const largest = candidates[candidates.length - 1];
@@ -66,14 +85,17 @@ export function toLightboxSlides(photos: PublicPhoto[], galleryTitle?: string): 
       photoId: photo.id,
       exif: photo.exif_data ?? undefined,
       galleryName: galleryTitle ?? photo.gallery_title ?? undefined,
+      ...(photo.review_status && { status: photo.review_status }),
     };
   });
 }
 
-// "Smith Wedding · 12 / 84", or "12 / 84" for a photo in no gallery.
+// "Smith Wedding · 12 / 84", or "12 / 84" for a photo in no gallery. The
+// Review view adds the photo's state: "Smith Wedding · 12 / 84 · Shown".
 export function viewerLabel(slide: SlideWithExif | undefined, index: number, total: number): string {
   const position = `${index + 1} / ${total}`;
-  return slide?.galleryName ? `${slide.galleryName} · ${position}` : position;
+  const label = slide?.galleryName ? `${slide.galleryName} · ${position}` : position;
+  return slide?.status ? `${label} · ${STATUS_LABELS[slide.status]}` : label;
 }
 
 export function gridColumns(containerWidth: number): number {

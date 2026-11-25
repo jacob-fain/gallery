@@ -1,0 +1,219 @@
+/* The status pills, view switch and the Rejected section's bars. */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 1rem;
+}
+
+.toolbarEnd {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pill {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 18px;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pill:hover {
+  color: var(--color-text);
+}
+
+.pill[aria-pressed='true'] {
+  background: var(--color-text);
+  color: var(--color-background);
+}
+
+.switch {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.switchBtn {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.switchBtn[aria-pressed='true'] {
+  background: var(--color-text);
+  color: var(--color-background);
+}
+
+.pill:focus-visible,
+.switchBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.gallerySelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.gallerySelect select {
+  min-height: 36px;
+  max-width: 220px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.infoBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 1rem;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.deleteAll {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-danger);
+  border-radius: 6px;
+  background: none;
+  color: var(--color-danger);
+  font: 600 13px var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.deleteAll:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Fixed colors: a dark bar over the page in either theme, as the viewer is. */
+.confirm {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  z-index: 100;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px 16px;
+  padding: 10px 10px 10px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 28px;
+  background: #1c1c1c;
+  color: #ffffff;
+  font-size: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.confirmButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.confirmCancel,
+.confirmDelete {
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 20px;
+  font: 500 14px var(--font-sans);
+  cursor: pointer;
+}
+
+.confirmCancel {
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: none;
+  color: #ffffff;
+}
+
+.confirmDelete {
+  border: 0;
+  background: #dc2626;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.confirmCancel:disabled,
+.confirmDelete:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 640px) {
+  .confirm {
+    bottom: 16px;
+    border-radius: 16px;
+    padding: 12px 14px;
+    text-align: center;
+  }
+}
+
+.error {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: 0.875rem;
+}
+
+.empty,
+.loadingMore {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+.retry {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}

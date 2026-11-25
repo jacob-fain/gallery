@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Photo } from '../../../types';
 import { PhotoListStore, type LoadPage, type PhotoListState } from '../../../utils/photoListStore';
 import type { PhotoList } from '../../../utils/photoList';
@@ -19,16 +19,28 @@ export interface PhotoListHandle extends PhotoListState<Photo> {
  * A paged admin photo list: the first page on mount, more on request. It
  * lives in the page rather than in PhotoManager so the page that receives
  * finished uploads can add them without resetting what the admin has done to
- * the loaded photos. loadPage is read once: key the component to list
- * something else.
+ * the loaded photos. Each fetch uses the latest loadPage. A new listKey (a
+ * status filter) lists something else: the list empties and loads its first
+ * page again. Key the component instead where nothing should carry over.
  */
-export function usePhotoList(loadPage: LoadPage<Photo>): PhotoListHandle {
+export function usePhotoList(loadPage: LoadPage<Photo>, listKey = ''): PhotoListHandle {
   const [store] = useState(() => new PhotoListStore(loadPage));
+  useLayoutEffect(() => {
+    store.setLoader(loadPage);
+  }, [store, loadPage]);
+  const listed = useRef(listKey);
 
   useEffect(() => {
     store.reload();
     return store.dispose;
   }, [store]);
+
+  // Before paint, so the old list is never shown under the new key.
+  useLayoutEffect(() => {
+    if (listed.current === listKey) return;
+    listed.current = listKey;
+    store.restart();
+  }, [store, listKey]);
 
   const state = useSyncExternalStore(store.subscribe, store.getState, store.getState);
   const refreshUrls = useCallback(() => {

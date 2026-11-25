@@ -26,6 +26,21 @@ const deferred = <T>() => {
 };
 
 describe('PhotoListStore', () => {
+  it('restarts on a new loader from an empty list, dropping the old list\'s response', async () => {
+    const old = deferred<{ photos: P[]; total: number }>();
+    const store = new PhotoListStore<P>(() => old.promise);
+    const first = store.reload();
+
+    store.setLoader(async () => ({ photos: [{ id: 'new' }], total: 1 }));
+    const restarted = store.restart();
+    expect(store.getState().status).toBe('loading');
+    expect(store.latest().items).toEqual([]);
+    old.resolve({ photos: [{ id: 'old' }], total: 1 });
+    await Promise.all([first, restarted]);
+
+    expect(store.latest().items).toEqual([{ id: 'new' }]);
+  });
+
   it('loads the first page, then the next one at the loaded count', async () => {
     const { load, calls } = loaderFor(server(250));
     const store = new PhotoListStore<P>(load);
