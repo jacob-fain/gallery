@@ -7,6 +7,7 @@ import { JSON_BODY_LIMIT } from './middleware/validateIds';
 import { noStoreByDefault } from './middleware/cacheControl';
 import { createErrorHandler } from './middleware/errorHandler';
 import { requestLog } from './middleware/requestLog';
+import { isAllowedOrigin } from './middleware/session';
 
 const app = express();
 app.disable('x-powered-by');
@@ -20,12 +21,19 @@ app.set('trust proxy', 'loopback, uniquelocal');
 // First, so every response, a refused CORS request included, has an id and a log line.
 app.use(requestLog);
 
-// Middleware
-app.use(cors({
-  origin: process.env.NODE_ENV === 'development'
-    ? true  // Allow all origins in development
-    : process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true,
+// Both sites call /api on their own host, so production needs no CORS for
+// them to work. Credentials go only to the admin origin: the public site is
+// the same site as the admin one, so its requests would carry the admin
+// cookie, and it must never read an answer made with it. Any other origin gets
+// no CORS headers at all. Development serves the API on its own port, so its
+// pages are cross-origin: the local dev hosts may send credentials, as the
+// admin UI runs there too, and any other origin (a phone on the LAN) gets
+// public reads only.
+app.use(cors((req, callback) => {
+  const origin = req.headers.origin;
+  if (origin && isAllowedOrigin(origin)) return callback(null, { origin: true, credentials: true });
+  if (process.env.NODE_ENV === 'development') return callback(null, { origin: true, credentials: false });
+  callback(null, { origin: false });
 }));
 app.use(compression({
   filter: (req, res) => {
