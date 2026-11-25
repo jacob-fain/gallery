@@ -32,6 +32,9 @@
     max-width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
+    /* A fade at the right edge shows the row continues past the screen. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    padding-right: 24px;
   }
 
   .pill {
