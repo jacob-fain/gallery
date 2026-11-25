@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Photo } from '../types';
-import { createRefreshGuard, withFreshUrls } from './expiredImages';
+import { createRefreshGuard, withFreshSignedUrls, withFreshUrls } from './expiredImages';
 
 describe('createRefreshGuard', () => {
   it('allows the first refresh and then one per interval', () => {
@@ -33,5 +33,30 @@ describe('withFreshUrls', () => {
     const current = [photo('a', 'old-a'), photo('gone', 'old')];
     const fresh = [photo('a', 'new-a'), photo('new', 'new')];
     expect(withFreshUrls(current, fresh).map((p) => p.id)).toEqual(['a']);
+  });
+});
+
+describe('withFreshSignedUrls', () => {
+  it('swaps only the signed URLs and keeps every other field as it is now', () => {
+    const current = [{ ...photo('a', 'old-a'), url: 'old-orig', is_hidden: true }];
+    const fresh = [{ ...photo('a', 'new-a'), url: 'new-orig', is_hidden: false }];
+    expect(withFreshSignedUrls(current, fresh)).toEqual([
+      { id: 'a', webUrl: 'new-a', thumbnailUrl: 'new-a', url: 'new-orig', is_hidden: true },
+    ]);
+  });
+
+  it('keeps photos missing from the fresh list, adds none, and keeps the order', () => {
+    const current = [photo('b', 'old-b'), photo('gone', 'old'), photo('a', 'old-a')];
+    const fresh = [photo('a', 'new-a'), photo('b', 'new-b'), photo('new', 'new')];
+    expect(withFreshSignedUrls(current, fresh).map((p) => [p.id, p.thumbnailUrl])).toEqual([
+      ['b', 'new-b'],
+      ['gone', 'old'],
+      ['a', 'new-a'],
+    ]);
+  });
+
+  it('keeps the same object for a photo whose URLs did not change', () => {
+    const current = [photo('a', 'same')];
+    expect(withFreshSignedUrls(current, [photo('a', 'same')])[0]).toBe(current[0]);
   });
 });
