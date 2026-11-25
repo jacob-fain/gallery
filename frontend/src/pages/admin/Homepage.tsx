@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   getHomepagePhotos,
   setHeroPhoto,
@@ -10,6 +10,8 @@ import {
 } from '../../api/client';
 import LoadMore from '../../components/Admin/PhotoManager/LoadMore';
 import { usePhotoList } from '../../components/Admin/PhotoManager/usePhotoList';
+import { useRefreshOnImageError } from '../../components/Admin/PhotoManager/useRefreshOnImageError';
+import { withFreshSignedUrls } from '../../utils/expiredImages';
 import type { Photo, Gallery } from '../../types';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
@@ -53,6 +55,8 @@ function PickerPhotos({ galleryId, onHomepage, onAdd }: PickerPhotosProps) {
   );
   const photos = usePhotoList(loadPage);
   const { list } = photos;
+  const gridRef = useRef<HTMLDivElement>(null);
+  useRefreshOnImageError(gridRef, photos.refreshUrls);
 
   if (photos.status === 'loading') {
     return <div className={styles.loadingPhotos}>Loading photos...</div>;
@@ -65,7 +69,7 @@ function PickerPhotos({ galleryId, onHomepage, onAdd }: PickerPhotosProps) {
   }
 
   return (
-    <div className={styles.pickerGrid}>
+    <div ref={gridRef} className={styles.pickerGrid}>
       {list.items.map((photo) => {
         const isAdded = onHomepage.has(photo.id);
         return (
@@ -180,6 +184,17 @@ export default function Homepage() {
     loadPhotos();
   }, [loadPhotos]);
 
+  // The picker has a guard of its own; this one covers the hero and featured
+  // photos, so neither list's failures use up the other's refresh.
+  const featuredRef = useRef<HTMLDivElement>(null);
+  const refreshUrls = useCallback(() => {
+    getHomepagePhotos()
+      .then((fresh) => setPhotos((current) => withFreshSignedUrls(current, fresh)))
+      // The photos already shown stay; a failed refresh changes nothing.
+      .catch(() => {});
+  }, []);
+  useRefreshOnImageError(featuredRef, refreshUrls);
+
   const retryLoad = () => {
     setError(null);
     loadPhotos();
@@ -288,68 +303,70 @@ export default function Homepage() {
           <p>Click "Add Photos" to select photos from your galleries.</p>
         </div>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <section className={styles.section}>
-            <h2 className={styles.sectionTitle}>Hero Image</h2>
-            <p className={styles.sectionDesc}>
-              The main background image visitors see first. Drag to reorder.
-            </p>
-            {heroPhoto?.is_hidden && (
-              <p className={styles.heroWarning}>
-                This photo is hidden, so visitors see the next visible featured photo as the
-                hero instead.
+        <div ref={featuredRef}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Hero Image</h2>
+              <p className={styles.sectionDesc}>
+                The main background image visitors see first. Drag to reorder.
               </p>
-            )}
-            {heroPhoto && (
-              <div className={styles.heroPreview}>
-                <SortableContext
-                  items={[heroPhoto.id]}
-                  strategy={rectSortingStrategy}
-                >
-                  <SortablePhoto
-                    photo={heroPhoto}
-                    isHero={true}
-                    onMakeHero={handleMakeHero}
-                    onRemove={handleRemove}
-                  />
-                </SortableContext>
-              </div>
-            )}
-          </section>
-
-          <section className={styles.section}>
-            <h2 className={styles.sectionTitle}>Featured Photos</h2>
-            <p className={styles.sectionDesc}>
-              Photos shown in the "Selected Work" section below the hero. Drag to reorder.
-            </p>
-            {featuredPhotos.length > 0 ? (
-              <SortableContext
-                items={photos.map((p) => p.id)}
-                strategy={rectSortingStrategy}
-              >
-                <div className={styles.grid}>
-                  {featuredPhotos.map((photo) => (
+              {heroPhoto?.is_hidden && (
+                <p className={styles.heroWarning}>
+                  This photo is hidden, so visitors see the next visible featured photo as the
+                  hero instead.
+                </p>
+              )}
+              {heroPhoto && (
+                <div className={styles.heroPreview}>
+                  <SortableContext
+                    items={[heroPhoto.id]}
+                    strategy={rectSortingStrategy}
+                  >
                     <SortablePhoto
-                      key={photo.id}
-                      photo={photo}
-                      isHero={false}
+                      photo={heroPhoto}
+                      isHero={true}
                       onMakeHero={handleMakeHero}
                       onRemove={handleRemove}
                     />
-                  ))}
+                  </SortableContext>
                 </div>
-              </SortableContext>
-            ) : (
-              <p className={styles.emptySection}>
-                No featured photos yet. Add more photos to show in the "Selected Work" section.
+              )}
+            </section>
+  
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Featured Photos</h2>
+              <p className={styles.sectionDesc}>
+                Photos shown in the "Selected Work" section below the hero. Drag to reorder.
               </p>
-            )}
-          </section>
-        </DndContext>
+              {featuredPhotos.length > 0 ? (
+                <SortableContext
+                  items={photos.map((p) => p.id)}
+                  strategy={rectSortingStrategy}
+                >
+                  <div className={styles.grid}>
+                    {featuredPhotos.map((photo) => (
+                      <SortablePhoto
+                        key={photo.id}
+                        photo={photo}
+                        isHero={false}
+                        onMakeHero={handleMakeHero}
+                        onRemove={handleRemove}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              ) : (
+                <p className={styles.emptySection}>
+                  No featured photos yet. Add more photos to show in the "Selected Work" section.
+                </p>
+              )}
+            </section>
+          </DndContext>
+        </div>
       )}
 
       {/* Photo Picker Modal */}

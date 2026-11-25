@@ -177,7 +177,11 @@
 .imageWrapper {
   position: relative;
   aspect-ratio: 1;
-  background: var(--color-background);
+  /* A thumbnail that has not loaded, or failed to, leaves a placeholder
+     tile, and nothing a failed image draws spills out under the checkbox
+     and badges. */
+  overflow: hidden;
+  background: var(--color-placeholder);
 }
 
 .dragArea {
@@ -216,10 +220,13 @@
 }
 
 .image {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
   pointer-events: none;
+  /* Hides the alt text a failed image paints; screen readers still read it. */
+  color: transparent;
 }
 
 .checkbox {

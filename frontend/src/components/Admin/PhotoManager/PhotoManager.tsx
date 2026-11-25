@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -25,6 +25,7 @@ import { hasMore, mapPhotos, removePhotos } from '../../../utils/photoList';
 import { shuffle } from '../../../utils/shuffle';
 import LoadMore from './LoadMore';
 import type { PhotoListHandle } from './usePhotoList';
+import { useRefreshOnImageError } from './useRefreshOnImageError';
 import styles from './PhotoManager.module.css';
 
 // Select value for the Unassigned target; gallery ids are UUIDs, so it cannot collide.
@@ -193,7 +194,9 @@ export default function PhotoManager({
   gallery,
   onPhotosChange,
 }: PhotoManagerProps) {
-  const { list, update, latest, reload, loadAll, loadMore } = photos;
+  const { list, update, latest, reload, loadAll, loadMore, refreshUrls } = photos;
+  const gridRef = useRef<HTMLDivElement>(null);
+  useRefreshOnImageError(gridRef, refreshUrls);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -618,7 +621,7 @@ export default function PhotoManager({
           items={sortableIds}
           strategy={rectSortingStrategy}
         >
-          <div className={`${styles.grid} ${coverSelectMode ? styles.coverSelectMode : ''}`}>
+          <div ref={gridRef} className={`${styles.grid} ${coverSelectMode ? styles.coverSelectMode : ''}`}>
             {items.map((photo, index) => (
               <SortablePhotoCard
                 key={photo.id}

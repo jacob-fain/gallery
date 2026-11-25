@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Photo } from '../../../types';
 import { PhotoListStore, type LoadPage, type PhotoListState } from '../../../utils/photoListStore';
 import type { PhotoList } from '../../../utils/photoList';
+import { withFreshSignedUrls } from '../../../utils/expiredImages';
 
 export interface PhotoListHandle extends PhotoListState<Photo> {
   loadMore: () => Promise<boolean>;
@@ -10,6 +11,8 @@ export interface PhotoListHandle extends PhotoListState<Photo> {
   // The list as of now, for handlers that must not change on every update.
   latest: () => PhotoList<Photo>;
   reload: () => void;
+  // Replaces the loaded photos' signed URLs with fresh ones.
+  refreshUrls: () => void;
 }
 
 /**
@@ -28,6 +31,9 @@ export function usePhotoList(loadPage: LoadPage<Photo>): PhotoListHandle {
   }, [store]);
 
   const state = useSyncExternalStore(store.subscribe, store.getState, store.getState);
+  const refreshUrls = useCallback(() => {
+    store.refresh(withFreshSignedUrls);
+  }, [store]);
 
   return useMemo(
     () => ({
@@ -37,7 +43,8 @@ export function usePhotoList(loadPage: LoadPage<Photo>): PhotoListHandle {
       update: store.update,
       latest: store.latest,
       reload: store.reload,
+      refreshUrls,
     }),
-    [state, store]
+    [state, store, refreshUrls]
   );
 }
