@@ -9,6 +9,7 @@ import type {
   UpdateGalleryInput,
   PrivateGalleryResponse,
   GalleryAccessResponse,
+  ReviewStatus,
 } from '../types';
 import { ApiError } from './errors';
 
@@ -400,6 +401,7 @@ export interface DuplicateInfo {
   original_filename: string;
   gallery_id: string | null;
   gallery_title: string | null;
+  review_status: ReviewStatus;
 }
 
 // Returns a map of content hash -> existing photo, for hashes already uploaded
@@ -488,12 +490,24 @@ export async function uploadPhoto(
 
 export async function updatePhoto(
   id: string,
-  data: { is_hidden?: boolean; sort_order?: number }
+  data: { review_status?: ReviewStatus; sort_order?: number }
 ): Promise<Photo> {
   return fetchApiAuth<Photo>(`/photos/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+  });
+}
+
+/** Puts photos in one review state; updated counts those that changed. */
+export async function setPhotosStatus(
+  photoIds: string[],
+  status: ReviewStatus
+): Promise<{ updated: number }> {
+  return fetchApiAuth<{ updated: number }>('/photos/status', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photo_ids: photoIds, review_status: status }),
   });
 }
 

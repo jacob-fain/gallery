@@ -23,6 +23,20 @@ router.post(
 // GET /api/photos/admin/unassigned - List photos without a gallery
 router.get('/admin/unassigned', authMiddleware, photoController.listUnassignedPhotos);
 
+// GET /api/photos/admin/all - Every photo, filtered by ?gallery= and ?status=
+router.get('/admin/all', authMiddleware, photoController.listAdminPhotos);
+
+// DELETE /api/photos/admin/rejected?gallery= - Delete the rejected photos of a scope
+router.delete('/admin/rejected', authMiddleware, photoController.deleteRejectedPhotos);
+
+// PUT /api/photos/status - Put several photos in one review state
+router.put(
+  '/status',
+  authMiddleware,
+  validateBodyIds({ photo_ids: 'uuid[]' }),
+  photoController.setPhotosStatus
+);
+
 // POST /api/photos/admin/check-duplicates - Check which content hashes exist
 router.post('/admin/check-duplicates', authMiddleware, photoController.checkDuplicates);
 
@@ -42,7 +56,7 @@ router.put(
   photoController.movePhotos
 );
 
-// PUT /api/photos/:id - Update photo (featured, sort_order)
+// PUT /api/photos/:id - Update photo (review_status, sort_order)
 router.put('/:id', authMiddleware, photoController.updatePhoto);
 
 // DELETE /api/photos/:id - Delete photo

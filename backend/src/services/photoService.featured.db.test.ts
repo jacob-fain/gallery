@@ -4,6 +4,8 @@ import { query } from '../config/db';
 import {
   addToFeatured,
   createPhoto,
+  deleteRejectedPhotos,
+  getFeaturedPhotos,
   getFeaturedPhotosAdmin,
   removeFromFeatured,
   reorderFeaturedPhotos,
@@ -123,6 +125,29 @@ describe.skipIf(!db)('homepage featured order (database)', () => {
 
     const final = await featured();
     expect(new Set(final.map((p) => p.id)).size).toBe(final.length);
+    await expectDense();
+  });
+
+  it('shows visitors only the featured photos that are shown, and the admin all of them', async () => {
+    const [shown, review, rejected] = await photos(3);
+    for (const id of [review, shown, rejected]) await addToFeatured(id);
+    await query(`UPDATE photos SET review_status = 'shown' WHERE id = $1`, [shown]);
+    await query(`UPDATE photos SET review_status = 'rejected' WHERE id = $1`, [rejected]);
+
+    expect((await getFeaturedPhotos()).map((p) => p.id)).toEqual([shown]);
+    expect(await featuredIds()).toEqual([review, shown, rejected]);
+  });
+
+  it('keeps the homepage order dense when featured rejected photos are deleted', async () => {
+    const [a, b, c, d] = await photos(4);
+    for (const id of [a, b, c, d]) await addToFeatured(id);
+    await query(`UPDATE photos SET review_status = 'rejected' WHERE id = ANY($1)`, [[a, c]]);
+    const galleryId = (await query(`SELECT gallery_id FROM photos WHERE id = $1`, [a])).rows[0].gallery_id;
+
+    const result = await deleteRejectedPhotos({ kind: 'gallery', id: galleryId });
+    expect(result.deleted).toBe(2);
+    expect(result.s3Keys).toHaveLength(6);
+    expect(await featuredIds()).toEqual([b, d]);
     await expectDense();
   });
 });

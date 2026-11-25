@@ -106,14 +106,14 @@ describe('UploadQueue', () => {
 
   it('skips files already stored or repeated in the batch without uploading them', async () => {
     const checkDuplicates = vi.fn(async () => ({
-      stored: { id: 'x', original_filename: 'IMG_1.jpg', gallery_id: 'g', gallery_title: 'Wedding' },
+      stored: { id: 'x', original_filename: 'IMG_1.jpg', gallery_id: 'g', gallery_title: 'Wedding', review_status: 'rejected' as const },
     }));
     const { queue, calls } = setup({ checkDuplicates } as Partial<UploadQueueDeps>);
     queue.add([image('a1', 'stored'), image('a2', 'same'), image('a3', 'same')], { galleryId: 'a', checkOnly: false });
     await flush();
 
     expect(statuses(queue, 'a')).toEqual(['a1:duplicate', 'a2:uploading', 'a3:duplicate']);
-    expect(queue.getTarget('a').items[0].note).toBe('Already uploaded in Wedding as IMG_1.jpg');
+    expect(queue.getTarget('a').items[0].note).toBe('Already uploaded in Wedding as IMG_1.jpg (rejected)');
     expect(queue.getTarget('a').items[2].note).toBe('Duplicate of another file in this batch');
     expect(queue.getTarget('a').stats.skipped).toBe(2);
     expect(calls.map((c) => c.file.name)).toEqual(['a2']);

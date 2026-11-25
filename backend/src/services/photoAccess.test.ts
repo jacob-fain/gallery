@@ -4,8 +4,9 @@ import { generateGalleryAccessToken, generateToken } from './authService';
 
 const privateGallery = { id: 'g-private', is_public: false, access_version: 0 };
 const publicGallery = { id: 'g-public', is_public: true, access_version: 0 };
-const photo = (over: Partial<{ is_hidden: boolean; gallery_id: string | null; featured_order: number | null }> = {}) => ({
-  is_hidden: false,
+type Status = 'review' | 'shown' | 'rejected';
+const photo = (over: Partial<{ review_status: Status; gallery_id: string | null; featured_order: number | null }> = {}) => ({
+  review_status: 'shown' as Status,
   gallery_id: 'g-private',
   featured_order: null,
   ...over,
@@ -17,11 +18,12 @@ describe('canViewPhoto', () => {
     expect(canViewPhoto(photo({ gallery_id: 'g-public' }), publicGallery)).toBe(true);
   });
 
-  it('never shows a hidden photo, even with a valid unlock token', () => {
+  it.each(['review', 'rejected'] as const)('never shows a %s photo, even with a valid unlock token or on the homepage', (status) => {
     const token = generateGalleryAccessToken('g-private', 'private', 0);
-    expect(canViewPhoto(photo({ is_hidden: true }), privateGallery, token)).toBe(false);
-    expect(canViewPhoto(photo({ is_hidden: true, gallery_id: null }), null)).toBe(false);
-    expect(canViewPhoto(photo({ is_hidden: true, gallery_id: 'g-public' }), publicGallery)).toBe(false);
+    expect(canViewPhoto(photo({ review_status: status }), privateGallery, token)).toBe(false);
+    expect(canViewPhoto(photo({ review_status: status, gallery_id: null }), null)).toBe(false);
+    expect(canViewPhoto(photo({ review_status: status, gallery_id: 'g-public' }), publicGallery)).toBe(false);
+    expect(canViewPhoto(photo({ review_status: status, featured_order: 0 }), privateGallery)).toBe(false);
   });
 
   it('refuses a private-gallery photo without a token', () => {

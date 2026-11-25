@@ -9,7 +9,7 @@ test('a private gallery unlocks with its password and stays unlocked on revisit'
   const slug = uniqueSlug('private');
   const gallery = await api.createGallery({ title: 'Private smoke', slug, is_public: false, password: 'open-sesame' });
   const photo = await api.upload(gallery.id, 'private.jpg', uniqueJpeg('private'));
-  await api.setHidden(photo.id, false);
+  await api.setStatus(photo.id, 'shown');
 
   const visitor = await browser.newPage();
   await visitor.goto(`${PUBLIC}/g/${slug}`);
@@ -50,7 +50,7 @@ test('an unlocked private gallery downloads without its access token in any URL'
   const gallery = await api.createGallery({ title: 'Ticket smoke', slug, is_public: false, password: 'open-sesame' });
   const original = uniqueJpeg('ticket');
   const photo = await api.upload(gallery.id, 'Ticket Original.jpg', original);
-  await api.setHidden(photo.id, false);
+  await api.setStatus(photo.id, 'shown');
 
   const visitor = await browser.newPage();
   const urls: string[] = [];

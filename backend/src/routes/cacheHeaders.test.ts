@@ -70,6 +70,7 @@ const photo = {
   width: 100,
   height: 80,
   is_hidden: false,
+  review_status: 'shown',
   featured_order: null,
   content_hash: 'a'.repeat(64),
 };

@@ -16,13 +16,14 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries, updatePhoto } from '../../../api/client';
-import type { Photo, Gallery } from '../../../types';
+import { deletePhoto, setCoverImage, reorderPhotos, movePhotos, getAllGalleries, setPhotosStatus } from '../../../api/client';
+import type { Photo, Gallery, ReviewStatus } from '../../../types';
 import { describeFailures, isPhotoGone, settleBulk } from '../../../utils/bulkResults';
 import { photoAlt } from '../../../utils/photoAlt';
 import { derivedImages } from '../../../utils/imageSizes';
 import { hasMore, mapPhotos, removePhotos } from '../../../utils/photoList';
 import { shuffle } from '../../../utils/shuffle';
+import { isShown, STATUS_ACTIONS, STATUS_LABELS } from '../../../utils/reviewStatus';
 import LoadMore from './LoadMore';
 import type { PhotoListHandle } from './usePhotoList';
 import { useRefreshOnImageError } from './useRefreshOnImageError';
@@ -51,7 +52,7 @@ interface SortablePhotoCardProps {
   onToggleSelect: (photoId: string) => void;
   onCoverClick: (photoId: string) => void;
   onDelete: (photoId: string) => void;
-  onToggleHidden: (photoId: string) => void;
+  onSetStatus: (photoId: string, status: ReviewStatus) => void;
 }
 
 function Thumbnail({ photo, alt }: { photo: Photo; alt: string }) {
@@ -84,7 +85,7 @@ const SortablePhotoCard = memo(function SortablePhotoCard({
   onToggleSelect,
   onCoverClick,
   onDelete,
-  onToggleHidden,
+  onSetStatus,
 }: SortablePhotoCardProps) {
   const {
     attributes,
@@ -98,14 +99,18 @@ const SortablePhotoCard = memo(function SortablePhotoCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : isDeleting ? 0.3 : photo.is_hidden ? 0.6 : 1,
+    opacity: isDragging ? 0.5 : isDeleting ? 0.3 : isShown(photo) ? 1 : 0.6,
   };
+  const shown = isShown(photo);
+  // The quick toggle publishes a photo, or takes a shown one off the site
+  // as rejected; Back to review is in the bulk bar.
+  const toggleTo: ReviewStatus = shown ? 'rejected' : 'shown';
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`${styles.card} ${isDragging ? styles.dragging : ''} ${isSelected ? styles.selected : ''} ${isDeleting ? styles.deleting : ''} ${photo.is_hidden ? styles.hidden : ''}`}
+      className={`${styles.card} ${isDragging ? styles.dragging : ''} ${isSelected ? styles.selected : ''} ${isDeleting ? styles.deleting : ''} ${shown ? '' : styles.hidden}`}
     >
       <div className={styles.imageWrapper}>
         {coverSelectMode ? (
@@ -140,22 +145,25 @@ const SortablePhotoCard = memo(function SortablePhotoCard({
         {isCover && (
           <span className={styles.coverBadge}>Cover</span>
         )}
-        {photo.is_hidden && (
-          <span className={styles.hiddenBadge}>Hidden</span>
+        {!shown && (
+          <span className={`${styles.statusBadge} ${styles[photo.review_status]}`}>
+            {STATUS_LABELS[photo.review_status]}
+          </span>
         )}
       </div>
       <div className={styles.cardFooter}>
         <div className={styles.filename}>{photo.original_filename}</div>
         <div className={styles.cardActions}>
           <button
-            className={`${styles.hideIconBtn} ${photo.is_hidden ? styles.isHidden : ''}`}
+            className={`${styles.hideIconBtn} ${shown ? '' : styles.isHidden}`}
             onClick={(e) => {
               e.stopPropagation();
-              onToggleHidden(photo.id);
+              onSetStatus(photo.id, toggleTo);
             }}
-            title={photo.is_hidden ? 'Show photo' : 'Hide photo'}
+            title={STATUS_ACTIONS[toggleTo]}
+            aria-label={STATUS_ACTIONS[toggleTo]}
           >
-            {photo.is_hidden ? (
+            {!shown ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22" />
               </svg>
@@ -341,25 +349,39 @@ export default function PhotoManager({
     }
   };
 
-  const handleToggleHidden = useCallback(
-    async (photoId: string) => {
-      const photo = latest().items.find((p) => p.id === photoId);
-      if (!photo) return;
-      const setHidden = (hidden: boolean) =>
-        update((l) => mapPhotos(l, (p) => (p.id === photoId ? { ...p, is_hidden: hidden } : p)));
-
-      // Optimistic UI update
-      setHidden(!photo.is_hidden);
-
+  // Optimistic: the photos change state at once and go back if the request
+  // fails. One request sets them all, so they succeed or fail together.
+  const applyStatus = useCallback(
+    async (ids: string[], status: ReviewStatus) => {
+      const before = new Map(
+        latest()
+          .items.filter((p) => ids.includes(p.id))
+          .map((p) => [p.id, p.review_status] as const)
+      );
+      const changing = [...before].filter(([, s]) => s !== status).map(([id]) => id);
+      if (changing.length === 0) return;
+      const set = new Set(changing);
+      update((l) => mapPhotos(l, (p) => (set.has(p.id) ? { ...p, review_status: status } : p)));
+      setActionError(null);
       try {
-        await updatePhoto(photoId, { is_hidden: !photo.is_hidden });
+        await setPhotosStatus(changing, status);
         onPhotosChange?.();
       } catch (err) {
-        setActionError(err instanceof Error ? err.message : 'Failed to change visibility');
-        setHidden(photo.is_hidden);
+        update((l) =>
+          mapPhotos(l, (p) => (set.has(p.id) ? { ...p, review_status: before.get(p.id) ?? p.review_status } : p))
+        );
+        setActionError(
+          `${err instanceof Error ? err.message : 'Request failed'}: ` +
+            `${changing.length === 1 ? 'the photo was' : `${changing.length} photos were`} not changed`
+        );
       }
     },
     [latest, update, onPhotosChange]
+  );
+
+  const handleSetStatus = useCallback(
+    (photoId: string, status: ReviewStatus) => applyStatus([photoId], status),
+    [applyStatus]
   );
 
   // Shuffles the whole gallery, so the pages not loaded yet are fetched first.
@@ -453,35 +475,13 @@ export default function PhotoManager({
     }
   };
 
-  // Show or hide the selected photos. Only photos not already in that state
-  // are sent, so a mixed selection can be published without deselecting the
-  // public ones first.
-  const handleBulkSetHidden = async (hide: boolean) => {
+  // Only photos not already in the state are sent, so a mixed selection can
+  // be published without deselecting the shown ones first.
+  const handleBulkSetStatus = async (status: ReviewStatus) => {
     if (selectedIds.size === 0) return;
-    const ids = latest()
-      .items.filter((p) => selectedIds.has(p.id) && p.is_hidden !== hide)
-      .map((p) => p.id);
-    if (ids.length === 0) return;
-    const changing = new Set(ids);
-
     setBulkActionLoading(true);
-    update((l) => mapPhotos(l, (p) => (changing.has(p.id) ? { ...p, is_hidden: hide } : p)));
-
-    setActionError(null);
     try {
-      const results = await Promise.allSettled(
-        ids.map((id) => updatePhoto(id, { is_hidden: hide }))
-      );
-      const outcome = settleBulk(ids, results);
-      // Put back the ones that did not change, keep the rest.
-      const failed = new Set(outcome.failed.map((f) => f.id));
-      update((l) => mapPhotos(l, (p) => (failed.has(p.id) ? { ...p, is_hidden: !hide } : p)));
-      setActionError(
-        hide
-          ? describeFailures('Hid', 'hidden', outcome)
-          : describeFailures('Showed', 'shown', outcome)
-      );
-      onPhotosChange?.();
+      await applyStatus([...selectedIds], status);
     } finally {
       setBulkActionLoading(false);
     }
@@ -497,8 +497,11 @@ export default function PhotoManager({
     );
   }
 
-  const selectedHidden = items.some((p) => selectedIds.has(p.id) && p.is_hidden);
-  const selectedVisible = items.some((p) => selectedIds.has(p.id) && !p.is_hidden);
+  // An action is offered when it would change at least one selected photo.
+  const selectedStates = new Set(items.filter((p) => selectedIds.has(p.id)).map((p) => p.review_status));
+  const canSet = (status: ReviewStatus) => [...selectedStates].some((s) => s !== status);
+  // Show on site first, as in the viewer.
+  const bulkOrder: ReviewStatus[] = ['shown', 'rejected', 'review'];
   const someSelected = selectedIds.size > 0;
   const effectiveCoverId =
     optimisticCover && optimisticCover.replaces === coverId ? optimisticCover.id : coverId;
@@ -561,20 +564,16 @@ export default function PhotoManager({
                   <span className={styles.selectedCount}>
                     {selectedIds.size} selected
                   </span>
-                  <button
-                    className={styles.bulkBtn}
-                    onClick={() => handleBulkSetHidden(false)}
-                    disabled={bulkActionLoading || !selectedHidden}
-                  >
-                    Show
-                  </button>
-                  <button
-                    className={styles.bulkBtn}
-                    onClick={() => handleBulkSetHidden(true)}
-                    disabled={bulkActionLoading || !selectedVisible}
-                  >
-                    Hide
-                  </button>
+                  {bulkOrder.map((status) => (
+                    <button
+                      key={status}
+                      className={styles.bulkBtn}
+                      onClick={() => handleBulkSetStatus(status)}
+                      disabled={bulkActionLoading || !canSet(status)}
+                    >
+                      {STATUS_ACTIONS[status]}
+                    </button>
+                  ))}
                   <button
                     className={styles.bulkBtn}
                     onClick={handleOpenMoveModal}
@@ -635,7 +634,7 @@ export default function PhotoManager({
                 onToggleSelect={handleToggleSelect}
                 onCoverClick={handleSetCover}
                 onDelete={setDeleteConfirm}
-                onToggleHidden={handleToggleHidden}
+                onSetStatus={handleSetStatus}
               />
             ))}
           </div>

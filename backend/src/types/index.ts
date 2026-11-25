@@ -1,3 +1,5 @@
+import type { ReviewStatus } from '../services/reviewStatus';
+
 // EXIF metadata extracted from photos
 export interface ExifData {
   cameraMake?: string;
@@ -47,7 +49,9 @@ export interface Photo {
   file_size: number;
   sort_order: number;
   is_featured: boolean;
+  /** Kept equal to review_status <> 'shown' by a trigger until it is dropped; read review_status. */
   is_hidden: boolean;
+  review_status: ReviewStatus;
   // 0 is the homepage hero, 1+ the featured photos, null not on the homepage.
   featured_order?: number | null;
   view_count: number;
@@ -81,7 +85,7 @@ export interface GalleryWithCoverUrl extends Gallery {
   /** The cover photo's displayed size, from which the derived widths follow. */
   coverWidth: number | null;
   coverHeight: number | null;
-  /** Photos a visitor sees in the gallery: hidden ones are not counted. */
+  /** Photos a visitor sees in the gallery: only shown ones are counted. */
   photoCount: number;
 }
 
@@ -143,7 +147,7 @@ export interface UpdateGalleryInput {
 
 // Input type for updating a photo
 export interface UpdatePhotoInput {
-  is_hidden?: boolean;
+  review_status?: ReviewStatus;
   sort_order?: number;
 }
 

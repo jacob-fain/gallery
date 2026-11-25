@@ -40,6 +40,15 @@ export interface Gallery {
   updated_at?: string;
 }
 
+/**
+ * A photo's review state. New uploads start in review; only shown photos are
+ * public. Rejected photos stay private until they are deleted.
+ */
+export type ReviewStatus = 'review' | 'shown' | 'rejected';
+
+/** How many photos of an admin list are in each state, and in all. */
+export type StatusCounts = Record<ReviewStatus | 'all', number>;
+
 export interface Photo {
   id: string;
   gallery_id: string | null;
@@ -53,7 +62,7 @@ export interface Photo {
   file_size: number;
   sort_order: number;
   is_featured: boolean;
-  is_hidden: boolean;
+  review_status: ReviewStatus;
   view_count: number;
   download_count: number;
   uploaded_at: string;

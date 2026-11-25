@@ -11,7 +11,7 @@ import {
 import { publicGalleryDetail, publicGalleryCard, adminGallery } from '../services/galleryView';
 import { toPublicPhotos } from '../services/photoView';
 import { cachePublicly } from '../middleware/cacheControl';
-import { nextOffset, parseAdminPage } from '../services/photoPaging';
+import { adminListBody, parseAdminListQuery } from './adminPhotoList';
 import { attachmentDisposition, zipEntryNames } from '../services/downloadNames';
 import { writeZip } from '../services/zipStream';
 import { logger } from '../utils/logger';
@@ -321,32 +321,26 @@ export const setCoverImage = async (req: Request, res: Response) => {
 };
 
 /**
- * Get photos for a gallery by ID (admin only - includes hidden photos). With
- * ?limit= (and ?offset=) it sends one page; total is the gallery's photo
- * count and nextOffset is null on the last page.
+ * Get photos for a gallery by ID (admin only - every review state). ?status=
+ * keeps one state. With ?limit= (and ?offset=) it sends one page; total is
+ * the filtered list's length, counts the gallery's photos in each state, and
+ * nextOffset is null on the last page.
  */
 export const getGalleryPhotosAdmin = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const parsed = parseAdminPage(req.query);
+    const parsed = parseAdminListQuery(req.query);
     if (!parsed.ok) {
       return res.status(400).json({ success: false, error: parsed.error });
     }
-    const page = parsed.value;
+    const { page, status } = parsed.value;
 
     const gallery = await galleryService.getGalleryById(id);
     if (!gallery) {
       return res.status(404).json({ success: false, error: 'Gallery not found' });
     }
 
-    const { photos, total } = await photoService.getGalleryPhotosAdmin(id, page);
-    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
-    res.json({
-      success: true,
-      data: photosWithUrls,
-      total,
-      nextOffset: page ? nextOffset(page.offset, photos.length, total) : null,
-    });
+    res.json(await adminListBody(await photoService.getGalleryPhotosAdmin(id, page, status), page));
   } catch (err) {
     logger.error('Error fetching gallery photos', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch photos' });

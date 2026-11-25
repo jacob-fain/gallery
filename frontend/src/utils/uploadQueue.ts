@@ -1,6 +1,7 @@
 import type { DuplicateInfo } from '../api/client';
 import type { Photo } from '../types';
 import { uploadOutcome } from './uploadOutcome';
+import { STATUS_LABELS } from './reviewStatus';
 
 // Matches the server-side multer limit
 export const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -316,7 +317,13 @@ export class UploadQueue {
             : dup.gallery_id === null
             ? ' (unassigned)'
             : '';
-          this.settle(item, { status: 'duplicate', note: `Already uploaded${where} as ${dup.original_filename}` }, 'skipped');
+          // The state says why a re-uploaded photo is not on the site.
+          const state = dup.review_status ? ` (${STATUS_LABELS[dup.review_status].toLowerCase()})` : '';
+          this.settle(
+            item,
+            { status: 'duplicate', note: `Already uploaded${where} as ${dup.original_filename}${state}` },
+            'skipped'
+          );
         } else if (hash && seenHashes.has(hash)) {
           this.settle(item, { status: 'duplicate', note: 'Duplicate of another file in this batch' }, 'skipped');
         } else {
