@@ -30,6 +30,7 @@ const Dashboard = lazyWithReload(() => import('./pages/admin/Dashboard'));
 const AdminGalleries = lazyWithReload(() => import('./pages/admin/Galleries'));
 const Photos = lazyWithReload(() => import('./pages/admin/Photos'));
 const Homepage = lazyWithReload(() => import('./pages/admin/Homepage'));
+const AdminAllPhotos = lazyWithReload(() => import('./pages/admin/AllPhotos'));
 const Unassigned = lazyWithReload(() => import('./pages/admin/Unassigned'));
 const Settings = lazyWithReload(() => import('./pages/admin/Settings'));
 const AdminLayout = lazyWithReload(() => import('./components/Admin/AdminLayout/AdminLayout'));
@@ -72,6 +73,7 @@ function AdminApp() {
                     <Route path="" element={<><PageTitle page="Dashboard" /><Dashboard /></>} />
                     <Route path="galleries" element={<><PageTitle page="Galleries" /><AdminGalleries /></>} />
                     <Route path="galleries/:id/photos" element={<><PageTitle page="Photos" /><Photos /></>} />
+                    <Route path="photos" element={<><PageTitle page="All Photos" /><AdminAllPhotos /></>} />
                     <Route path="homepage" element={<><PageTitle page="Homepage" /><Homepage /></>} />
                     <Route path="unassigned" element={<><PageTitle page="Unassigned" /><Unassigned /></>} />
                     <Route path="settings" element={<><PageTitle page="Settings" /><Settings /></>} />

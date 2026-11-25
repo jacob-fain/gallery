@@ -35,11 +35,16 @@ export class PhotoListStore<T extends { id: string }> {
   private listeners = new Set<() => void>();
   private generation = 0;
   private pending: Promise<boolean> | null = null;
-  private readonly loadPage: LoadPage<T>;
+  private loadPage: LoadPage<T>;
 
   constructor(loadPage: LoadPage<T>) {
     this.loadPage = loadPage;
   }
+
+  /** The loader for fetches from now on; the list is left as it is. */
+  setLoader = (loadPage: LoadPage<T>) => {
+    this.loadPage = loadPage;
+  };
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -54,6 +59,16 @@ export class PhotoListStore<T extends { id: string }> {
 
   update = (change: (list: PhotoList<T>) => PhotoList<T>) => {
     this.set({ list: change(this.state.list) });
+  };
+
+  /**
+   * Starts over on a list that changed meaning (another status filter):
+   * empty, back to 'loading', then its first page. Responses for the old
+   * list are dropped.
+   */
+  restart = (): Promise<void> => {
+    this.set({ list: emptyList<T>(), status: 'loading', error: '', moreFailed: false });
+    return this.reload();
   };
 
   /** Replaces the list with its first page. */

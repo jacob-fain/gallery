@@ -1,14 +1,15 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { MasonryPhotoAlbum } from 'react-photo-album';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MasonryPhotoAlbum, type RenderExtras } from 'react-photo-album';
 import 'react-photo-album/masonry.css';
 import Lightbox, { type ControllerRef } from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import Download from 'yet-another-react-lightbox/plugins/download';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
-import type { PublicPhoto } from '../../types';
 import { trackPhotoView, getPhotoDownloadUrl } from '../../api/client';
+import { STATUS_LABELS } from '../../utils/reviewStatus';
 import ExifOverlay from './ExifOverlay';
-import { ViewerLabel, ZoomButtons } from './ViewerChrome';
+import { ReviewActions, ViewerLabel, ZoomButtons, type SetPhotoStatus } from './ViewerChrome';
+import type { ReviewStatus } from '../../types';
 import { useViewerIdle } from './viewerIdle';
 import viewerStyles from './Viewer.module.css';
 import { IMAGE_FADE_PROPS } from '../../utils/imageFade';
@@ -19,6 +20,7 @@ import {
   toAlbumPhotos,
   toLightboxSlides,
   type AlbumPhoto,
+  type GridPhoto,
   type SlideWithExif,
 } from './gridItems';
 import styles from './PhotoGrid.module.css';
@@ -26,8 +28,21 @@ import { TILE_KEYBOARD_PROPS, useLightboxFocusTrap } from './keyboard';
 import { useLightboxHistory } from './lightboxHistory';
 import { createHistoryMemory, entryKey } from '../../utils/historyMemory';
 
+/**
+ * The admin's Review view: the public layout and viewer, with each photo's
+ * state on its tile and in the viewer, and the viewer's review actions in
+ * place of downloads. Nothing is counted as a visitor's view.
+ */
+export interface GridReview {
+  onSetStatus: SetPhotoStatus;
+  // Called when the viewer closes.
+  onClose?: () => void;
+  // Names each photo's gallery on its tile (All Photos).
+  galleryLabels?: boolean;
+}
+
 interface PhotoGridProps {
-  photos: PublicPhoto[];
+  photos: GridPhoto[];
   // Unlocks downloads of photos in a private gallery.
   accessToken?: string;
   // Names the gallery in each photo's alt text. Without it a photo's own
@@ -44,11 +59,14 @@ interface PhotoGridProps {
   // shown is remembered, so Back renders enough of them to reach the
   // position the visitor left.
   tileMemoryKey?: string;
+  review?: GridReview;
 }
 
 const REFRESH_INTERVAL_MS = 60 * 1000;
 const LIGHTBOX_CLASS = 'photo-grid-lightbox';
 const LIGHTBOX_PLUGINS = [Download, Zoom];
+// The public download route serves only shown photos.
+const REVIEW_PLUGINS = [Zoom];
 const TILE_PROPS = { ...TILE_KEYBOARD_PROPS, image: IMAGE_FADE_PROPS };
 // More tiles are added while the end of the grid is this far below the
 // viewport, so they are laid out before the visitor reaches them.
@@ -74,13 +92,25 @@ async function downloadOriginal(photoId: string, accessToken?: string) {
 interface PhotoTilesProps {
   photos: AlbumPhoto[];
   onOpen: (index: number) => void;
+  review?: boolean;
 }
+
+const renderReviewExtras: RenderExtras<AlbumPhoto> = (_, { photo }) => (
+  <>
+    {photo.status === 'rejected' && <span className={styles.dim} aria-hidden="true" />}
+    {photo.status && photo.status !== 'shown' && (
+      <span className={`${styles.badge} ${styles[photo.status]}`}>{STATUS_LABELS[photo.status]}</span>
+    )}
+    {photo.galleryLabel && <span className={styles.galleryLabel}>{photo.galleryLabel}</span>}
+  </>
+);
+const REVIEW_RENDER = { extras: renderReviewExtras };
 
 // Memoized so that moving through the lightbox, which changes only the
 // parent's index state, re-renders the lightbox and not every tile. Its props
 // must stay referentially stable for that: memoized photos and an open
 // callback that changes only with the photos.
-const PhotoTiles = memo(function PhotoTiles({ photos, onOpen }: PhotoTilesProps) {
+const PhotoTiles = memo(function PhotoTiles({ photos, onOpen, review }: PhotoTilesProps) {
   return (
     <MasonryPhotoAlbum
       photos={photos}
@@ -88,6 +118,7 @@ const PhotoTiles = memo(function PhotoTiles({ photos, onOpen }: PhotoTilesProps)
       spacing={12}
       sizes={GRID_SIZES}
       componentsProps={TILE_PROPS}
+      render={review ? REVIEW_RENDER : undefined}
       onClick={({ index }) => onOpen(index)}
     />
   );
@@ -100,6 +131,7 @@ export default function PhotoGrid({
   onImagesExpired,
   tilesPerPage,
   tileMemoryKey,
+  review,
 }: PhotoGridProps) {
   const lightboxController = useRef<ControllerRef>(null);
   const lightbox = useLightboxHistory(photos, lightboxController);
@@ -134,12 +166,12 @@ export default function PhotoGrid({
   // A photo counts once per page view, however often the lightbox returns
   // to it. Keyed by id, since a shuffle moves photos to new indexes.
   useEffect(() => {
-    const photo = lightboxIndex >= 0 ? photos[lightboxIndex] : undefined;
+    const photo = lightboxIndex >= 0 && !review ? photos[lightboxIndex] : undefined;
     if (photo && !trackedPhotoIds.current.has(photo.id)) {
       trackedPhotoIds.current.add(photo.id);
       trackPhotoView(photo.id);
     }
-  }, [lightboxIndex, photos]);
+  }, [lightboxIndex, photos, review]);
 
   const hasMoreTiles = tileCount < photos.length;
   useEffect(() => {
@@ -162,16 +194,37 @@ export default function PhotoGrid({
   }, [tileMemoryKey, pageSize, tileCount]);
 
   // Built for every photo, so alt text counts the whole set.
-  const albumPhotos = useMemo(() => toAlbumPhotos(photos, galleryTitle), [photos, galleryTitle]);
+  const galleryLabels = review?.galleryLabels ?? false;
+  const albumPhotos = useMemo(
+    () => toAlbumPhotos(photos, galleryTitle, { galleryLabels }),
+    [photos, galleryTitle, galleryLabels]
+  );
   const albumTiles = useMemo(
     () => (tileCount >= albumPhotos.length ? albumPhotos : albumPhotos.slice(0, tileCount)),
     [albumPhotos, tileCount]
   );
   const lightboxSlides = useMemo(() => toLightboxSlides(photos, galleryTitle), [photos, galleryTitle]);
+  const onSetStatus = review?.onSetStatus;
+  const view = lightbox.view;
+  const reviewAct = useCallback(
+    (index: number, status: ReviewStatus) => {
+      const photo = photos[index];
+      if (!photo || !onSetStatus) return Promise.resolve(null);
+      if (index < photos.length - 1) view(index + 1);
+      return onSetStatus(photo.id, status);
+    },
+    [photos, onSetStatus, view]
+  );
+  const onReviewClose = review?.onClose;
+  const close = lightbox.close;
+  const closeViewer = useCallback(() => {
+    close();
+    onReviewClose?.();
+  }, [close, onReviewClose]);
 
   return (
-    <div className={styles.grid} ref={gridRef}>
-      <PhotoTiles photos={albumTiles} onOpen={lightbox.open} />
+    <div className={`${styles.grid}${review ? ` ${styles.reviewGrid}` : ''}`} ref={gridRef}>
+      <PhotoTiles photos={albumTiles} onOpen={lightbox.open} review={!!review} />
       {hasMoreTiles && <div ref={moreTiles} aria-hidden="true" />}
 
       <Lightbox
@@ -179,14 +232,14 @@ export default function PhotoGrid({
         slides={lightboxSlides}
         open={lightboxIndex >= 0}
         index={lightboxIndex}
-        close={lightbox.close}
+        close={closeViewer}
         on={{
           view: ({ index }) => lightbox.view(index),
         }}
         download={{
           download: ({ slide }) => downloadOriginal((slide as SlideWithExif).photoId, accessToken),
         }}
-        plugins={LIGHTBOX_PLUGINS}
+        plugins={review ? REVIEW_PLUGINS : LIGHTBOX_PLUGINS}
         controller={{
           ref: lightboxController,
           closeOnPullUp: true,
@@ -199,11 +252,17 @@ export default function PhotoGrid({
           doubleClickDelay: 300,
         }}
         render={{
-          controls: () => <ViewerLabel />,
-          buttonZoom: (zoom) => <ZoomButtons {...zoom} />,
-          slideFooter: ({ slide }) => (
-            <ExifOverlay exif={(slide as SlideWithExif).exif} className={viewerStyles.chrome} />
+          controls: () => (
+            <>
+              <ViewerLabel />
+              {review && <ReviewActions onAct={reviewAct} />}
+            </>
           ),
+          buttonZoom: (zoom) => <ZoomButtons {...zoom} />,
+          // The review actions take the bottom of the viewer.
+          slideFooter: review
+            ? undefined
+            : ({ slide }) => <ExifOverlay exif={(slide as SlideWithExif).exif} className={viewerStyles.chrome} />,
         }}
       />
     </div>

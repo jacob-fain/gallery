@@ -1,11 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getAllGalleries, getGalleryPhotosPage } from '../../api/client';
-import PhotoUpload from '../../components/Admin/PhotoUpload/PhotoUpload';
-import PhotoManager from '../../components/Admin/PhotoManager/PhotoManager';
-import { usePhotoList } from '../../components/Admin/PhotoManager/usePhotoList';
-import { addUploaded } from '../../utils/photoList';
-import type { Photo, Gallery } from '../../types';
+import { getAllGalleries, getGalleryPhotosPage, type StatusFilter } from '../../api/client';
+import PhotoReviewSection from '../../components/Admin/Review/PhotoReviewSection';
+import type { Gallery, StatusCounts } from '../../types';
 import styles from './Photos.module.css';
 
 export default function Photos() {
@@ -19,12 +16,10 @@ function GalleryPhotos({ id }: { id: string }) {
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadPage = useCallback(
-    (offset: number, limit: number) => getGalleryPhotosPage(id, offset, limit),
+  const fetchPage = useCallback(
+    (offset: number, limit: number, status: StatusFilter) => getGalleryPhotosPage(id, offset, limit, status),
     [id]
   );
-  const photos = usePhotoList(loadPage);
-  const { update } = photos;
 
   // The gallery itself (title, cover). Photo changes are applied to the list
   // in place, so this is all a change needs to reload. A promise chain rather
@@ -51,19 +46,14 @@ function GalleryPhotos({ id }: { id: string }) {
     fetchGallery();
   }, [fetchGallery]);
 
-  const handleUploadComplete = useCallback(
-    (photo: Photo) => update((list) => addUploaded(list, photo, 'end')),
-    [update]
-  );
+  const loading = <div className={styles.loading}>Loading...</div>;
 
-  if (galleryLoading || (photos.status === 'loading' && !error)) {
-    return <div className={styles.loading}>Loading...</div>;
-  }
+  if (galleryLoading) return loading;
 
-  if (error || photos.status === 'error' || !gallery) {
+  if (error || !gallery) {
     return (
       <div className={styles.container}>
-        <div className={styles.error}>{error || photos.error || 'Gallery not found'}</div>
+        <div className={styles.error}>{error || 'Gallery not found'}</div>
         <Link to="/galleries" className={styles.backLink}>
           Back to galleries
         </Link>
@@ -71,32 +61,41 @@ function GalleryPhotos({ id }: { id: string }) {
     );
   }
 
+  const header = (counts: StatusCounts | null) => (
+    <div className={styles.header}>
+      <div>
+        <Link to="/galleries" className={styles.backLink}>
+          &larr; Back to galleries
+        </Link>
+        <h1 className={styles.title}>{gallery.title}</h1>
+        {counts && (
+          <p className={styles.subtitle}>
+            {counts.all} photo{counts.all === 1 ? '' : 's'}
+          </p>
+        )}
+      </div>
+      <a
+        href={`${window.location.origin.replace('manage.', '')}/g/${gallery.slug}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={styles.viewGalleryBtn}
+      >
+        View Gallery ↗
+      </a>
+    </div>
+  );
+
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
-        <div>
-          <Link to="/galleries" className={styles.backLink}>
-            &larr; Back to galleries
-          </Link>
-          <h1 className={styles.title}>{gallery.title}</h1>
-          <p className={styles.subtitle}>{photos.list.total} photos</p>
-        </div>
-        <a
-          href={`${window.location.origin.replace('manage.', '')}/g/${gallery.slug}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={styles.viewGalleryBtn}
-        >
-          View Gallery ↗
-        </a>
-      </div>
-
-      <PhotoUpload galleryId={gallery.id} onUploadComplete={handleUploadComplete} />
-
-      <PhotoManager
-        photos={photos}
+      <PhotoReviewSection
+        scope={{ galleryId: gallery.id }}
         gallery={gallery}
-        onPhotosChange={fetchGallery}
+        galleryTitle={gallery.title}
+        fetchPage={fetchPage}
+        uploadsGo="end"
+        onGalleryChange={fetchGallery}
+        header={header}
+        loading={loading}
       />
     </div>
   );

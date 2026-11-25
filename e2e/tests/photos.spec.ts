@@ -9,6 +9,8 @@ test('an upload lands in Needs review in the photo manager and Show on site publ
   const gallery = await adminApi(page.request).createGallery({ title: 'Upload smoke', slug, is_public: true });
 
   await page.goto(`${ADMIN}/galleries/${gallery.id}/photos`);
+  // The page opens in Review; the photo manager is the Grid.
+  await page.getByRole('button', { name: 'Grid', exact: true }).click();
   await page.locator('input[type="file"]').setInputFiles({
     name: 'upload-smoke.jpg',
     mimeType: 'image/jpeg',

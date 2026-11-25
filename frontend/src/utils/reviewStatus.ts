@@ -17,4 +17,14 @@ export const STATUS_ACTIONS: Record<ReviewStatus, string> = {
   rejected: 'Reject',
 };
 
+/** What an admin list filtered to a state (or to all, null) says when empty. */
+export const emptyListMessage = (filter: ReviewStatus | null): string =>
+  filter === 'review'
+    ? 'No photos need review.'
+    : filter === 'shown'
+      ? 'No photos are shown on the site.'
+      : filter === 'rejected'
+        ? 'No rejected photos.'
+        : 'No photos yet.';
+
 export const isShown = (photo: { review_status: ReviewStatus }): boolean => photo.review_status === 'shown';

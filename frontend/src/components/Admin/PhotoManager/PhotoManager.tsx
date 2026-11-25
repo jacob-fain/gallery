@@ -23,7 +23,7 @@ import { photoAlt } from '../../../utils/photoAlt';
 import { derivedImages } from '../../../utils/imageSizes';
 import { hasMore, mapPhotos, removePhotos } from '../../../utils/photoList';
 import { shuffle } from '../../../utils/shuffle';
-import { isShown, STATUS_ACTIONS, STATUS_LABELS } from '../../../utils/reviewStatus';
+import { emptyListMessage, isShown, STATUS_ACTIONS, STATUS_LABELS } from '../../../utils/reviewStatus';
 import LoadMore from './LoadMore';
 import type { PhotoListHandle } from './usePhotoList';
 import { useRefreshOnImageError } from './useRefreshOnImageError';
@@ -39,6 +39,10 @@ interface PhotoManagerProps {
   gallery: Gallery | null;
   // Called after a change that can alter the gallery itself (its cover).
   onPhotosChange?: () => void;
+  // The list holds only photos in this state: a photo moved out of it leaves
+  // the grid, and reorder and shuffle are off, since the server would put
+  // every photo not listed after the listed ones.
+  statusFilter?: ReviewStatus | null;
 }
 
 interface SortablePhotoCardProps {
@@ -201,6 +205,7 @@ export default function PhotoManager({
   photos,
   gallery,
   onPhotosChange,
+  statusFilter = null,
 }: PhotoManagerProps) {
   const { list, update, latest, reload, loadAll, loadMore, refreshUrls } = photos;
   const gridRef = useRef<HTMLDivElement>(null);
@@ -225,6 +230,7 @@ export default function PhotoManager({
   const [moving, setMoving] = useState(false);
 
   const galleryId = gallery?.id ?? null;
+  const reorderable = !!gallery && !statusFilter;
   const coverId = gallery?.cover_image_id ?? null;
   const items = list.items;
   const complete = !hasMore(list);
@@ -280,7 +286,7 @@ export default function PhotoManager({
   // sent alone and the server keeps the rest after them.
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    if (!over || active.id === over.id || !reorderable) return;
 
     const before = latest().items;
     const oldIndex = before.findIndex((p) => p.id === active.id);
@@ -365,6 +371,10 @@ export default function PhotoManager({
       setActionError(null);
       try {
         await setPhotosStatus(changing, status);
+        if (statusFilter && status !== statusFilter) {
+          update((l) => removePhotos(l, changing));
+          setSelectedIds((prev) => new Set([...prev].filter((id) => !set.has(id))));
+        }
         onPhotosChange?.();
       } catch (err) {
         update((l) =>
@@ -376,7 +386,7 @@ export default function PhotoManager({
         );
       }
     },
-    [latest, update, onPhotosChange]
+    [latest, update, onPhotosChange, statusFilter]
   );
 
   const handleSetStatus = useCallback(
@@ -492,7 +502,7 @@ export default function PhotoManager({
   if (items.length === 0 && complete) {
     return (
       <div className={styles.empty}>
-        No photos yet. Upload some photos above!
+        {statusFilter ? emptyListMessage(statusFilter) : 'No photos yet. Upload some photos above!'}
       </div>
     );
   }
@@ -523,7 +533,8 @@ export default function PhotoManager({
               <button
                 className={styles.shuffleBtn}
                 onClick={() => setShuffleConfirm(true)}
-                disabled={shuffling || list.total < 2}
+                disabled={shuffling || list.total < 2 || !reorderable}
+                title={reorderable ? undefined : 'Choose All to shuffle the gallery'}
               >
                 {shuffling ? 'Shuffling...' : 'Shuffle'}
               </button>
@@ -630,7 +641,7 @@ export default function PhotoManager({
                 isSelected={selectedIds.has(photo.id)}
                 isDeleting={deletingIds.has(photo.id)}
                 coverSelectMode={coverSelectMode}
-                sortable={!!gallery}
+                sortable={reorderable}
                 onToggleSelect={handleToggleSelect}
                 onCoverClick={handleSetCover}
                 onDelete={setDeleteConfirm}
