@@ -60,15 +60,68 @@ describe('GET /api/share/g/:slug', () => {
 });
 
 describe('GET /api/share/g/:slug/cover.jpg', () => {
+  const gallery = { slug: 'iceland', title: 'Iceland', description: null, coverWebKey: 'web/1' };
+  const current = sharePreview.coverVersion('web/1');
+  const JPEG = Buffer.from('jpeg bytes');
+
+  beforeEach(() => {
+    vi.mocked(sharePreview.getShareGallery).mockResolvedValue(gallery);
+    vi.mocked(sharePreview.getCoverJpeg).mockResolvedValue(JPEG);
+  });
+
+  it('serves the current cover, cacheable for five minutes at the edge and in browsers', async () => {
+    const res = await fetch(`${base}/iceland/cover.jpg?v=${current}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/jpeg');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=300, s-maxage=300');
+    expect(Buffer.from(await res.arrayBuffer()).equals(JPEG)).toBe(true);
+    expect(sharePreview.getCoverJpeg).toHaveBeenCalledWith('web/1');
+  });
+
+  it('is a 404, never stored, for a version that is not the current cover', async () => {
+    for (const v of [sharePreview.coverVersion('web/0'), '', 'x'.repeat(12)]) {
+      const res = await fetch(`${base}/iceland/cover.jpg?v=${v}`);
+      expect(res.status, v).toBe(404);
+      expect(res.headers.get('cache-control'), v).toBe('no-store');
+      expect(await res.json(), v).toEqual({ success: false, error: 'Not found' });
+    }
+    expect(sharePreview.getCoverJpeg).not.toHaveBeenCalled();
+  });
+
+  it('is a 404 when the version is given more than once', async () => {
+    const res = await fetch(`${base}/iceland/cover.jpg?v=${current}&v=${current}`);
+    expect(res.status).toBe(404);
+    expect(sharePreview.getCoverJpeg).not.toHaveBeenCalled();
+  });
+
+  it('redirects a URL with no version to the current one, never stored', async () => {
+    vi.stubEnv('FRONTEND_URL', 'https://example.com');
+    try {
+      const res = await fetch(`${base}/iceland/cover.jpg`, { redirect: 'manual' });
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe(`https://example.com/api/share/g/iceland/cover.jpg?v=${current}`);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      expect(sharePreview.getCoverJpeg).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('is the same 404 with or without a version for a gallery with no preview', async () => {
+    for (const found of [null, { ...gallery, coverWebKey: null }]) {
+      vi.mocked(sharePreview.getShareGallery).mockResolvedValue(found);
+      for (const query of ['', `?v=${current}`]) {
+        const res = await fetch(`${base}/iceland/cover.jpg${query}`, { redirect: 'manual' });
+        expect(res.status, query).toBe(404);
+        expect(res.headers.get('cache-control'), query).toBe('no-store');
+      }
+    }
+    expect(sharePreview.getCoverJpeg).not.toHaveBeenCalled();
+  });
+
   it('is a generic 500 when the render fails', async () => {
-    vi.mocked(sharePreview.getShareGallery).mockResolvedValue({
-      slug: 'iceland',
-      title: 'Iceland',
-      description: null,
-      coverWebKey: 'web/1',
-    });
     vi.mocked(sharePreview.getCoverJpeg).mockRejectedValue(new Error('NoSuchKey'));
-    const res = await fetch(`${base}/iceland/cover.jpg`);
+    const res = await fetch(`${base}/iceland/cover.jpg?v=${current}`);
     expect(res.status).toBe(500);
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(await res.json()).toEqual({ success: false, error: 'Failed to render cover' });
