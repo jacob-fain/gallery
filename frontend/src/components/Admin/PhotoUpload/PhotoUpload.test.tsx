@@ -226,8 +226,15 @@ describe('PhotoUpload drop zone', () => {
       original_filename: 'DSC_0009.jpg',
       gallery_id: 'g2',
       gallery_title: 'Smith Wedding',
+      review_status: 'shown',
     });
-    stored.set('loose', { id: 'p8', original_filename: 'loose.jpg', gallery_id: null, gallery_title: null });
+    stored.set('loose', {
+      id: 'p8',
+      original_filename: 'loose.jpg',
+      gallery_id: null,
+      gallery_title: null,
+      review_status: 'rejected',
+    });
     const { user, input } = renderUpload();
 
     await user.upload(input, [
@@ -239,9 +246,9 @@ describe('PhotoUpload drop zone', () => {
     await started(1);
 
     expect(
-      within(row('copy.jpg')).getByText('Already uploaded in Smith Wedding as DSC_0009.jpg')
+      within(row('copy.jpg')).getByText('Already uploaded in Smith Wedding as DSC_0009.jpg (shown)')
     ).toBeTruthy();
-    expect(within(row('other.jpg')).getByText('Already uploaded (unassigned) as loose.jpg')).toBeTruthy();
+    expect(within(row('other.jpg')).getByText('Already uploaded (unassigned) as loose.jpg (rejected)')).toBeTruthy();
     expect(within(row('second.jpg')).getByText('Duplicate of another file in this batch')).toBeTruthy();
     expect([...uploads.keys()]).toEqual(['first.jpg']);
     expect(summary()).toBe('3/4 · 0 uploaded · 3 skipped');
@@ -313,6 +320,7 @@ describe('PhotoUpload drop zone', () => {
       original_filename: 'DSC_0009.jpg',
       gallery_id: GALLERY,
       gallery_title: 'This Gallery',
+      review_status: 'review',
     });
     const { user, input } = renderUpload();
 
@@ -322,7 +330,7 @@ describe('PhotoUpload drop zone', () => {
 
     await user.upload(input, [image('old.jpg', 'known'), image('new.jpg', 'fresh')]);
     expect(await within(row('new.jpg')).findByText('Not uploaded yet')).toBeTruthy();
-    expect(within(row('old.jpg')).getByText('Already uploaded in This Gallery as DSC_0009.jpg')).toBeTruthy();
+    expect(within(row('old.jpg')).getByText('Already uploaded in This Gallery as DSC_0009.jpg (needs review)')).toBeTruthy();
     // No "0 uploaded": nothing was meant to be.
     expect(summary()).toBe('Done · 1 skipped · 1 not uploaded yet');
     expect(client.checkDuplicates).toHaveBeenCalledTimes(1);

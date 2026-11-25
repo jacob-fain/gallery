@@ -8,12 +8,15 @@ import { recordPhotoDownload, recordPhotoView } from '../services/eventTracking'
 import { canViewPhoto } from '../services/photoAccess';
 import { toPublicPhoto, toPublicPhotos } from '../services/photoView';
 import { cachePublicly } from '../middleware/cacheControl';
-import { encodeCursor, nextOffset, parseAdminPage, parsePublicPage } from '../services/photoPaging';
+import { encodeCursor, parsePublicPage } from '../services/photoPaging';
 import { storedFilename } from '../config/upload';
 import { photoDownloadName } from '../services/downloadNames';
 import type { Photo } from '../types';
 import { logger } from '../utils/logger';
 import { galleryAccessToken } from '../utils/galleryAccessHeader';
+import { isUuid } from '../middleware/validateIds';
+import { isReviewStatus, REVIEW_STATUSES, type ReviewStatus } from '../services/reviewStatus';
+import { adminListBody, parseAdminListQuery } from './adminPhotoList';
 
 const NOT_FOUND = { success: false, error: 'Photo not found' } as const;
 
@@ -67,28 +70,112 @@ export const listAllPhotos = async (req: Request, res: Response) => {
 };
 
 /**
- * List photos not assigned to any gallery (admin), newest first. With
- * ?limit= (and ?offset=) it sends one page; total is the whole list's length
- * and nextOffset is null on the last page.
+ * List photos not assigned to any gallery (admin), newest first. ?status=
+ * keeps one review state. With ?limit= (and ?offset=) it sends one page;
+ * total is the filtered list's length, counts the photos in each state, and
+ * nextOffset is null on the last page.
  */
 export const listUnassignedPhotos = async (req: Request, res: Response) => {
   try {
-    const parsed = parseAdminPage(req.query);
+    const parsed = parseAdminListQuery(req.query);
     if (!parsed.ok) {
       return res.status(400).json({ success: false, error: parsed.error });
     }
-    const page = parsed.value;
-    const { photos, total } = await photoService.getUnassignedPhotos(page);
-    const photosWithUrls = await photoService.enrichPhotosWithUrls(photos);
-    res.json({
-      success: true,
-      data: photosWithUrls,
-      total,
-      nextOffset: page ? nextOffset(page.offset, photos.length, total) : null,
-    });
+    const { page, status } = parsed.value;
+    res.json(await adminListBody(await photoService.getUnassignedPhotos(page, status), page));
   } catch (err) {
     logger.error('Error fetching unassigned photos', { err });
     res.status(500).json({ success: false, error: 'Failed to fetch unassigned photos' });
+  }
+};
+
+/**
+ * ?gallery= naming which photos an admin-wide request covers: "all" (or
+ * absent, when allowed), "unassigned", or a gallery id.
+ */
+const parseGalleryScope = async (
+  value: unknown,
+  { required }: { required: boolean }
+): Promise<{ ok: true; scope: photoService.GalleryScope } | { ok: false; status: number; error: string }> => {
+  if (value === undefined && !required) return { ok: true, scope: { kind: 'all' } };
+  if (value === 'all') return { ok: true, scope: { kind: 'all' } };
+  if (value === 'unassigned') return { ok: true, scope: { kind: 'unassigned' } };
+  if (!isUuid(value)) {
+    return { ok: false, status: 400, error: 'gallery must be all, unassigned or a gallery id' };
+  }
+  if (!(await galleryService.getGalleryById(value))) {
+    return { ok: false, status: 404, error: 'Gallery not found' };
+  }
+  return { ok: true, scope: { kind: 'gallery', id: value } };
+};
+
+/**
+ * Every photo across galleries and Unassigned (admin), newest first, each
+ * with gallery_title. ?gallery= narrows it to "unassigned" or one gallery,
+ * ?status= to one review state, and ?limit= / ?offset= page it as the other
+ * admin lists do.
+ */
+export const listAdminPhotos = async (req: Request, res: Response) => {
+  try {
+    const parsed = parseAdminListQuery(req.query);
+    if (!parsed.ok) {
+      return res.status(400).json({ success: false, error: parsed.error });
+    }
+    const scope = await parseGalleryScope(req.query.gallery, { required: false });
+    if (!scope.ok) {
+      return res.status(scope.status).json({ success: false, error: scope.error });
+    }
+    const { page, status } = parsed.value;
+    res.json(await adminListBody(await photoService.getAllPhotosAdmin(scope.scope, page, status), page));
+  } catch (err) {
+    logger.error('Error fetching admin photos', { err });
+    res.status(500).json({ success: false, error: 'Failed to fetch photos' });
+  }
+};
+
+/**
+ * Delete every rejected photo in ?gallery= ("all", "unassigned" or a gallery
+ * id, always required so no request deletes across galleries by omission),
+ * and their S3 objects. Answers how many were deleted and the scope's counts
+ * per state afterwards.
+ */
+export const deleteRejectedPhotos = async (req: Request, res: Response) => {
+  try {
+    const scope = await parseGalleryScope(req.query.gallery, { required: true });
+    if (!scope.ok) {
+      return res.status(scope.status).json({ success: false, error: scope.error });
+    }
+    const { deleted, s3Keys } = await photoService.deleteRejectedPhotos(scope.scope);
+    // After the commit, as for a gallery delete: best effort, failures are
+    // logged and left for the cleanup script.
+    await s3Service.deleteFiles(s3Keys);
+    const counts = await photoService.countByStatus(scope.scope);
+    res.json({ success: true, data: { deleted, counts } });
+  } catch (err) {
+    logger.error('Error deleting rejected photos', { err });
+    res.status(500).json({ success: false, error: 'Failed to delete rejected photos' });
+  }
+};
+
+const BAD_STATUS = `review_status must be one of ${REVIEW_STATUSES.join(', ')}`;
+
+/**
+ * Put several photos in one review state.
+ * Body: { photo_ids: string[], review_status: 'review' | 'shown' | 'rejected' }
+ * Answers how many changed: ids already in that state, or that name no
+ * photo, are skipped.
+ */
+export const setPhotosStatus = async (req: Request, res: Response) => {
+  try {
+    const { photo_ids, review_status } = req.body;
+    if (!isReviewStatus(review_status)) {
+      return res.status(400).json({ success: false, error: BAD_STATUS });
+    }
+    const updated = await photoService.setReviewStatus(photo_ids, review_status);
+    res.json({ success: true, data: { updated } });
+  } catch (err) {
+    logger.error('Error setting photo status', { err });
+    res.status(500).json({ success: false, error: 'Failed to update photos' });
   }
 };
 
@@ -147,9 +234,19 @@ export const trackDownload = (req: Request, res: Response) => {
   res.status(204).end();
 };
 
+const STATUS_NAMES: Record<ReviewStatus, string> = {
+  review: 'needs review',
+  shown: 'shown',
+  rejected: 'rejected',
+};
+
+// The state is named so a re-upload of a rejected photo says why it is not
+// on the site.
 const alreadyUploaded = (existing: Photo | null) => ({
   success: false,
-  error: existing ? `Already uploaded as ${existing.original_filename}` : 'Already uploaded',
+  error: existing
+    ? `Already uploaded as ${existing.original_filename} (${STATUS_NAMES[existing.review_status]})`
+    : 'Already uploaded',
 });
 
 export const uploadPhoto = async (req: Request, res: Response) => {
@@ -268,8 +365,8 @@ export const uploadPhoto = async (req: Request, res: Response) => {
 /**
  * Check which content hashes are already uploaded
  * Body: { hashes: string[] } (SHA-256 hex of original file bytes)
- * Returns a map of hash -> { id, original_filename, gallery_id, gallery_title }
- * for hashes that exist; missing hashes are simply absent.
+ * Returns a map of hash -> { id, original_filename, gallery_id, gallery_title,
+ * review_status } for hashes that exist; missing hashes are simply absent.
  */
 export const checkDuplicates = async (req: Request, res: Response) => {
   try {
@@ -298,7 +395,13 @@ export const checkDuplicates = async (req: Request, res: Response) => {
     const photos = await photoService.getPhotosByContentHashes(hashes);
     const found: Record<
       string,
-      { id: string; original_filename: string; gallery_id: string | null; gallery_title: string | null }
+      {
+        id: string;
+        original_filename: string;
+        gallery_id: string | null;
+        gallery_title: string | null;
+        review_status: ReviewStatus;
+      }
     > = {};
     for (const photo of photos) {
       found[photo.content_hash!] = {
@@ -306,6 +409,7 @@ export const checkDuplicates = async (req: Request, res: Response) => {
         original_filename: photo.original_filename,
         gallery_id: photo.gallery_id,
         gallery_title: photo.gallery_title,
+        review_status: photo.review_status,
       };
     }
 
@@ -317,14 +421,24 @@ export const checkDuplicates = async (req: Request, res: Response) => {
 };
 
 /**
- * Update a photo's metadata (featured, hidden, sort_order)
+ * Update a photo's review_status or sort_order
  */
 export const updatePhoto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     // Featured state lives in featured_order and changes only through the
     // homepage endpoints, so is_featured is not accepted here.
-    const { is_hidden, sort_order } = req.body;
+    const { review_status, sort_order } = req.body;
+    // Refused rather than ignored: a caller still sending is_hidden would
+    // otherwise believe it had hidden a photo that stays public.
+    if (req.body.is_hidden !== undefined) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'is_hidden is no longer accepted; send review_status' });
+    }
+    if (review_status !== undefined && !isReviewStatus(review_status)) {
+      return res.status(400).json({ success: false, error: BAD_STATUS });
+    }
 
     // Check if photo exists
     const existing = await photoService.getPhotoById(id);
@@ -333,7 +447,7 @@ export const updatePhoto = async (req: Request, res: Response) => {
     }
 
     const photo = await photoService.updatePhoto(id, {
-      is_hidden,
+      review_status,
       sort_order,
     });
 
@@ -450,6 +564,8 @@ export const movePhotos = async (req: Request, res: Response) => {
 
 // ============ Homepage Featured Photos Management ============
 
+const HERO_NOT_SHOWN = 'Show this photo on the site before making it the hero';
+
 /**
  * Get all featured photos for admin management
  */
@@ -480,12 +596,10 @@ export const setHero = async (req: Request, res: Response) => {
     if (!photo) {
       return res.status(404).json({ success: false, error: 'Photo not found' });
     }
-    // Visitors never see a hidden photo, so as hero it would be silently
-    // replaced by the next featured photo.
-    if (photo.is_hidden) {
-      return res
-        .status(400)
-        .json({ success: false, error: 'Show this photo before making it the hero' });
+    // Visitors see only shown photos, so as hero any other would be
+    // silently replaced by the next featured photo.
+    if (photo.review_status !== 'shown') {
+      return res.status(400).json({ success: false, error: HERO_NOT_SHOWN });
     }
 
     await photoService.setHeroPhoto(photo_id);
@@ -566,13 +680,11 @@ export const reorderFeatured = async (req: Request, res: Response) => {
       });
     }
 
-    // The first position is the hero. A hidden photo may stay there (it was
-    // hidden after becoming hero), but none may be moved there.
+    // The first position is the hero. A photo that is not shown may stay
+    // there (it left shown after becoming hero), but none may be moved there.
     const first = await photoService.getPhotoById(photo_ids[0]);
-    if (first?.is_hidden && first.featured_order !== 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: 'Show this photo before making it the hero' });
+    if (first && first.review_status !== 'shown' && first.featured_order !== 0) {
+      return res.status(400).json({ success: false, error: HERO_NOT_SHOWN });
     }
 
     await photoService.reorderFeaturedPhotos(photo_ids);

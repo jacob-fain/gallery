@@ -5,6 +5,7 @@ import { getSignedUrl } from './s3Service';
 import { photoDownloadName } from './downloadNames';
 import type { PublicCursor } from './photoPaging';
 import type { PhotoRow } from './photoView';
+import { toStatusCounts, type ReviewStatus, type StatusCounts } from './reviewStatus';
 
 export const getPhotoById = async (id: string): Promise<Photo | null> => {
   const result = await query(
@@ -15,20 +16,19 @@ export const getPhotoById = async (id: string): Promise<Photo | null> => {
 };
 
 export const getFeaturedPhotos = async (): Promise<Photo[]> => {
-  // Featured photos show on homepage regardless of gallery visibility
-  // (user explicitly selected them for homepage)
-  // Only filter by is_hidden to respect photo-level visibility
+  // Featured photos show on the homepage whatever their gallery's
+  // visibility (they were chosen for it), but only while shown.
   const result = await query(
     `SELECT p.*, g.title as gallery_title, g.slug as gallery_slug
      FROM photos p
      LEFT JOIN galleries g ON p.gallery_id = g.id
-     WHERE p.featured_order IS NOT NULL AND p.is_hidden = false
+     WHERE p.featured_order IS NOT NULL AND p.review_status = 'shown'
      ORDER BY p.featured_order ASC`
   );
   return result.rows;
 };
 
-// Get all featured photos for admin (includes hidden, any gallery)
+// Get all featured photos for admin (any review state, any gallery)
 export const getFeaturedPhotosAdmin = async (): Promise<Photo[]> => {
   const result = await query(
     `SELECT p.*, g.title as gallery_title, g.slug as gallery_slug
@@ -196,12 +196,12 @@ export const createPhoto = async (data: CreatePhotoInput): Promise<Photo> =>
       `INSERT INTO photos (
         gallery_id, filename, original_filename,
         s3_key, s3_thumbnail_key, s3_web_key,
-        width, height, file_size, exif_data, content_hash, sort_order, is_hidden,
+        width, height, file_size, exif_data, content_hash, sort_order, review_status,
         original_content_type
       )
-      -- New uploads start hidden so nothing is public before it is reviewed;
-      -- the admin publishes them with Show.
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, $13)
+      -- New uploads start in review so nothing is public before it is
+      -- reviewed; the admin publishes them with Show on site.
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'review', $13)
       RETURNING *`,
       [
         data.gallery_id,
@@ -283,7 +283,7 @@ export const getPublicPhotosPage = async (
     `SELECT p.*, g.title AS gallery_title, g.slug AS gallery_slug, ${CURSOR_TIME} AS cursor_uploaded_at
      FROM photos p
      LEFT JOIN galleries g ON p.gallery_id = g.id
-     WHERE p.is_hidden = false AND (g.is_public = true OR p.gallery_id IS NULL)
+     WHERE p.review_status = 'shown' AND (g.is_public = true OR p.gallery_id IS NULL)
        AND ($2::timestamptz IS NULL OR (p.uploaded_at, p.id) < ($2::timestamptz, $3::uuid))
      ORDER BY p.uploaded_at DESC, p.id DESC
      LIMIT $1`,
@@ -297,49 +297,157 @@ export const getPublicPhotosPage = async (
   };
 };
 
-/** A page of an admin photo list, and the length of the whole list. */
-export interface PhotoPage {
-  photos: Photo[];
+/**
+ * A page of an admin photo list, the length of the whole (filtered) list,
+ * and how many photos of the unfiltered list are in each review state.
+ */
+export interface PhotoPage<T extends Photo = Photo> {
+  photos: T[];
   total: number;
+  counts: StatusCounts;
 }
 
 export type OffsetPage = { limit: number; offset: number } | null;
 
-const offsetPage = async (
-  where: string,
+/** A photo of the admin All Photos list, with its gallery's title. */
+export type AdminPhotoRow = Photo & { gallery_title: string | null };
+
+/** Which photos an admin list or bulk action covers. */
+export type GalleryScope = { kind: 'all' } | { kind: 'unassigned' } | { kind: 'gallery'; id: string };
+
+// Fixed SQL over the alias p; the gallery id goes in params.
+const scopeWhere = (scope: GalleryScope): { where: string; params: unknown[] } =>
+  scope.kind === 'all'
+    ? { where: 'true', params: [] }
+    : scope.kind === 'unassigned'
+      ? { where: 'p.gallery_id IS NULL', params: [] }
+      : { where: 'p.gallery_id = $1', params: [scope.id] };
+
+const countsQuery = (where: string) =>
+  `SELECT p.review_status, COUNT(*)::int AS n FROM photos p WHERE ${where} GROUP BY p.review_status`;
+
+/** How many photos of a scope are in each review state. */
+export const countByStatus = async (scope: GalleryScope): Promise<StatusCounts> => {
+  const { where, params } = scopeWhere(scope);
+  return toStatusCounts((await query(countsQuery(where), params)).rows);
+};
+
+/**
+ * One page (or, with page null, all) of a scope's photos in `status` (every
+ * state when null), with the scope's counts per state. orderBy and the
+ * select and join are fixed SQL over the alias p, never user input.
+ */
+const offsetPage = async <T extends Photo>(
+  scope: GalleryScope,
   orderBy: string,
-  params: unknown[],
-  page: OffsetPage
-): Promise<PhotoPage> => {
-  if (!page) {
-    const all = await query(`SELECT * FROM photos WHERE ${where} ORDER BY ${orderBy}`, params);
-    return { photos: all.rows, total: all.rows.length };
-  }
-  const n = params.length;
-  const [rows, count] = await Promise.all([
-    query(
-      `SELECT * FROM photos WHERE ${where} ORDER BY ${orderBy} LIMIT $${n + 1} OFFSET $${n + 2}`,
-      [...params, page.limit, page.offset]
-    ),
-    query(`SELECT COUNT(*)::int AS total FROM photos WHERE ${where}`, params),
+  status: ReviewStatus | null,
+  page: OffsetPage,
+  { select = 'p.*', join = '' }: { select?: string; join?: string } = {}
+): Promise<PhotoPage<T>> => {
+  const { where, params } = scopeWhere(scope);
+  const filtered = status ? `${where} AND p.review_status = $${params.length + 1}` : where;
+  const listParams = status ? [...params, status] : params;
+  const n = listParams.length;
+  const list = `SELECT ${select} FROM photos p ${join} WHERE ${filtered} ORDER BY ${orderBy}`;
+  const [rows, counts] = await Promise.all([
+    page
+      ? query(`${list} LIMIT $${n + 1} OFFSET $${n + 2}`, [...listParams, page.limit, page.offset])
+      : query(list, listParams),
+    query(countsQuery(where), params),
   ]);
-  return { photos: rows.rows, total: count.rows[0].total };
+  const statusCounts = toStatusCounts(counts.rows);
+  return {
+    photos: rows.rows,
+    total: status ? statusCounts[status] : statusCounts.all,
+    counts: statusCounts,
+  };
 };
 
 /**
  * Photos not assigned to any gallery (admin), newest first: one page, or
  * all of them when page is null.
  */
-export const getUnassignedPhotos = (page: OffsetPage = null): Promise<PhotoPage> =>
-  offsetPage('gallery_id IS NULL', 'uploaded_at DESC, id DESC', [], page);
+export const getUnassignedPhotos = (
+  page: OffsetPage = null,
+  status: ReviewStatus | null = null
+): Promise<PhotoPage> =>
+  offsetPage({ kind: 'unassigned' }, 'p.uploaded_at DESC, p.id DESC', status, page);
 
 /**
- * A gallery's photos, hidden ones included (admin), in gallery order: one
+ * A gallery's photos in every review state (admin), in gallery order: one
  * page, or all of them when page is null. The id tiebreak keeps pages from
  * overlapping when two photos share a position.
  */
-export const getGalleryPhotosAdmin = (galleryId: string, page: OffsetPage = null): Promise<PhotoPage> =>
-  offsetPage('gallery_id = $1', 'sort_order ASC, uploaded_at ASC, id ASC', [galleryId], page);
+export const getGalleryPhotosAdmin = (
+  galleryId: string,
+  page: OffsetPage = null,
+  status: ReviewStatus | null = null
+): Promise<PhotoPage> =>
+  offsetPage(
+    { kind: 'gallery', id: galleryId },
+    'p.sort_order ASC, p.uploaded_at ASC, p.id ASC',
+    status,
+    page
+  );
+
+/**
+ * Photos of every gallery and Unassigned, or of one of them (admin), newest
+ * first, each with its gallery's title: one page, or all of them when page
+ * is null.
+ */
+export const getAllPhotosAdmin = (
+  scope: GalleryScope,
+  page: OffsetPage = null,
+  status: ReviewStatus | null = null
+): Promise<PhotoPage<AdminPhotoRow>> =>
+  offsetPage<AdminPhotoRow>(scope, 'p.uploaded_at DESC, p.id DESC', status, page, {
+    select: 'p.*, g.title AS gallery_title',
+    join: 'LEFT JOIN galleries g ON g.id = p.gallery_id',
+  });
+
+/**
+ * Put photos in a review state. Ids already in it, or that name no photo,
+ * are skipped.
+ * @returns Number of photos changed
+ */
+export const setReviewStatus = async (photoIds: string[], status: ReviewStatus): Promise<number> => {
+  const result = await query(
+    `UPDATE photos SET review_status = $2 WHERE id = ANY($1::uuid[]) AND review_status <> $2`,
+    [photoIds, status]
+  );
+  return result.rowCount ?? 0;
+};
+
+/**
+ * Delete every rejected photo in a scope, returning the S3 keys of exactly
+ * the photos deleted so the caller removes the objects after the commit, as
+ * gallery delete does: a photo sent back to review meanwhile is not in the
+ * result and keeps its objects. Holds the homepage lock, so removing a
+ * featured photo leaves the homepage order dense.
+ */
+export const deleteRejectedPhotos = (
+  scope: GalleryScope
+): Promise<{ deleted: number; s3Keys: string[] }> =>
+  withFeaturedLock(async (client) => {
+    const { where, params } = scopeWhere(scope);
+    const removed = await client.query<{
+      s3_key: string;
+      s3_web_key: string;
+      s3_thumbnail_key: string;
+      featured_order: number | null;
+    }>(
+      `DELETE FROM photos p WHERE ${where} AND p.review_status = 'rejected'
+       RETURNING p.s3_key, p.s3_web_key, p.s3_thumbnail_key, p.featured_order`,
+      params
+    );
+    if (removed.rows.some((r) => r.featured_order !== null)) {
+      await renumberFeatured(client, 'p.featured_order, p.id');
+    }
+    return {
+      deleted: removed.rows.length,
+      s3Keys: removed.rows.flatMap((r) => [r.s3_key, r.s3_web_key, r.s3_thumbnail_key]),
+    };
+  });
 
 /**
  * Get all photos in a gallery ordered by sort_order
@@ -356,12 +464,12 @@ export const updatePhoto = async (
 ): Promise<Photo | null> => {
   // Column names are from a fixed set of if conditions, not user input - safe from SQL injection
   const updates: string[] = [];
-  const values: (boolean | number | string)[] = [];
+  const values: (number | string)[] = [];
   let paramIndex = 1;
 
-  if (data.is_hidden !== undefined) {
-    updates.push(`is_hidden = $${paramIndex++}`);
-    values.push(data.is_hidden);
+  if (data.review_status !== undefined) {
+    updates.push(`review_status = $${paramIndex++}`);
+    values.push(data.review_status);
   }
   if (data.sort_order !== undefined) {
     updates.push(`sort_order = $${paramIndex++}`);

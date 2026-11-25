@@ -103,11 +103,11 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       );
     });
 
-    it('counts each gallery\'s visible photos on the list, as its own page does', async () => {
+    it('counts each gallery\'s shown photos on the list, as its own page does', async () => {
       const g = await fixtures.gallery();
       await fixtures.photo(g.id);
       await fixtures.photo(g.id);
-      await fixtures.photo(g.id, { hidden: true });
+      await fixtures.privatePhotos(g.id);
       const empty = await fixtures.gallery();
 
       const list = await request('GET', '/galleries', { admin: false });
@@ -122,12 +122,12 @@ describe.skipIf(!db)('gallery routes (database)', () => {
   });
 
   describe('GET /galleries/:slug', () => {
-    it('answers a public gallery with its id, title, slug, description and visible photo count, cacheable', async () => {
+    it('answers a public gallery with its id, title, slug, description and shown photo count, cacheable', async () => {
       const g = await fixtures.gallery();
       await query(`UPDATE galleries SET description = 'Ring Road' WHERE id = $1`, [g.id]);
       await fixtures.photo(g.id);
       await fixtures.photo(g.id);
-      await fixtures.photo(g.id, { hidden: true });
+      await fixtures.privatePhotos(g.id);
       const res = await request('GET', `/galleries/${g.slug}`, { admin: false });
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual({ id: g.id, title: g.title, slug: g.slug, description: 'Ring Road', photoCount: 2 });
@@ -197,7 +197,7 @@ describe.skipIf(!db)('gallery routes (database)', () => {
       const locked = await request('GET', `/galleries/${g.slug}/photos`, { admin: false });
       expect(locked.status).toBe(403);
 
-      await fixtures.photo(g.id, { hidden: true });
+      await fixtures.privatePhotos(g.id);
 
       const wrong = await request('POST', `/galleries/${g.slug}/verify`, { admin: false, body: { password: 'guess' } });
       expect(wrong.status).toBe(401);
@@ -349,10 +349,10 @@ describe.skipIf(!db)('gallery routes (database)', () => {
   });
 
   describe('public gallery photos', () => {
-    it('lists visible photos only, with signed URLs and no storage keys', async () => {
+    it('lists shown photos only, with signed URLs and no storage keys', async () => {
       const g = await fixtures.gallery();
       const shown = await fixtures.photo(g.id);
-      await fixtures.photo(g.id, { hidden: true });
+      await fixtures.privatePhotos(g.id);
 
       const res = await request('GET', `/galleries/${g.slug}/photos`, { admin: false });
       expect(res.status).toBe(200);
@@ -363,18 +363,33 @@ describe.skipIf(!db)('gallery routes (database)', () => {
   });
 
   describe('GET /galleries/:id/photos/admin', () => {
-    it('includes hidden photos and pages with total and nextOffset', async () => {
+    it('includes every state, filters by status with counts, and pages with total and nextOffset', async () => {
       const g = await fixtures.gallery();
-      await fixtures.photo(g.id);
-      await fixtures.photo(g.id, { hidden: true });
+      const shown = await fixtures.photo(g.id);
+      const [review, rejected] = await fixtures.privatePhotos(g.id);
+      const counts = { review: 1, shown: 1, rejected: 1, all: 3 };
 
       const all = await request('GET', `/galleries/${g.id}/photos/admin`);
-      expect(all.body.data).toHaveLength(2);
-      expect(all.body).toMatchObject({ total: 2, nextOffset: null });
+      expect(all.body.data.map((p: { id: string }) => p.id)).toEqual([shown.id, review.id, rejected.id]);
+      expect(all.body).toMatchObject({ total: 3, nextOffset: null, counts });
+      expect(all.body.data[1]).toMatchObject({ review_status: 'review', is_hidden: true });
 
-      const first = await request('GET', `/galleries/${g.id}/photos/admin?limit=1`);
+      const first = await request('GET', `/galleries/${g.id}/photos/admin?limit=1&status=all`);
       expect(first.body.data).toHaveLength(1);
-      expect(first.body).toMatchObject({ total: 2, nextOffset: 1 });
+      expect(first.body).toMatchObject({ total: 3, nextOffset: 1, counts });
+
+      for (const [status, photo] of [['review', review], ['shown', shown], ['rejected', rejected]] as const) {
+        const res = await request('GET', `/galleries/${g.id}/photos/admin?status=${status}&limit=10`);
+        expect(res.body.data.map((p: { id: string }) => p.id)).toEqual([photo.id]);
+        expect(res.body).toMatchObject({ total: 1, nextOffset: null, counts });
+      }
+    });
+
+    it('refuses an unknown status', async () => {
+      const g = await fixtures.gallery();
+      const res = await request('GET', `/galleries/${g.id}/photos/admin?status=hidden`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('status must be review, shown, rejected or all');
     });
 
     it('refuses a bad page and answers 404 for an unknown gallery', async () => {

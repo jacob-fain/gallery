@@ -25,7 +25,7 @@ const photo = (id: string, signing: number) =>
     original_filename: `${id}.jpg`,
     width: 600,
     height: 400,
-    is_hidden: false,
+    review_status: 'shown',
     thumbnailUrl: `https://s3.test/${id}-thumb.webp?sig=${signing}`,
   }) as Photo;
 

@@ -9,9 +9,9 @@ apply to verdicts too.
 
 - **The whole diff.** Read every line. Verify the risky parts in the code
   yourself; never trust a PR's claim that something is safe.
-- **Access.** Admin routes stay behind admin auth. Private galleries and hidden
-  photos stay private on every path (lists, single photo, download, ZIP,
-  featured). Nothing new reaches a public response that should not.
+- **Access.** Admin routes stay behind admin auth. Private galleries, and
+  photos that are not shown (in review or rejected), stay private on every
+  path (lists, single photo, download, ZIP, covers, featured, counts). Nothing new reaches a public response that should not.
 - **Data.** Migrations are safe on the existing production data and never drop
   what the running release still reads. S3 keys are taken from the stored row,
   never rebuilt from an id.

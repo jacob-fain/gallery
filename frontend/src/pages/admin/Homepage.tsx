@@ -12,6 +12,7 @@ import LoadMore from '../../components/Admin/PhotoManager/LoadMore';
 import { usePhotoList } from '../../components/Admin/PhotoManager/usePhotoList';
 import { useRefreshOnImageError } from '../../components/Admin/PhotoManager/useRefreshOnImageError';
 import { withFreshSignedUrls } from '../../utils/expiredImages';
+import { isShown, STATUS_LABELS } from '../../utils/reviewStatus';
 import type { Photo, Gallery } from '../../types';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
@@ -119,7 +120,7 @@ function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoPro
       <div className={styles.dragHandle} {...attributes} {...listeners}>
         <img src={photo.thumbnailUrl} alt="" className={styles.thumbnail} loading="lazy" decoding="async" />
         {isHero && <div className={styles.heroBadge}>Hero</div>}
-        {photo.is_hidden && <div className={styles.hiddenBadge}>Hidden</div>}
+        {!isShown(photo) && <div className={styles.hiddenBadge}>{STATUS_LABELS[photo.review_status]}</div>}
       </div>
       <div className={styles.photoInfo}>
         <span className={styles.galleryName}>{photo.gallery_title}</span>
@@ -128,8 +129,8 @@ function SortablePhoto({ photo, isHero, onMakeHero, onRemove }: SortablePhotoPro
             <button
               className={styles.makeHeroBtn}
               onClick={() => onMakeHero(photo.id)}
-              disabled={photo.is_hidden}
-              title={photo.is_hidden ? 'Show this photo before making it the hero' : undefined}
+              disabled={!isShown(photo)}
+              title={isShown(photo) ? undefined : 'Show this photo on the site before making it the hero'}
             >
               Make Hero
             </button>
@@ -208,8 +209,8 @@ export default function Homepage() {
     const newIndex = photos.findIndex((p) => p.id === over.id);
 
     const newPhotos = arrayMove(photos, oldIndex, newIndex);
-    // Position 0 is the hero, and visitors never see a hidden one.
-    if (newPhotos[0].is_hidden && newPhotos[0].id !== photos[0].id) return;
+    // Position 0 is the hero, and visitors see only shown photos.
+    if (!isShown(newPhotos[0]) && newPhotos[0].id !== photos[0].id) return;
     setPhotos(newPhotos);
 
     try {
@@ -314,10 +315,10 @@ export default function Homepage() {
               <p className={styles.sectionDesc}>
                 The main background image visitors see first. Drag to reorder.
               </p>
-              {heroPhoto?.is_hidden && (
+              {heroPhoto && !isShown(heroPhoto) && (
                 <p className={styles.heroWarning}>
-                  This photo is hidden, so visitors see the next visible featured photo as the
-                  hero instead.
+                  This photo is not shown on the site, so visitors see the next shown featured
+                  photo as the hero instead.
                 </p>
               )}
               {heroPhoto && (

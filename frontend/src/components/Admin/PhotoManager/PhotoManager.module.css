@@ -288,7 +288,7 @@
   color: white;
 }
 
-.hiddenBadge {
+.statusBadge {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
@@ -296,10 +296,19 @@
   border-radius: 4px;
   font-size: 0.625rem;
   font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   pointer-events: none;
-  background: rgba(239, 68, 68, 0.9);
   color: white;
+}
+
+/* Fixed colors: the badge sits on a photo, not on the page background. */
+.statusBadge.review {
+  background: #d97706;
+}
+
+.statusBadge.rejected {
+  background: rgba(185, 28, 28, 0.92);
 }
 
 

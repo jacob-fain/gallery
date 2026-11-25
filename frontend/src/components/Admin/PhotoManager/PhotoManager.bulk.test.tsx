@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Photo } from '../../../types';
+import type { Photo, ReviewStatus } from '../../../types';
 
 vi.mock('../../../api/client', () => ({
   deletePhoto: vi.fn(),
@@ -10,111 +10,119 @@ vi.mock('../../../api/client', () => ({
   reorderPhotos: vi.fn(),
   movePhotos: vi.fn(),
   getAllGalleries: vi.fn(),
-  updatePhoto: vi.fn(),
+  setPhotosStatus: vi.fn(),
 }));
 
 const client = await import('../../../api/client');
 const { default: PhotoManager } = await import('./PhotoManager');
 const { usePhotoList } = await import('./usePhotoList');
 
-const photo = (id: string, is_hidden: boolean) =>
-  ({ id, gallery_id: null, original_filename: `${id}.jpg`, width: 600, height: 400, is_hidden }) as Photo;
+const photo = (id: string, review_status: ReviewStatus) =>
+  ({ id, gallery_id: null, original_filename: `${id}.jpg`, width: 600, height: 400, review_status }) as Photo;
 
-const PHOTOS = [photo('visible1', false), photo('visible2', false), photo('hidden1', true)];
+const PHOTOS = [photo('shown1', 'shown'), photo('shown2', 'shown'), photo('new1', 'review'), photo('out1', 'rejected')];
 
 function Harness() {
   const photos = usePhotoList(async () => ({ photos: PHOTOS, total: PHOTOS.length }));
   return <PhotoManager photos={photos} gallery={null} />;
 }
 
+type Action = 'Show on site' | 'Reject' | 'Back to review';
+
 async function renderManager() {
   const user = userEvent.setup();
   render(<Harness />);
-  await screen.findByText('visible1.jpg');
+  await screen.findByText('shown1.jpg');
   // The first checkbox is Select All; the rest follow the grid order.
   const checkbox = (id: string) =>
     screen.getAllByRole('checkbox')[1 + PHOTOS.findIndex((p) => p.id === id)];
-  const bulk = (name: 'Show' | 'Hide') =>
-    screen.getByRole('button', { name }) as HTMLButtonElement;
-  return { user, checkbox, bulk };
+  const bar = () => screen.getByText(/selected$/).parentElement as HTMLElement;
+  const bulk = (name: Action) => within(bar()).getByRole('button', { name }) as HTMLButtonElement;
+  const enabled = () =>
+    (['Show on site', 'Reject', 'Back to review'] as Action[]).filter((a) => !bulk(a).disabled);
+  return { user, checkbox, bulk, enabled };
 }
 
-describe('PhotoManager bulk Show and Hide', () => {
+describe('PhotoManager bulk review actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(client.setPhotosStatus).mockResolvedValue({ updated: 1 });
   });
 
   it('offers no bulk actions until a photo is selected', async () => {
     await renderManager();
-    expect(screen.queryByRole('button', { name: 'Hide' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Show' })).toBeNull();
+    expect(screen.queryByText(/selected$/)).toBeNull();
   });
 
-  it('enables only Hide for a selection of visible photos', async () => {
-    const { user, checkbox, bulk } = await renderManager();
-    await user.click(checkbox('visible1'));
+  it('badges every photo that is not shown with its state', async () => {
+    await renderManager();
+    expect(screen.getAllByText('Needs review')).toHaveLength(1);
+    expect(screen.getAllByText('Rejected')).toHaveLength(1);
+    expect(screen.queryByText('Shown')).toBeNull();
+  });
 
+  it.each([
+    ['shown1', ['Reject', 'Back to review']],
+    ['new1', ['Show on site', 'Reject']],
+    ['out1', ['Show on site', 'Back to review']],
+  ])('offers for a %s selection only the actions that change it', async (id, actions) => {
+    const { user, checkbox, enabled } = await renderManager();
+    await user.click(checkbox(id));
     expect(screen.getByText('1 selected')).toBeTruthy();
-    expect(bulk('Hide').disabled).toBe(false);
-    expect(bulk('Show').disabled).toBe(true);
+    expect(enabled()).toEqual(actions);
   });
 
-  it('enables only Show for a selection of hidden photos', async () => {
-    const { user, checkbox, bulk } = await renderManager();
-    await user.click(checkbox('hidden1'));
-
-    expect(bulk('Show').disabled).toBe(false);
-    expect(bulk('Hide').disabled).toBe(true);
-  });
-
-  it('enables both for a mixed selection and hides only the visible ones', async () => {
+  it('sends one request for the photos that change, and keeps the change', async () => {
     let finish: () => void = () => {};
-    vi.mocked(client.updatePhoto).mockImplementation(
-      (id) => new Promise((resolve) => (finish = () => resolve({ id } as Photo)))
+    vi.mocked(client.setPhotosStatus).mockImplementation(
+      () => new Promise((resolve) => (finish = () => resolve({ updated: 2 })))
     );
-    const { user, checkbox, bulk } = await renderManager();
-    await user.click(checkbox('visible1'));
-    await user.click(checkbox('hidden1'));
-    expect(bulk('Show').disabled).toBe(false);
-    expect(bulk('Hide').disabled).toBe(false);
+    const { user, checkbox, bulk, enabled } = await renderManager();
+    await user.click(checkbox('shown1'));
+    await user.click(checkbox('new1'));
+    await user.click(checkbox('out1'));
 
-    await user.click(bulk('Hide'));
+    await user.click(bulk('Show on site'));
 
-    expect(client.updatePhoto).toHaveBeenCalledTimes(1);
-    expect(client.updatePhoto).toHaveBeenCalledWith('visible1', { is_hidden: true });
-    // Both stay off while the request runs.
-    expect(bulk('Show').disabled).toBe(true);
-    expect(bulk('Hide').disabled).toBe(true);
+    expect(client.setPhotosStatus).toHaveBeenCalledTimes(1);
+    expect(client.setPhotosStatus).toHaveBeenCalledWith(['new1', 'out1'], 'shown');
+    // Applied at once, and every action is off while the request runs.
+    expect(screen.queryByText('Needs review')).toBeNull();
+    expect(enabled()).toEqual([]);
 
     finish();
-    // Everything selected is hidden now, so only Show is left to do.
-    await waitFor(() => expect(bulk('Show').disabled).toBe(false));
-    expect(bulk('Hide').disabled).toBe(true);
-    expect(screen.getAllByText('Hidden')).toHaveLength(2);
+    await waitFor(() => expect(enabled()).toEqual(['Reject', 'Back to review']));
+    expect(screen.queryByText('Rejected')).toBeNull();
   });
 
-  it('puts a photo back and reports it when its change fails', async () => {
-    vi.mocked(client.updatePhoto).mockImplementation(async (id) => {
-      if (id === 'visible2') throw new Error('Server error');
-      return { id } as Photo;
-    });
-    const { user, checkbox, bulk } = await renderManager();
-    await user.click(checkbox('visible1'));
-    await user.click(checkbox('visible2'));
+  it('puts the photos back and reports it when the request fails', async () => {
+    vi.mocked(client.setPhotosStatus).mockRejectedValue(new Error('Server error'));
+    const { user, checkbox, bulk, enabled } = await renderManager();
+    await user.click(checkbox('shown1'));
+    await user.click(checkbox('shown2'));
 
-    await user.click(bulk('Hide'));
+    await user.click(bulk('Reject'));
 
-    expect(await screen.findByRole('alert')).toBeTruthy();
-    expect(screen.getAllByText('Hidden')).toHaveLength(2);
-    // visible2 is still visible, so Hide still has something to do.
-    expect(bulk('Hide').disabled).toBe(false);
+    expect((await screen.findByRole('alert')).textContent).toContain('Server error: 2 photos were not changed');
+    expect(screen.getAllByText('Rejected')).toHaveLength(1);
+    expect(enabled()).toEqual(['Reject', 'Back to review']);
+  });
+
+  it("toggles one photo from its card: a shown one is rejected, any other shown", async () => {
+    const { user } = await renderManager();
+    await user.click(screen.getAllByRole('button', { name: 'Reject' })[0]);
+    expect(client.setPhotosStatus).toHaveBeenLastCalledWith(['shown1'], 'rejected');
+
+    const cardOf = (name: string) => screen.getByText(name).closest('[class*="card"]') as HTMLElement;
+    await user.click(within(cardOf('new1.jpg')).getByRole('button', { name: 'Show on site' }));
+    expect(client.setPhotosStatus).toHaveBeenLastCalledWith(['new1'], 'shown');
   });
 
   it('clears the selection with Cancel', async () => {
     const { user, checkbox } = await renderManager();
-    await user.click(checkbox('visible1'));
+    await user.click(checkbox('shown1'));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByText('1 selected')).toBeNull();
-    expect((checkbox('visible1') as HTMLInputElement).checked).toBe(false);
+    expect((checkbox('shown1') as HTMLInputElement).checked).toBe(false);
   });
 });

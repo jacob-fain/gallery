@@ -3,6 +3,7 @@ import { afterAll } from 'vitest';
 import { query } from '../src/config/db';
 import { hashPassword } from '../src/services/authService';
 import { createPhoto } from '../src/services/photoService';
+import type { ReviewStatus } from '../src/services/reviewStatus';
 
 export const tag = () => crypto.randomBytes(4).toString('hex');
 
@@ -31,10 +32,10 @@ export function useFixtures() {
     return { id: rows[0].id as string, slug, title: `Gallery ${slug}` };
   };
 
-  /** A photo row; new uploads start hidden, so this one is visible unless asked. */
+  /** A photo row; new uploads start in review, so this one is shown unless asked. */
   const photo = async (
     galleryId: string | null,
-    opts: { hidden?: boolean; contentHash?: string; uploadedAt?: string } = {}
+    opts: { status?: ReviewStatus; contentHash?: string; uploadedAt?: string } = {}
   ) => {
     const t = tag();
     const row = await createPhoto({
@@ -50,15 +51,22 @@ export function useFixtures() {
       content_hash: opts.contentHash,
     });
     photos.push(row.id);
+    const status = opts.status ?? 'shown';
     await query(
-      `UPDATE photos SET is_hidden = $2, uploaded_at = COALESCE($3::timestamptz, uploaded_at) WHERE id = $1`,
-      [row.id, opts.hidden ?? false, opts.uploadedAt ?? null]
+      `UPDATE photos SET review_status = $2, uploaded_at = COALESCE($3::timestamptz, uploaded_at) WHERE id = $1`,
+      [row.id, status, opts.uploadedAt ?? null]
     );
-    return { ...row, is_hidden: opts.hidden ?? false };
+    return { ...row, review_status: status, is_hidden: status !== 'shown' };
   };
 
   /** Registers a gallery created through the API for cleanup. */
   const adopt = (galleryId: string) => galleries.push(galleryId);
 
-  return { gallery, photo, adopt };
+  /** One photo in each private state: what no public route may ever return. */
+  const privatePhotos = async (galleryId: string | null) => [
+    await photo(galleryId, { status: 'review' }),
+    await photo(galleryId, { status: 'rejected' }),
+  ];
+
+  return { gallery, photo, privatePhotos, adopt };
 }
