@@ -25,6 +25,7 @@ const handle = (items: Photo[], total: number): PhotoListHandle => ({
   error: '',
   loadingMore: false,
   moreFailed: false,
+    stale: false,
   loadMore: async () => true,
   loadAll: async () => items,
   update: () => {},

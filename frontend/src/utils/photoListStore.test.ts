@@ -41,6 +41,36 @@ describe('PhotoListStore', () => {
     expect(store.latest().items).toEqual([{ id: 'new' }]);
   });
 
+  it('keeps a shown list on screen as stale while a restart loads, then replaces it', async () => {
+    const store = new PhotoListStore<P>(loaderFor(server(150)).load);
+    await store.reload();
+    const shown = store.latest().items;
+
+    const next = deferred<{ photos: P[]; total: number }>();
+    const nextLoader = vi.fn(() => next.promise);
+    store.setLoader(nextLoader);
+    const restarted = store.restart();
+    expect(store.getState()).toMatchObject({ status: 'ready', stale: true });
+    expect(store.latest().items).toBe(shown);
+
+    // The stale list's offsets belong to the old filter: no next page.
+    expect(await store.loadMore()).toBe(false);
+    expect(nextLoader).toHaveBeenCalledTimes(1);
+
+    next.resolve({ photos: [{ id: 'new' }], total: 1 });
+    await restarted;
+    expect(store.getState()).toMatchObject({ status: 'ready', stale: false });
+    expect(store.latest().items).toEqual([{ id: 'new' }]);
+  });
+
+  it('clears stale when the restarted list fails', async () => {
+    const store = new PhotoListStore<P>(loaderFor(server(3)).load);
+    await store.reload();
+    store.setLoader(async () => Promise.reject(new Error('down')));
+    await store.restart();
+    expect(store.getState()).toMatchObject({ status: 'error', stale: false, error: 'down' });
+  });
+
   it('loads the first page, then the next one at the loaded count', async () => {
     const { load, calls } = loaderFor(server(250));
     const store = new PhotoListStore<P>(load);

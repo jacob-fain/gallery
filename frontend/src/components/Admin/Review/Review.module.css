@@ -233,3 +233,10 @@
   font: inherit;
   cursor: pointer;
 }
+
+/* The previous filter's photos while the new filter loads: kept so the page
+   doesn't shrink and jump, but dimmed and inert. */
+.stale {
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}

@@ -108,10 +108,14 @@ function Section({
         <p className={styles.error} role="alert">
           {photos.error}
         </p>
-      ) : view === 'grid' ? (
-        <PhotoManager photos={photos} gallery={gallery} statusFilter={status} onPhotosChange={handlePhotosChange} />
       ) : (
-        <ReviewGrid photos={photos} filter={status} shift={shift} galleryTitle={galleryTitle} />
+        <div className={photos.stale ? styles.stale : undefined} aria-busy={photos.stale} inert={photos.stale}>
+          {view === 'grid' ? (
+            <PhotoManager photos={photos} gallery={gallery} statusFilter={status} onPhotosChange={handlePhotosChange} />
+          ) : (
+            <ReviewGrid photos={photos} filter={status} shift={shift} galleryTitle={galleryTitle} />
+          )}
+        </div>
       )}
     </>
   );
