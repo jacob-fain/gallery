@@ -35,7 +35,8 @@ export function usePhotoList(loadPage: LoadPage<Photo>, listKey = ''): PhotoList
     return store.dispose;
   }, [store]);
 
-  // Before paint, so the old list is never shown under the new key.
+  // Before paint, so the old list is never shown live under the new key:
+  // it shows dimmed and inert (stale) until the new list arrives.
   useLayoutEffect(() => {
     if (listed.current === listKey) return;
     listed.current = listKey;
