@@ -15,6 +15,9 @@ export interface PhotoListState<T extends { id: string }> {
   loadingMore: boolean;
   // The last page failed; scrolling no longer retries by itself.
   moreFailed: boolean;
+  // The list still shows the previous filter's photos while the new filter's
+  // first page loads. Callers show it dimmed and inert.
+  stale: boolean;
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : 'Failed to load photos');
@@ -31,6 +34,7 @@ export class PhotoListStore<T extends { id: string }> {
     error: '',
     loadingMore: false,
     moreFailed: false,
+    stale: false,
   };
   private listeners = new Set<() => void>();
   private generation = 0;
@@ -62,12 +66,18 @@ export class PhotoListStore<T extends { id: string }> {
   };
 
   /**
-   * Starts over on a list that changed meaning (another status filter):
-   * empty, back to 'loading', then its first page. Responses for the old
-   * list are dropped.
+   * Starts over on a list that changed meaning (another status filter), then
+   * loads its first page. A list that was showing stays on screen, marked
+   * stale, until that page replaces it, so the page keeps its height and
+   * scroll position; one that never loaded goes back to 'loading'.
+   * Responses for the old list are dropped.
    */
   restart = (): Promise<void> => {
-    this.set({ list: emptyList<T>(), status: 'loading', error: '', moreFailed: false });
+    if (this.state.status === 'ready') {
+      this.set({ stale: true, error: '', moreFailed: false });
+    } else {
+      this.set({ list: emptyList<T>(), status: 'loading', error: '', moreFailed: false, stale: false });
+    }
     return this.reload();
   };
 
@@ -78,10 +88,10 @@ export class PhotoListStore<T extends { id: string }> {
     try {
       const page = await this.loadPage(0, PAGE_SIZE);
       if (gen !== this.generation) return;
-      this.set({ list: appendPage(emptyList<T>(), page), status: 'ready', error: '', moreFailed: false });
+      this.set({ list: appendPage(emptyList<T>(), page), status: 'ready', error: '', moreFailed: false, stale: false });
     } catch (err) {
       if (gen !== this.generation) return;
-      this.set({ status: 'error', error: message(err) });
+      this.set({ status: 'error', error: message(err), stale: false });
     }
   };
 
@@ -134,6 +144,8 @@ export class PhotoListStore<T extends { id: string }> {
   // and Select All never fetch the same offset twice. Resolves false when the
   // page failed or a reload replaced the list.
   private fetchNext(limit: number): Promise<boolean> {
+    // A stale list's offsets belong to the previous filter.
+    if (this.state.stale) return Promise.resolve(false);
     if (!hasMore(this.state.list)) return Promise.resolve(true);
     if (this.pending) return this.pending;
     const gen = this.generation;

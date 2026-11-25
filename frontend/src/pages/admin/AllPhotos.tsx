@@ -120,7 +120,9 @@ function AllPhotosList({
           {photos.error}
         </p>
       ) : (
-        <ReviewGrid photos={photos} filter={status} shift={shift} galleryLabels />
+        <div className={photos.stale ? `${reviewStyles.listArea} ${reviewStyles.stale}` : reviewStyles.listArea} aria-busy={photos.stale} inert={photos.stale}>
+          <ReviewGrid photos={photos} filter={status} shift={shift} galleryLabels />
+        </div>
       )}
     </>
   );
