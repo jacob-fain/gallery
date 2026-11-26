@@ -65,11 +65,11 @@ describe('UploadQueue', () => {
     expect(calls).toHaveLength(UPLOAD_CONCURRENCY);
     calls[0].resolve(photo('p1'));
     await flush();
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(UPLOAD_CONCURRENCY + 1);
   });
 
   it('keeps each gallery its own rows and counters', async () => {
-    const { queue, calls } = setup();
+    const { queue, calls } = setup({}, { concurrency: 3 });
     queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
     queue.add([image('u1'), image('u2')], { galleryId: null, checkOnly: false });
     await flush();
@@ -172,7 +172,7 @@ describe('UploadQueue', () => {
   });
 
   it('maps rejections through uploadOutcome and retries only what can succeed', async () => {
-    const { queue, calls } = setup();
+    const { queue, calls } = setup({}, { concurrency: 3 });
     queue.add([image('a1'), image('a2'), image('a3')], { galleryId: 'a', checkOnly: false });
     await flush();
 
@@ -485,33 +485,33 @@ describe('UploadQueue retries', () => {
     vi.useFakeTimers();
     let online = true;
     const { queue, calls } = lossy({ isOnline: () => online });
-    queue.add([image('a1'), image('a2'), image('a3'), image('a4')], { galleryId: 'a', checkOnly: false });
+    queue.add([image('a1'), image('a2'), image('a3')], { galleryId: 'a', checkOnly: false });
     await flush();
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
 
     online = false;
     calls[0].reject(rejected('Upload failed', 0));
     await flush();
     // The free slot is not used while offline.
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
     await advance(60_000);
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
     expect(row(queue, 'a', 0)).toMatchObject({ status: 'retrying', offline: true });
 
     online = true;
     queue.resumeOnline();
     await flush();
     // The free slot goes at once; the retry, after its check, is next in line.
-    expect(calls.map((c) => c.file.name)).toEqual(['a1', 'a2', 'a3', 'a4']);
+    expect(calls.map((c) => c.file.name)).toEqual(['a1', 'a2', 'a3']);
     expect(row(queue, 'a', 0)).toMatchObject({ status: 'pending', offline: undefined });
     calls[1].resolve(photo('p2'));
     await flush();
-    expect(calls[4].file.name).toBe('a1');
+    expect(calls[3].file.name).toBe('a1');
     expect(row(queue, 'a', 0)).toMatchObject({ status: 'uploading', attempts: 2 });
   });
 
   it('retries every failed file at once with Retry all failed, in one gallery or all', async () => {
-    const { queue, calls } = lossy();
+    const { queue, calls } = lossy({ concurrency: 3 });
     queue.add([image('a1'), image('a2')], { galleryId: 'a', checkOnly: false });
     queue.add([image('b1')], { galleryId: 'b', checkOnly: false });
     await flush();

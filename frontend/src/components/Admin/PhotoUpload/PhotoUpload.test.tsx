@@ -365,10 +365,11 @@ describe('PhotoUpload drop zone', () => {
 
   it('retries every failed file with Retry all failed', async () => {
     const { user, input } = renderUpload();
-    await user.upload(input, [image('a.jpg'), image('b.jpg'), image('c.jpg', 'c', 'image/jpeg')]);
-    await started(3);
+    await user.upload(input, [image('a.jpg'), image('b.jpg'), image('c.jpg')]);
+    await started(2);
     await step(() => uploads.get('a.jpg')!.reject(failure('Failed to upload photo', 500)));
     await step(() => uploads.get('b.jpg')!.reject(failure('Failed to upload photo', 500)));
+    await started(3);
     await step(() => uploads.get('c.jpg')!.reject(failure('Unsupported', 415)));
 
     uploads.clear();

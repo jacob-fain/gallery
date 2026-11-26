@@ -8,8 +8,14 @@ export const MAX_FILE_SIZE = 50 * 1024 * 1024;
 // Files are hashed and duplicate-checked in batches so uploads can start
 // while later files are still being hashed
 const CHECK_BATCH_SIZE = 20;
-// Parallel uploads across every gallery, so a second drop does not add more
-export const UPLOAD_CONCURRENCY = 3;
+// Parallel uploads across every gallery, so a second drop does not add more.
+// Two, not more: behind Cloudflare the server must answer within 100 s of
+// receiving a body, and it answers only after pushing the photo to S3 over
+// the same home upstream the browser's uploads are using. Every extra upload
+// in flight slows that push; at three the slowest answers came close to the
+// limit on a slow uplink, at two they kept about half of it free, for a few
+// percent more total time.
+export const UPLOAD_CONCURRENCY = 2;
 
 /** When a lost upload is tried again. */
 export interface RetryTiming {
