@@ -21,3 +21,11 @@
   width: 100%;
   height: 100%;
 }
+
+/* The collage's height depends on its width, so a page whose collage is
+   about a screen tall could add the scrollbar, lay out narrower and shorter,
+   drop it, lay out wider and taller, and repeat. Reserving the scrollbar's
+   space keeps the width the same either way. */
+:global(html):has(.collage) {
+  scrollbar-gutter: stable;
+}

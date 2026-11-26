@@ -72,8 +72,8 @@ function tiles() {
 // Each tile's photo and its box, which together are the arrangement.
 function arrangement() {
   return tiles().map((tile) => {
-    const img = tile.querySelector('img')!;
-    return `${img.getAttribute('src')} ${tile.style.left} ${tile.style.top} ${tile.style.width} ${tile.style.height}`;
+    const img = tile.querySelector('img[data-tile]')!;
+    return `${img.getAttribute('data-src')} ${tile.style.left} ${tile.style.top} ${tile.style.width} ${tile.style.height}`;
   });
 }
 
@@ -148,15 +148,20 @@ describe('the collage on All Photos', () => {
   it('shows each photo uncropped, with a sizes attribute of its own width', async () => {
     renderAllPhotos();
     await screen.findByAltText('Photo 1 of 24');
+    // The grid's scheduler starts the collage's images too.
+    const first = screen.getByAltText('Photo 1 of 24');
+    await waitFor(() => expect(first.getAttribute('srcset')).toContain('https://s3.test/p0-web.jpg'));
     for (const tile of tiles()) {
       const index = Number(tile.dataset.photoIndex);
       const [w, h] = SHAPES[index % SHAPES.length];
       const width = parseFloat(tile.style.width);
       const height = parseFloat(tile.style.height);
       expect(Math.abs(width / (w / h) - height)).toBeLessThan(0.5);
-      const img = tile.querySelector('img')!;
+      const img = tile.querySelector('img[data-tile]')!;
       expect(img.getAttribute('sizes')).toBe(`${Math.ceil(width)}px`);
-      expect(img.getAttribute('srcset')).toContain(`https://s3.test/p${index}-web.jpg`);
+      // Held for the scheduler (tileScheduler.ts), behind a preview.
+      expect(img.getAttribute('data-srcset')).toContain(`https://s3.test/p${index}-web.jpg`);
+      expect(img.previousElementSibling?.getAttribute('data-src')).toBe(`https://s3.test/p${index}-thumb.jpg`);
     }
   });
 
@@ -298,7 +303,7 @@ describe('the collage grid', () => {
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => width });
     try {
       render(<PhotoGrid photos={photos} layout="collage" collageSeed={3} />);
-      const images = tiles().map((tile) => tile.querySelector('img'));
+      const images = tiles().map((tile) => tile.querySelector('img[data-tile]'));
       const before = arrangement();
       width = 700;
       act(() => resized());
@@ -307,7 +312,7 @@ describe('the collage grid', () => {
       await waitFor(() => expect(arrangement()).not.toEqual(before));
       const right = Math.max(...tiles().map((t) => parseFloat(t.style.left) + parseFloat(t.style.width)));
       expect(right).toBeCloseTo(700, 6);
-      tiles().forEach((tile, i) => expect(tile.querySelector('img')).toBe(images[i]));
+      tiles().forEach((tile, i) => expect(tile.querySelector('img[data-tile]')).toBe(images[i]));
     } finally {
       vi.unstubAllGlobals();
       Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 1200 });

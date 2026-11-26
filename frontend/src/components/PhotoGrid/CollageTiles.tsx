@@ -2,6 +2,7 @@ import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { aspectRatio, layoutCollage } from './collage';
 import type { AlbumPhoto } from './gridItems';
 import { TILE_IMAGE_PROPS } from './tileImage';
+import TileImage from './TileImage';
 import styles from './CollageTiles.module.css';
 
 // A resize lays the collage out again once the width has settled.
@@ -44,8 +45,9 @@ function useContainerWidth() {
 /**
  * The grid's tiles in the collage layout (collage.ts). Tiles are keyed by
  * photo, so a resize or a new arrangement moves the same images rather than
- * remounting them, and the class names are the album's, so the grid's tile
- * styles apply to both layouts.
+ * remounting them. The class names and images are the album's
+ * (TileImage), so the grid's tile styles, scheduling, previews and retries
+ * apply to both layouts.
  */
 const CollageTiles = memo(function CollageTiles({ photos, seed, visibleCount, onOpen }: CollageTilesProps) {
   const [ref, width] = useContainerWidth();
@@ -72,8 +74,9 @@ const CollageTiles = memo(function CollageTiles({ photos, seed, visibleCount, on
             style={{ left: x, top: y, width: w, height: h }}
             onClick={() => onOpen(index)}
           >
-            <img
+            <TileImage
               className={`react-photo-album--image ${styles.image}`}
+              preview={photo.preview}
               src={photo.src}
               srcSet={photo.srcSet.map((c) => `${c.src} ${c.width}w`).join(', ') || undefined}
               // The tile's own width, so the browser picks a file at least

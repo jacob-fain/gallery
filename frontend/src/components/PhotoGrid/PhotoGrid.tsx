@@ -25,7 +25,8 @@ import {
 import styles from './PhotoGrid.module.css';
 import { TILE_KEYBOARD_PROPS, useLightboxFocusTrap } from './keyboard';
 import { useLightboxHistory } from './lightboxHistory';
-import { PREVIEW_IMAGE_PROPS, TILE_IMAGE_PROPS } from './tileImage';
+import { TILE_IMAGE_PROPS } from './tileImage';
+import TileImage from './TileImage';
 import { useTileScheduler } from './tileScheduler';
 import { createHistoryMemory, entryKey } from '../../utils/historyMemory';
 import CollageTiles from './CollageTiles';
@@ -120,14 +121,9 @@ const renderReviewExtras: RenderExtras<AlbumPhoto> = (_, { photo }) => (
     {photo.galleryLabel && <span className={styles.galleryLabel}>{photo.galleryLabel}</span>}
   </>
 );
-// The images' sources wait in data attributes until the scheduler starts
-// them (tileScheduler.ts). The preview comes first so the full image,
-// positioned after it, paints over it, and the review extras over both.
-const renderTileImage: RenderImage<AlbumPhoto> = ({ src, srcSet, ...props }, { photo }) => (
-  <>
-    {photo.preview && <img data-src={photo.preview} className={styles.preview} {...PREVIEW_IMAGE_PROPS} />}
-    <img {...props} data-tile="" data-src={src} data-srcset={srcSet} />
-  </>
+// The review extras render after the images, so they paint over both.
+const renderTileImage: RenderImage<AlbumPhoto> = (props, { photo }) => (
+  <TileImage {...props} preview={photo.preview} />
 );
 const TILE_RENDER = { image: renderTileImage };
 const REVIEW_RENDER = { image: renderTileImage, extras: renderReviewExtras };

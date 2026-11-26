@@ -3,7 +3,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { ADMIN_STATE, PUBLIC, adminApi, uniqueJpeg, uniqueSlug } from './support';
 
-test.use({ storageState: ADMIN_STATE });
+test.use({ storageState: ADMIN_STATE, actionTimeout: 15_000, navigationTimeout: 15_000 });
 
 const portrait = readFileSync(path.join(import.meta.dirname, '../fixtures/portrait.jpg'));
 
@@ -20,7 +20,7 @@ function uniquePortrait(label: string): Buffer {
 function arrangement(page: Page) {
   return page.locator('button[data-photo-index]').evaluateAll((tiles) =>
     (tiles as HTMLElement[]).map((tile) => {
-      const img = tile.querySelector('img')!;
+      const img = tile.querySelector('img[data-tile]')!;
       return `${img.alt} ${tile.style.left} ${tile.style.top} ${tile.style.width} ${tile.style.height}`;
     })
   );
@@ -30,6 +30,8 @@ test('the collage on All Photos shows photos uncropped, and Back from a photo ke
   page,
   browser,
 }) => {
+  // Six uploads, each processed into its sizes, are slow while other specs run.
+  test.setTimeout(90_000);
   const api = adminApi(page.request);
   const gallery = await api.createGallery({ title: 'Collage smoke', slug: uniqueSlug('collage'), is_public: true });
   for (let i = 0; i < 6; i++) {
@@ -54,7 +56,7 @@ test('the collage on All Photos shows photos uncropped, and Back from a photo ke
         (tiles as HTMLElement[])
           .filter((tile) => tile.getBoundingClientRect().top < window.innerHeight)
           .every((tile) => {
-            const img = tile.querySelector('img')!;
+            const img = tile.querySelector('img[data-tile]')!;
             return img.complete && img.naturalWidth > 0;
           })
       )
@@ -64,7 +66,7 @@ test('the collage on All Photos shows photos uncropped, and Back from a photo ke
     (tiles as HTMLElement[])
       .filter((tile) => tile.getBoundingClientRect().top < window.innerHeight)
       .map((tile) => {
-        const img = tile.querySelector('img')!;
+        const img = tile.querySelector('img[data-tile]')!;
         const box = tile.getBoundingClientRect();
         const shown = img.getBoundingClientRect();
         return {
