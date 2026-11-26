@@ -5,7 +5,8 @@ Installed by the homelab session as /usr/local/lib/gallery-deploy/poll and run
 every minute by gallery-deploy-poll.timer as the gallery-deploy user. Nothing
 connects in: this asks GitHub for the newest deployment of each environment
 and, if nobody has answered it yet, hands its two image digests to
-homelab-gallery-apply through sudo, then posts the result back.
+homelab-gallery-apply through sudo, then posts the result back. A production
+deployment runs only for a release tag (vX.Y.Z) whose commit is on main.
 
 Reads GITHUB_TOKEN from the environment (systemd EnvironmentFile). The token
 needs only Deployments read/write and Contents and Metadata read on
@@ -32,6 +33,11 @@ EXIT_BUSY = 75
 STALE_IN_PROGRESS = datetime.timedelta(minutes=30)
 FINAL_STATES = ("success", "failure", "error", "inactive")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+# Production applies only release tags (vX.Y.Z) whose commit is on main.
+# fullmatch with [0-9]: "$" would accept a trailing newline and \d other
+# scripts' digits.
+RELEASE_REF = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 # GitHub environment name -> argument for homelab-gallery-apply.
 ENVIRONMENTS = {"production": "prod", "staging": "staging"}
@@ -121,6 +127,32 @@ def notify(title, message):
     subprocess.run(["sudo", "-n", NOTIFY, title, message], check=False, timeout=30)
 
 
+def on_main(api, sha):
+    """Whether commit sha is main's head or one of its ancestors."""
+    try:
+        _, comparison, _ = api.request("GET", f"{API}/compare/{sha}...main")
+    except urllib.error.HTTPError as err:
+        if err.code == 404:  # GitHub knows no such commit
+            return False
+        raise
+    # Comparing sha (base) with main (head): "ahead" or "identical" means
+    # main contains sha; "behind" or "diverged" means it does not.
+    return (comparison or {}).get("status") in ("ahead", "identical")
+
+
+def production_refusal(api, deployment):
+    """Why a production deployment must not run, or None if it may."""
+    ref = deployment.get("ref") or ""
+    if not RELEASE_REF.fullmatch(ref):
+        return f"ref {ref[:40]!r} is not a release tag vX.Y.Z"
+    sha = deployment.get("sha") or ""
+    if not COMMIT_SHA.fullmatch(sha):
+        return "deployment has no valid commit sha"
+    if not on_main(api, sha):
+        return f"{ref} ({sha[:12]}) is not on main"
+    return None
+
+
 def handle(api, env, run=subprocess.run):
     """Processes the newest deployment for env. Returns what happened, for logs."""
     etag = read_etag(env)
@@ -154,10 +186,22 @@ def handle(api, env, run=subprocess.run):
         write_etag(env, new_etag)
         return f"deployment {deployment['id']} refused: bad payload"
 
+    args = [ENVIRONMENTS[env], frontend, backend]
+    if env == "production":
+        refusal = production_refusal(api, deployment)
+        if refusal:
+            post_status(api, deployment, "error", "refused: " + refusal, env)
+            write_etag(env, new_etag)
+            notify("Gallery deploy refused", refusal)
+            return f"deployment {deployment['id']} refused: {refusal}"
+        # The wrapper checks that the registry's tag for this release names
+        # the same digests.
+        args.append(deployment["ref"])
+
     post_status(api, deployment, "in_progress", "applying on the home server", env)
     try:
         result = run(
-            APPLY + [ENVIRONMENTS[env], frontend, backend],
+            APPLY + args,
             capture_output=True,
             text=True,
             timeout=APPLY_TIMEOUT_SECONDS,

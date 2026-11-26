@@ -149,7 +149,10 @@ jobs:
       - name: Wrapper refuses bad arguments before touching anything
         run: |
           set +e
-          for args in "" "dev a b" "prod sha256:short sha256:short" "staging sha256:$(printf 'a%.0s' {1..64}) latest"; do
+          a=sha256:$(printf 'a%.0s' {1..64})
+          for args in "" "dev a b" "prod sha256:short sha256:short v1.0.0" "staging $a latest" \
+                      "prod $a $a" "prod $a $a 1.0.0" "prod $a $a v1.0" "prod $a $a v1.0.0-rc1" \
+                      "staging $a $a v1.0.0" "prod $a $a v1.0.0 extra"; do
             out=$(bash deploy/host/homelab-gallery-apply $args 2>&1); code=$?
             echo "[$code] $out"
             [ "$code" = 2 ] || { echo "expected exit 2 for: $args"; exit 1; }
