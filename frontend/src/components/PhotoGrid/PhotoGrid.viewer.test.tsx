@@ -345,6 +345,21 @@ describe('viewer idle fade', () => {
     expect(isIdle()).toBe(true);
   });
 
+  it('takes a tap for a tap after a touch whose lift was never reported', () => {
+    openViewer();
+    wait(VIEWER_IDLE_MS);
+    // A swipe whose pointerup went missing.
+    pointer(lightbox(), 'pointerdown', 'touch', { id: 7, x: 300 });
+    pointer(lightbox(), 'pointermove', 'touch', { id: 7, x: 60 });
+    // The next touch starts a new sequence: its first pointer is primary.
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 });
+    Object.defineProperties(down, { pointerType: { value: 'touch' }, pointerId: { value: 8 }, isPrimary: { value: true } });
+    fireEvent(lightbox(), down);
+    pointer(lightbox(), 'pointerup', 'touch', { id: 8 });
+    wait(DOUBLE_TAP_MS);
+    expect(isIdle()).toBe(false);
+  });
+
   it('keeps the controls up while a shown one is tapped', () => {
     openViewer();
     wait(VIEWER_IDLE_MS - 500);

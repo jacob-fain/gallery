@@ -93,6 +93,10 @@ export function useViewerIdle(open: boolean, rootClass: string, zoomed = false):
       const id = event.pointerId ?? 0;
       if (event.type === 'pointerdown') {
         stopSwallowing();
+        // The first finger of a new touch. Starting afresh drops a finger
+        // whose lift was never reported (its slide moved away under it),
+        // which would make every later tap look like a pinch.
+        if (event.isPrimary) fingers.clear();
         fingers.add(id);
         setTouching(true);
         // A second finger makes a pinch.
