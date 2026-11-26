@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import urllib.error
 
 _path = os.path.join(os.path.dirname(__file__), "host", "gallery-deploy-poll")
 _loader = importlib.machinery.SourceFileLoader("poll", _path)
@@ -15,13 +16,18 @@ _loader.exec_module(poll)
 
 DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
+SHA = "c" * 40
 
 
 class FakeApi:
-    def __init__(self, deployments, statuses=None, list_status=200):
+    def __init__(self, deployments, statuses=None, list_status=200, compare="ahead"):
         self.deployments = deployments
         self.statuses = statuses or []
         self.list_status = list_status
+        # The status GitHub reports comparing the deployment's commit with
+        # main, or an HTTP error code.
+        self.compare = compare
+        self.compared = []
         self.posted = []
 
     def request(self, method, url, body=None, etag=None):
@@ -32,13 +38,19 @@ class FakeApi:
             if self.list_status == 304:
                 return 304, None, etag
             return 200, self.deployments, '"etag-1"'
+        if "/compare/" in url:
+            self.compared.append(url)
+            if isinstance(self.compare, int):
+                raise urllib.error.HTTPError(url, self.compare, "error", {}, None)
+            return 200, {"status": self.compare}, None
         return 200, self.statuses, None
 
 
-def deployment(payload=None):
+def deployment(payload=None, ref="v1.3.0", sha=SHA):
     return {
         "id": 7,
-        "ref": "v1.3.0",
+        "ref": ref,
+        "sha": sha,
         "statuses_url": "https://api.github.com/x/statuses",
         "payload": payload if payload is not None else {"frontend_digest": DIGEST_A, "backend_digest": DIGEST_B},
     }
@@ -66,7 +78,7 @@ class HandleTests(unittest.TestCase):
     def test_applies_a_new_deployment_and_reports_success(self):
         api, run = FakeApi([deployment()]), fake_run(0, "pulling\ndeployed build 0123456789abcdef\n")
         poll.handle(api, "production", run=run)
-        self.assertEqual(run.calls[0][-3:], ["prod", DIGEST_A, DIGEST_B])
+        self.assertEqual(run.calls[0][-4:], ["prod", DIGEST_A, DIGEST_B, "v1.3.0"])
         self.assertEqual([p["state"] for p in api.posted], ["in_progress", "success"])
         self.assertEqual(api.posted[-1]["description"], "deployed build 0123456789abcdef")
         self.assertEqual(poll.read_etag("production"), '"etag-1"')
@@ -74,7 +86,7 @@ class HandleTests(unittest.TestCase):
     def test_maps_staging_to_the_staging_argument(self):
         api, run = FakeApi([deployment()]), fake_run(0, "ok")
         poll.handle(api, "staging", run=run)
-        self.assertEqual(run.calls[0][-3], "staging")
+        self.assertEqual(run.calls[0][-3:], ["staging", DIGEST_A, DIGEST_B])
 
     def test_does_nothing_when_github_answers_304(self):
         api, run = FakeApi([], list_status=304), fake_run(0, "ok")
@@ -109,6 +121,80 @@ class HandleTests(unittest.TestCase):
             self.assertEqual(api.posted[-1]["state"], "failure")
         self.assertEqual(len(notified), 1)
         self.assertIn("migrations failed", notified[0])
+
+
+class ProductionGateTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        poll.STATE_DIR = self.tmp.name
+        self.notified = []
+        self.real_notify = poll.notify
+        poll.notify = lambda title, message: self.notified.append(message)
+
+    def tearDown(self):
+        poll.notify = self.real_notify
+        self.tmp.cleanup()
+
+    def reset(self):
+        """A fresh state directory and no alerts, for each case in a loop."""
+        self.tmp.cleanup()
+        self.tmp = tempfile.TemporaryDirectory()
+        poll.STATE_DIR = self.tmp.name
+        self.notified.clear()
+
+    def assert_refused(self, api, run, reason):
+        poll.handle(api, "production", run=run)
+        self.assertEqual(run.calls, [])
+        self.assertEqual([p["state"] for p in api.posted], ["error"])
+        self.assertIn(reason, api.posted[0]["description"])
+        self.assertEqual(len(self.notified), 1)
+        # Final: the same deployment is not looked at again.
+        self.assertEqual(poll.read_etag("production"), '"etag-1"')
+
+    def test_refuses_a_ref_that_is_not_a_release_tag(self):
+        for ref in ("main", "v1.3", "1.3.0", "v1.3.0-rc1", "v1.3.0\n", "v1.\u0663.0", "refs/tags/v1.3.0", "", None):
+            with self.subTest(ref=ref):
+                self.reset()
+                api, run = FakeApi([deployment(ref=ref)]), fake_run(0, "ok")
+                self.assert_refused(api, run, "not a release tag")
+                self.assertEqual(api.compared, [])
+
+    def test_refuses_a_commit_that_is_not_on_main(self):
+        for compare in ("behind", "diverged", 404):
+            with self.subTest(compare=compare):
+                self.reset()
+                api, run = FakeApi([deployment()], compare=compare), fake_run(0, "ok")
+                self.assert_refused(api, run, "is not on main")
+
+    def test_refuses_a_deployment_without_a_valid_sha(self):
+        for sha in ("", "abc", "C" * 40, None):
+            with self.subTest(sha=sha):
+                self.reset()
+                api, run = FakeApi([deployment(sha=sha)]), fake_run(0, "ok")
+                self.assert_refused(api, run, "no valid commit sha")
+
+    def test_applies_a_release_tag_on_main_or_at_its_head(self):
+        for compare in ("ahead", "identical"):
+            with self.subTest(compare=compare):
+                self.reset()
+                api, run = FakeApi([deployment()], compare=compare), fake_run(0, "deployed build x")
+                poll.handle(api, "production", run=run)
+                self.assertEqual(len(run.calls), 1)
+                self.assertEqual(api.compared, [f"{poll.API}/compare/{SHA}...main"])
+                self.assertEqual(api.posted[-1]["state"], "success")
+
+    def test_a_github_error_other_than_404_is_retried_not_refused(self):
+        api, run = FakeApi([deployment()], compare=502), fake_run(0, "ok")
+        with self.assertRaises(urllib.error.HTTPError):
+            poll.handle(api, "production", run=run)
+        self.assertEqual(api.posted, [])
+        self.assertIsNone(poll.read_etag("production"))
+
+    def test_staging_applies_any_ref(self):
+        api, run = FakeApi([deployment(ref="main")], compare="diverged"), fake_run(0, "ok")
+        poll.handle(api, "staging", run=run)
+        self.assertEqual(len(run.calls), 1)
+        self.assertEqual(api.compared, [])
 
 
 class StaleInProgressTests(unittest.TestCase):

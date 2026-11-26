@@ -19,6 +19,9 @@ ARG BUILD_ID=dev
 ARG GIT_SHA=
 ARG APP_VERSION=
 ENV NODE_ENV=production BUILD_ID=$BUILD_ID GIT_SHA=$GIT_SHA APP_VERSION=$APP_VERSION
+# Also a label, so the production deploy can check the build id from the
+# image's metadata before running it.
+LABEL BUILD_ID=$BUILD_ID
 WORKDIR /app
 COPY package*.json ./
 # The lockfile records no libc for sharp's prebuilt packages, so npm installs

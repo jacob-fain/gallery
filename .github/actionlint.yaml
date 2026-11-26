@@ -1,0 +1,7 @@
+# Custom self-hosted runner labels (docs/ci.md), so actionlint accepts them.
+self-hosted-runner:
+  labels:
+    - ci
+    - ci-light
+    - ci-build
+    - prod-deploy

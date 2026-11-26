@@ -1,0 +1,20 @@
+# Path groups for dorny/paths-filter, shared by ci.yml, e2e.yml and
+# images.yml. Pull requests run only the jobs whose group changed; pushes to
+# main and manual runs always run everything. A change to anything in
+# "shared" runs every job, because it can change how any of them behaves.
+shared:
+  - '.github/workflows/**'
+  - '.github/scripts/**'
+  - '.github/path-filters.yml'
+  - '.nvmrc'
+  - 'docker-compose*.yml'
+  - 'e2e/compose.yml'
+  - 'deploy/compose/**'
+backend:
+  - 'backend/**'
+frontend:
+  - 'frontend/**'
+e2e:
+  - 'e2e/**'
+deploy:
+  - 'deploy/**'

@@ -1,14 +1,15 @@
 # Pull-based deploys
 
-Production and staging run on the home server. Images are built on GitHub's
-runners (`.github/workflows/images.yml`) and the server pulls them; nothing on
-GitHub can connect to or run code on the server. The homelab session installs
+Production and staging run on the home server. Images are built on the
+self-hosted CI runners (`.github/workflows/images.yml`, `docs/ci.md`) and
+pushed to the LAN registry `registry.lan`; the server pulls them by digest.
+Nothing on GitHub can connect to or run code on the server. The homelab session installs
 and owns everything in this folder on the host; changes to it are reviewed
 here as host code first.
 
 ## How a release reaches the server
 
-1. A merge to `main` builds both images, pushes them to GHCR, and records a
+1. A merge to `main` builds both images, pushes them to `registry.lan`, and records a
    staging Deployment whose payload holds the two image digests. A `v*` tag,
    created only by a release on Jacob's word (`.claude/skills/release`),
    builds nothing: it promotes the images built for that commit on `main`,
@@ -18,12 +19,21 @@ here as host code first.
    asks GitHub for the newest deployment of each environment, using an ETag so
    an unchanged answer is free.
 3. For a deployment nobody has answered, it runs
-   `sudo /usr/local/sbin/homelab-gallery-apply <prod|staging> <frontend-digest> <backend-digest>`.
+   `sudo /usr/local/sbin/homelab-gallery-apply staging <frontend-digest> <backend-digest>`
+   or `... prod <frontend-digest> <backend-digest> <vX.Y.Z>`. A production
+   deployment runs only if its ref is a release tag matching
+   `^v[0-9]+\.[0-9]+\.[0-9]+$` and its commit is main's head or an ancestor
+   of it (GitHub's compare API). Anything else gets an `error` status and an
+   alert, and is not retried.
 4. The wrapper:
+   - for production, refuses unless the registry's `vX.Y.Z` tag of each image
+     resolves to the digest it was given (an anonymous manifest request with
+     a 15 second limit; no answer is a refusal);
    - takes `/run/homelab-gallery.lock` (shared with the backup and update
      night; `/run` is root-only, so no other user can hold it);
    - pulls both images by digest and reads the expected build id from the
-     backend image;
+     backend image; for production, the image's `BUILD_ID` label must be
+     present and equal it;
    - for production, takes a verified `pg_dump` into
      `/var/backups/gallery-predeploy/` (newest 10 kept), aborting if it fails;
    - runs migrations from the new image (`node dist/migrate.js`);
@@ -72,7 +82,8 @@ Host paths outside the compose directories (all root-owned):
 | Path | Mode | Holds |
 | --- | --- | --- |
 | `/etc/homelab/gallery-deploy.env` | 0600, owned by `gallery-deploy` | `GITHUB_TOKEN` for the poller |
-| `/etc/homelab/gallery-docker/` | 0700 | GHCR pull login (`DOCKER_CONFIG=... docker login ghcr.io` with a read:packages token) |
+| `/etc/homelab/gallery-docker/` | 0700 | the wrapper's `DOCKER_CONFIG`. The registry allows anonymous pulls from this server, so it may hold only an empty `config.json` (`{}`); a pull login is optional |
+| `/etc/docker/certs.d/registry.lan/ca.crt` | 0644 | the local CA that signed `registry.lan`'s certificate; dockerd and the wrapper's tag check trust it |
 | `/var/backups/gallery-predeploy/` | 0700 | verified dumps taken before each production migration |
 | `/run/homelab-gallery.lock` | root | the shared lock |
 
@@ -97,8 +108,8 @@ dumps the running database before migrating.
    2026-11-24: all ten recorded, and the columns and tables they add exist).
    The first runner pass should report "Database is up to date".
 2. Install the files and paths above. Copy today's `.env.production` to
-   `/opt/docker/gallery/` (root 0600). Log in to GHCR into
-   `/etc/homelab/gallery-docker`.
+   `/opt/docker/gallery/` (root 0600). Create `/etc/homelab/gallery-docker`
+   (a login to `registry.lan` there is optional: pulls are anonymous).
 3. Leave the current stack running; do not `docker compose down` it.
 4. Create the first production deployment. The wrapper:
    - dumps the database to `/var/backups/gallery-predeploy/`;

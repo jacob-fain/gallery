@@ -29,7 +29,10 @@ env:
 
 jobs:
   atomic_release_deploy:
-    runs-on: self-hosted
+    # The production server's runner. The CI runners are self-hosted too, so
+    # plain self-hosted would let one of them take a deploy; only the server's
+    # runner carries the prod-deploy label.
+    runs-on: [self-hosted, prod-deploy]
     timeout-minutes: 20
     environment: 
       name: production
