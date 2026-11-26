@@ -237,18 +237,19 @@ export function layoutCollage(
       continue;
     }
 
-    // Nothing fits: a plain row of the next two (one on a phone).
+    // Nothing fits: a plain row of the next two (one on a phone), or a last
+    // odd photo alone at part of the width on a wide grid. Scaled down and
+    // centred so no photo is wider than the limit and the row is no taller
+    // than a band may be (on a phone, than a photo may be).
     const n = Math.min(ratios.length - i, phone ? 1 : 2);
-    if (n === 1 && !phone) {
-      addBand(build.photo(i), (W * (1 - LONE_PHOTO_WIDTH)) / 2, W * LONE_PHOTO_WIDTH, 1);
-      continue;
-    }
-    const band = build.row(Array.from({ length: n }, (_, k) => build.photo(i + k)));
-    const trial: CollageTile[] = [];
-    place(band, 0, 0, W, gap, trial);
-    // Scaled down and centred when a photo would be wider than the limit.
-    const scale = phone ? 1 : Math.min(1, (W * limits.maxPhotoWidth) / Math.max(...trial.map((t) => t.width)));
-    const width = W * scale;
+    const lone = n === 1 && !phone;
+    const band = lone ? build.photo(i) : build.row(Array.from({ length: n }, (_, k) => build.photo(i + k)));
+    let width = W * (lone ? LONE_PHOTO_WIDTH : 1);
+    // A row's photos are its height times their ratios wide, so capping the
+    // height caps every photo.
+    let maxHeight = W * limits.maxBandHeight;
+    if (!phone) maxHeight = Math.min(maxHeight, (W * limits.maxPhotoWidth) / Math.max(...ratios.slice(i, i + n)));
+    width = Math.min(width, (maxHeight - band.b) / band.a);
     addBand(band, (W - width) / 2, width, n);
   }
 

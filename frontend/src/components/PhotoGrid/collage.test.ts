@@ -137,15 +137,48 @@ describe('layoutCollage', () => {
         const collage = layoutCollage(ratios, PHONE, seed);
         for (const band of collage.bands) {
           const tiles = bandTiles(collage, band);
-          // A phone never centres: a lone photo spans the width.
+          for (const tile of tiles) expect(tile.width).toBeLessThanOrEqual(PHONE * PHONE_LIMITS.maxPhotoWidth + EPS);
+          // A fallback is one photo, narrowed only to keep it from being too tall.
+          if (!band.fitted) continue;
           expect(isFlush(collage, band, PHONE)).toBe(true);
-          for (const tile of tiles) {
-            expect(tile.width).toBeLessThanOrEqual(PHONE * PHONE_LIMITS.maxPhotoWidth + EPS);
-            expect(tile.width).toBeGreaterThanOrEqual(PHONE * PHONE_LIMITS.minPhotoWidth - EPS);
-          }
+          for (const tile of tiles) expect(tile.width).toBeGreaterThanOrEqual(PHONE * PHONE_LIMITS.minPhotoWidth - EPS);
         }
       }
     }
+  });
+
+  it('caps fallback rows: no band too tall on wide grids, no photo too tall on phones', () => {
+    const sets = [
+      Array(9).fill(9 / 16),
+      Array(7).fill(2 / 3),
+      Array.from({ length: 20 }, (_, i) => (i % 2 ? 16 / 9 : 9 / 16)),
+      Array.from({ length: 21 }, (_, i) => [9 / 16, 0.5, 2 / 3][i % 3]),
+      PORTRAITS,
+      [9 / 16],
+      [9 / 16, 9 / 16],
+      [1.5, 9 / 16, 9 / 16],
+      [0.4],
+    ];
+    for (const ratios of sets) {
+      for (const seed of SEEDS.slice(0, 50)) {
+        const wide = layoutCollage(ratios, DESKTOP, seed);
+        for (const band of wide.bands) expect(band.height).toBeLessThanOrEqual(DESKTOP * DESKTOP_LIMITS.maxBandHeight + EPS);
+        for (const tile of wide.tiles) {
+          expect(tile.width).toBeLessThanOrEqual(DESKTOP * DESKTOP_LIMITS.maxPhotoWidth + EPS);
+          expect(tile.width / ratios[tile.index]).toBeCloseTo(tile.height, 6);
+        }
+        const phone = layoutCollage(ratios, PHONE, seed);
+        for (const tile of phone.tiles) {
+          expect(tile.height).toBeLessThanOrEqual(PHONE * PHONE_LIMITS.maxBandHeight + EPS);
+          expect(tile.x).toBeGreaterThanOrEqual(-EPS);
+          expect(tile.x + tile.width).toBeLessThanOrEqual(PHONE + EPS);
+        }
+      }
+    }
+    // A lone 9:16 on a wide grid is as tall as a band may be, centred.
+    const [lone] = layoutCollage([9 / 16], DESKTOP, 1).tiles;
+    expect(lone.height).toBeCloseTo(DESKTOP * DESKTOP_LIMITS.maxBandHeight, 6);
+    expect(lone.x + lone.width / 2).toBeCloseTo(DESKTOP / 2, 6);
   });
 
   it('gives sizes a spread: photos are not all the same size', () => {
@@ -167,7 +200,7 @@ describe('layoutCollage', () => {
     expect(one.tiles[0].x).toBeCloseTo(DESKTOP / 4, 9);
     expect(one.height).toBeCloseTo(DESKTOP / 2 / 1.5, 9);
 
-    const phoneOne = layoutCollage([2 / 3], PHONE, 1);
+    const phoneOne = layoutCollage([1.5], PHONE, 1);
     expect(phoneOne.tiles[0].width).toBeCloseTo(PHONE, 9);
 
     for (const ratios of [[1.5, 0.75], [9 / 16, 9 / 16], [1.5, 2 / 3, 16 / 9], [2 / 3, 2 / 3, 2 / 3]]) {

@@ -75,8 +75,9 @@ test('the collage on All Photos shows photos uncropped, and Back from a photo ke
           placeError:
             Math.abs(box.left - album.left - parseFloat(tile.style.left)) +
             Math.abs(box.top - album.top - parseFloat(tile.style.top)),
-          // The height the photo's own shape gives the tile's width.
-          heightError: Math.abs(box.width / (img.naturalWidth / img.naturalHeight) - box.height),
+          // The tile's shape against the file's. The file's pixel size is
+          // rounded when it is resized, so the two agree to within that.
+          ratioError: Math.abs(box.width / box.height / (img.naturalWidth / img.naturalHeight) - 1),
           // The image fills the tile exactly: nothing cut off.
           fillError: Math.abs(shown.width - box.width) + Math.abs(shown.height - box.height),
           portrait: img.naturalHeight > img.naturalWidth,
@@ -86,7 +87,7 @@ test('the collage on All Photos shows photos uncropped, and Back from a photo ke
   expect(shapes.length).toBeGreaterThan(1);
   expect(shapes.some((s) => s.portrait)).toBe(true);
   for (const shape of shapes) {
-    expect(shape.heightError).toBeLessThan(1);
+    expect(shape.ratioError).toBeLessThan(0.01);
     expect(shape.fillError).toBeLessThan(1);
     expect(shape.placeError).toBeLessThan(1);
   }

@@ -1,8 +1,9 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { aspectRatio, layoutCollage } from './collage';
 import type { AlbumPhoto } from './gridItems';
 import { TILE_IMAGE_PROPS } from './tileImage';
 import TileImage from './TileImage';
+import { replanTiles } from './tileScheduler';
 import styles from './CollageTiles.module.css';
 
 // A resize lays the collage out again once the width has settled.
@@ -55,6 +56,10 @@ const CollageTiles = memo(function CollageTiles({ photos, seed, visibleCount, on
     () => layoutCollage(photos.map((p) => aspectRatio(p.width, p.height)), width, seed),
     [photos, width, seed]
   );
+  // Tiles that only moved are new to the scheduler's plan.
+  useEffect(() => {
+    if (ref.current) replanTiles(ref.current);
+  }, [ref, collage]);
   const bandCount = collage.bands.findIndex((band) => band.end >= visibleCount) + 1 || collage.bands.length;
   const shownBands = collage.bands.slice(0, bandCount);
   const last = shownBands[shownBands.length - 1];
