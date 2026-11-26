@@ -20,18 +20,21 @@ import { setSources } from './tileImage';
  * visitor turned around) is cancelled.
  *
  * A preview (a tenth of the bytes) keeps a tile that scrolls in before its
- * full image from showing an empty placeholder. It shows only once its tile
- * has been on screen for PREVIEW_DELAY_MS without the full image (data-due),
- * so a full image that is cached or arrives quickly replaces the placeholder
- * directly, and it is not downloaded at all for a tile whose full image
- * loaded first.
+ * full image from showing an empty placeholder. Once a tile has been on
+ * screen for PREVIEW_DELAY_MS without its full image, the preview shows if
+ * it has loaded (data-due); if it has not, the full image paints as its
+ * bytes arrive instead (data-skip), rather than the tile waiting on either.
+ * So a full image that is cached or arrives quickly replaces the placeholder
+ * directly, and a preview is not downloaded at all for a tile whose full
+ * image loaded first.
  */
 const AHEAD_SCREENS = 2.5;
 const MAX_LOADS = 6;
 // Full images may take every connection but one, and only three while a
 // preview is waiting: previews are small, so their time is mostly latency,
 // and with fewer connections they fall behind a fast scroll and tiles show
-// empty placeholders.
+// empty placeholders. That holds on the first screen too: once previews
+// fall behind at the start of a scroll, they do not catch up.
 const MAX_FULL = 5;
 const MAX_FULL_WITH_PREVIEWS = 3;
 export const PREVIEW_DELAY_MS = 100;
@@ -78,6 +81,10 @@ export function createTileScheduler(grid: HTMLElement) {
   function cancel(img: HTMLImageElement) {
     started.delete(img);
     if (!img.complete) setSources(img, null, null);
+    // What the full image had painted is gone, so a preview may show when
+    // the tile is back.
+    const preview = previewOf(img);
+    if (preview) delete preview.dataset.skip;
   }
 
   const loading = (img: HTMLImageElement) => started.has(img) && !img.complete;
@@ -100,12 +107,13 @@ export function createTileScheduler(grid: HTMLElement) {
     const now = performance.now();
     let wait = Infinity;
     for (const { img, preview } of onScreen) {
-      if (!preview || 'due' in preview.dataset || isLoaded(img)) continue;
+      if (!preview || 'due' in preview.dataset || 'skip' in preview.dataset || isLoaded(img)) continue;
       const seen = firstSeen.get(img) ?? now;
       firstSeen.set(img, seen);
       const left = seen + PREVIEW_DELAY_MS - now;
-      if (left <= 0) preview.dataset.due = '';
-      else wait = Math.min(wait, left);
+      if (left > 0) wait = Math.min(wait, left);
+      else if (isLoaded(preview)) preview.dataset.due = '';
+      else preview.dataset.skip = '';
     }
     return wait;
   }

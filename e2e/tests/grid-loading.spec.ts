@@ -97,6 +97,34 @@ test('a photo whose download is cut off is retried and shows', async ({ page }) 
   await expectAllTilesLoaded(page);
 });
 
+for (const failures of [2, 3]) {
+  test(`a photo whose first ${failures} requests fail is retried until it shows`, async ({ page }) => {
+    test.setTimeout(90_000);
+    // Every image request fails until it has been tried this many times, as
+    // during an outage at the image host. Retries reuse the same URL.
+    const attempts = new Map<string, number>();
+    await page.route('https://s3.e2e.amazonaws.com/**', async (route) => {
+      const url = route.request().url();
+      const attempt = (attempts.get(url) ?? 0) + 1;
+      attempts.set(url, attempt);
+      if (attempt <= failures) return route.fulfill({ status: 503, body: 'SlowDown' });
+      return route.continue().catch(() => {});
+    });
+    await page.setViewportSize({ width: 1280, height: 2400 });
+    await page.goto(`${PUBLIC}/g/${slug}`);
+    await expect
+      .poll(
+        () =>
+          tiles(page).evaluateAll(
+            (els) => (els as HTMLImageElement[]).filter((img) => img.complete && img.naturalWidth > 0 && !('failed' in img.dataset)).length
+          ),
+        { timeout: 30_000 }
+      )
+      .toBe(PHOTOS);
+    expect(Math.max(...attempts.values())).toBe(failures + 1);
+  });
+}
+
 test('tiles below the viewport start loading before they are scrolled to', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 400 });
   await delayImages(page);

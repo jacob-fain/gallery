@@ -9,19 +9,24 @@ import type { SyntheticEvent } from 'react';
  *   full image stays hidden until it has loaded completely, so it replaces
  *   the preview in one quick fade instead of painting over it top down.
  * - A failed load is hidden (data-failed), so the tile shows its preview or
- *   placeholder and not a broken-image icon, and is retried once after
- *   RETRY_DELAY_MS. An expired URL is replaced by the grid's refresh instead;
- *   a new src is a new load and earns its own retry.
+ *   placeholder and not a broken-image icon, and is retried after each of
+ *   RETRY_DELAYS_MS, then every RETRY_INTERVAL_MS while the tile is on
+ *   screen, so a tile never stays on its preview for good. Each retry is a
+ *   new request even for the same URL (the grid's refresh can hand back the
+ *   same signed URL, and setting an unchanged src starts no load). A new
+ *   src is a new load and starts the delays over.
  * - A tile removed before its image finished cancels the download. A shuffle
  *   remounts most tiles (the album keys tiles within each column), and the
  *   browser otherwise finishes every abandoned download first while the tiles
  *   on screen wait behind them.
  */
-export const RETRY_DELAY_MS = 1000;
+export const RETRY_DELAYS_MS = [1000, 3000, 8000];
+export const RETRY_INTERVAL_MS = 30_000;
 
 interface TileState {
-  // The src and srcset of the load that failed and was retried.
-  retried?: string;
+  // The src and srcset whose loads have failed, and how many times.
+  failedSource?: string;
+  failures: number;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -30,7 +35,7 @@ const states = new WeakMap<HTMLImageElement, TileState>();
 function stateOf(img: HTMLImageElement): TileState {
   let state = states.get(img);
   if (!state) {
-    state = {};
+    state = { failures: 0 };
     states.set(img, state);
   }
   return state;
@@ -71,6 +76,17 @@ function onLoad(event: SyntheticEvent<HTMLImageElement>) {
   const img = event.currentTarget;
   delete img.dataset.failed;
   img.dataset.loaded = '';
+  const state = states.get(img);
+  if (state) {
+    clearTimeout(state.timer);
+    state.failures = 0;
+    state.failedSource = undefined;
+  }
+}
+
+function onScreen(img: HTMLImageElement): boolean {
+  const rect = img.getBoundingClientRect();
+  return rect.bottom > 0 && rect.top < window.innerHeight;
 }
 
 function onError(event: SyntheticEvent<HTMLImageElement>) {
@@ -80,14 +96,25 @@ function onError(event: SyntheticEvent<HTMLImageElement>) {
   img.dataset.failed = '';
   const state = stateOf(img);
   const source = sourceOf(img);
-  if (state.retried === source) return;
-  state.retried = source;
+  if (state.failedSource !== source) {
+    state.failedSource = source;
+    state.failures = 0;
+  }
+  const delay = RETRY_DELAYS_MS[state.failures] ?? RETRY_INTERVAL_MS;
+  const patient = state.failures >= RETRY_DELAYS_MS.length;
+  state.failures += 1;
   clearTimeout(state.timer);
-  state.timer = setTimeout(() => {
+  const retry = () => {
     // A new src from a refresh is already loading.
     if (!img.isConnected || sourceOf(img) !== source) return;
+    // Past the quick retries, a tile off screen waits until it is back.
+    if (patient && !onScreen(img)) {
+      state.timer = setTimeout(retry, RETRY_INTERVAL_MS);
+      return;
+    }
     setSources(img, img.getAttribute('src'), img.getAttribute('srcset'));
-  }, RETRY_DELAY_MS);
+  };
+  state.timer = setTimeout(retry, delay);
 }
 
 // Stable references, so React attaches the ref once per image.

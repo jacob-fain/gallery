@@ -33,10 +33,16 @@
   opacity: 1;
 }
 
-/* Hidden until it has loaded, so it replaces the preview in one fade. Without
-   a working preview it shows as it arrives. */
-.grid .preview:not([data-failed]) + img:not([data-loaded]) {
+/* Hidden until it has loaded, so it replaces the preview in one fade. A
+   tile whose preview did not arrive in time (data-skip) or failed shows the
+   full image as its bytes arrive instead. */
+.grid .preview:not([data-skip]):not([data-failed]) + img:not([data-loaded]) {
   opacity: 0;
+}
+
+/* While a failed full image is retried, its preview stands in. */
+.preview[data-shown]:has(+ img[data-failed]) {
+  opacity: 1;
 }
 
 /* Once the full image has faded in, nothing of the preview can show

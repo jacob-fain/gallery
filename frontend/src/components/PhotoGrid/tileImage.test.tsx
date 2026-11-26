@@ -2,7 +2,7 @@
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { PREVIEW_IMAGE_PROPS, RETRY_DELAY_MS, TILE_IMAGE_PROPS } from './tileImage';
+import { PREVIEW_IMAGE_PROPS, RETRY_DELAYS_MS, RETRY_INTERVAL_MS, TILE_IMAGE_PROPS } from './tileImage';
 
 function Tile({ src }: { src: string }) {
   return <img alt="tile" src={src} srcSet={`${src} 600w`} {...TILE_IMAGE_PROPS} />;
@@ -48,7 +48,7 @@ describe('grid tile images', () => {
     expect(tile().dataset.failed).toBeUndefined();
   });
 
-  it('hide a failed load and retry it once, then show it when it loads', () => {
+  it('hide a failed load and retry it, then show it when it loads', () => {
     render(<Tile src="https://s3.test/a.webp" />);
     const img = tile();
     const setAttribute = vi.spyOn(img, 'setAttribute');
@@ -57,31 +57,72 @@ describe('grid tile images', () => {
     expect(img.dataset.failed).toBe('');
     expect(loadsStarted(setAttribute)).toEqual([]);
 
-    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    act(() => vi.advanceTimersByTime(RETRY_DELAYS_MS[0]));
     expect(loadsStarted(setAttribute)).toEqual(['https://s3.test/a.webp']);
     expect(img.getAttribute('srcset')).toBe('https://s3.test/a.webp 600w');
 
-    // The retry failed too: the same URL is not tried again.
-    fireEvent.error(img);
-    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS * 5));
-    expect(loadsStarted(setAttribute)).toHaveLength(1);
-    expect(img.dataset.failed).toBe('');
-
     fireEvent.load(img);
     expect(img.dataset.failed).toBeUndefined();
+    expect(img.dataset.loaded).toBe('');
+  });
+
+  it.each([2, 3])('recover after %i failures in a row, retrying the same URL with growing delays', (failures) => {
+    render(<Tile src="https://s3.test/a.webp" />);
+    const img = tile();
+    const setAttribute = vi.spyOn(img, 'setAttribute');
+    for (let i = 0; i < failures; i++) {
+      fireEvent.error(img);
+      // Not before its delay.
+      act(() => vi.advanceTimersByTime(RETRY_DELAYS_MS[i] - 1));
+      expect(loadsStarted(setAttribute)).toHaveLength(i);
+      act(() => vi.advanceTimersByTime(1));
+      expect(loadsStarted(setAttribute)).toHaveLength(i + 1);
+    }
+    expect(new Set(loadsStarted(setAttribute))).toEqual(new Set(['https://s3.test/a.webp']));
+    fireEvent.load(img);
+    expect(img.dataset.failed).toBeUndefined();
+
+    // A later failure starts the delays over.
+    fireEvent.error(img);
+    act(() => vi.advanceTimersByTime(RETRY_DELAYS_MS[0]));
+    expect(loadsStarted(setAttribute)).toHaveLength(failures + 1);
+  });
+
+  it('keep retrying every 30 s after the quick retries, but only while on screen', () => {
+    render(<Tile src="https://s3.test/a.webp" />);
+    const img = tile();
+    for (const delay of RETRY_DELAYS_MS) {
+      fireEvent.error(img);
+      act(() => vi.advanceTimersByTime(delay));
+    }
+    const setAttribute = vi.spyOn(img, 'setAttribute');
+    const rect = vi.spyOn(img, 'getBoundingClientRect');
+
+    rect.mockReturnValue({ top: 2000, bottom: 2300 } as DOMRect);
+    fireEvent.error(img);
+    act(() => vi.advanceTimersByTime(RETRY_INTERVAL_MS * 2));
+    expect(loadsStarted(setAttribute)).toEqual([]);
+
+    rect.mockReturnValue({ top: 100, bottom: 400 } as DOMRect);
+    act(() => vi.advanceTimersByTime(RETRY_INTERVAL_MS));
+    expect(loadsStarted(setAttribute)).toEqual(['https://s3.test/a.webp']);
+
+    fireEvent.error(img);
+    act(() => vi.advanceTimersByTime(RETRY_INTERVAL_MS));
+    expect(loadsStarted(setAttribute)).toHaveLength(2);
   });
 
   it('give a new src its own retry', () => {
     const { rerender } = render(<Tile src="https://s3.test/a.webp" />);
     const img = tile();
     fireEvent.error(img);
-    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    act(() => vi.advanceTimersByTime(RETRY_DELAYS_MS[0]));
     fireEvent.error(img);
 
     rerender(<Tile src="https://s3.test/a-fresh.webp" />);
     const setAttribute = vi.spyOn(img, 'setAttribute');
     fireEvent.error(img);
-    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    act(() => vi.advanceTimersByTime(RETRY_DELAYS_MS[0]));
     expect(loadsStarted(setAttribute)).toEqual(['https://s3.test/a-fresh.webp']);
   });
 
@@ -92,7 +133,7 @@ describe('grid tile images', () => {
 
     rerender(<Tile src="https://s3.test/a-fresh.webp" />);
     const setAttribute = vi.spyOn(img, 'setAttribute');
-    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    act(() => vi.advanceTimersByTime(RETRY_DELAYS_MS[0]));
     expect(loadsStarted(setAttribute)).toEqual([]);
     expect(img.getAttribute('src')).toBe('https://s3.test/a-fresh.webp');
   });
@@ -108,7 +149,7 @@ describe('grid tile images', () => {
 
     // Nor is a removed image retried.
     const setAttribute = vi.spyOn(img, 'setAttribute');
-    act(() => vi.advanceTimersByTime(RETRY_DELAY_MS));
+    act(() => vi.advanceTimersByTime(RETRY_DELAYS_MS[0]));
     expect(loadsStarted(setAttribute)).toEqual([]);
   });
 

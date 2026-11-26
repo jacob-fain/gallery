@@ -181,4 +181,26 @@ describe('tile scheduler', () => {
     expect('due' in tiles[1].preview.dataset).toBe(false);
     stop();
   });
+
+  it('lets the full image paint as it arrives when the preview is not there in time', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    const { root, tiles } = grid(12);
+    const stop = createTileScheduler(root);
+    vi.advanceTimersByTime(PREVIEW_DELAY_MS);
+    await Promise.resolve();
+    expect('skip' in tiles[0].preview.dataset).toBe(true);
+    expect('due' in tiles[0].preview.dataset).toBe(false);
+
+    // A preview arriving later does not replace what the full image painted.
+    load(tiles[0].preview);
+    vi.advanceTimersByTime(PREVIEW_DELAY_MS);
+    await Promise.resolve();
+    expect('due' in tiles[0].preview.dataset).toBe(false);
+
+    // Scrolled past, the full image is cancelled, and the tile decides again
+    // when it is back.
+    await scrollTo(1200);
+    expect('skip' in tiles[0].preview.dataset).toBe(false);
+    stop();
+  });
 });
