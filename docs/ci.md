@@ -27,8 +27,10 @@ plain error (command not found, connection refused, missing file).
 - The runner container shares the dind sidecar's network namespace. Ports
   that service containers and the E2E stack publish on `127.0.0.1` must be
   reachable at `localhost` from the job.
-- The runner's work directory is mounted into the sidecar at the same path.
-  The secret scan and the E2E stack bind-mount files from the checkout.
+- The runner's work directory, `/srv/ci/<runner>/_work`, is mounted at that
+  same path in the runner and in its sidecar. The secret scan and the E2E
+  stack bind-mount files from the checkout, and the daemon resolves those
+  paths in its own filesystem.
 - In the image: `git` 2.18 or later (without it `actions/checkout` downloads
   a tarball, and the full-history secret scan breaks), the Docker CLI with
   the `compose` and `buildx` plugins, `curl`, `jq`, `openssl`, `python3`,
@@ -43,9 +45,10 @@ plain error (command not found, connection refused, missing file).
   the file lives elsewhere.
 - `registry.lan` resolves inside the sidecar. Builders run with host
   networking inside dind, so the sidecar's resolver is the one that counts.
-- Persistent named volumes for the npm cache (mounted at the runner user's
+- Persistent volumes for the npm cache (mounted at the runner user's
   `~/.npm`, or wherever `npm_config_cache` points) and for Playwright
-  browsers (`PLAYWRIGHT_BROWSERS_PATH` set in the runner environment).
+  browsers at `/srv/ci/cache/ms-playwright`, which the runner environment
+  sets as `PLAYWRIGHT_BROWSERS_PATH`.
 
 ## What runs where
 
@@ -110,20 +113,23 @@ deploys staging itself.
   GitHub toolcache is assumed) and does not use the Actions cache on
   self-hosted runners, which would only add a download and an upload.
   `npm ci` installs from the warm cache.
-- Playwright: browsers live on the `PLAYWRIGHT_BROWSERS_PATH` volume. The
+- Playwright: browsers live in `/srv/ci/cache/ms-playwright`
+  (`PLAYWRIGHT_BROWSERS_PATH`). The
   version is pinned exactly in `e2e/package.json`, so the volume holds one
   known browser build and a download happens only when the pin changes.
 - Docker layers: each image's BuildKit cache lives in the registry at
   `registry.lan/gallery-<app>:buildcache` (`mode=max`). Only main runs write
-  it. Pull requests read it if the registry allows anonymous pulls; otherwise
-  they build cold, which is a warning, not a failure. A failed cache write
-  never fails a build.
+  it. Pull requests read it anonymously, with no login. A cache miss is a
+  warning, not a failure, and a failed cache write never fails a build.
 
 The E2E stack builds its images with plain `docker compose build` inside the
 sidecar, so its layer cache lasts only as long as the sidecar's storage.
 
 ## Registry
 
+- Access: pulls and cache reads are anonymous, allowed by source address at
+  the registry's reverse proxy (the CI runners and the production server).
+  Only a push needs credentials.
 - Images: `registry.lan/gallery-frontend` and `registry.lan/gallery-backend`.
   Main pushes `sha-<full commit>` and `main` tags; a release adds the `v*`
   tag to the same digest.
@@ -132,9 +138,13 @@ sidecar, so its layer cache lasts only as long as the sidecar's storage.
   `deploy` job puts both in the GitHub Deployment payload
   (`frontend_digest`, `backend_digest`). The server's poller passes them to
   `homelab-gallery-apply`, which pulls `registry.lan/gallery-<app>@<digest>`
-  and refuses anything that is not `sha256:` plus 64 hex characters.
-- Only main logs in. Pull requests, Dependabot and branch runs never log in
-  and never push, and Dependabot runs get no secrets at all. A main run
+  and refuses anything that is not `sha256:` plus 64 hex characters. For
+  production it also requires the registry's `vX.Y.Z` tag to name the same
+  two digests and the backend image to carry a `BUILD_ID` label
+  (`deploy/README.md`).
+- Only jobs that push log in: main's image builds and a release's tag
+  promotion. Pull requests, Dependabot and branch runs never log in and never
+  push, and Dependabot runs get no secrets at all. A main run
   without the registry credentials fails rather than skipping the push: a
   main commit with no images can never be released.
 - `mirror-ghcr` copies a release's two images to

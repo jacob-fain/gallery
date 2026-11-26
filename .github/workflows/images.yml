@@ -79,7 +79,8 @@ jobs:
     # that commit reached main, which staging already ran.
     if: needs.changes.outputs.apps != '[]'
     runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-build"]') }}
-    timeout-minutes: 20
+    # Generous for a cold layer cache on a shared build box.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -163,9 +164,10 @@ jobs:
             BUILD_ID=${{ env.BUILD_ID }}
             GIT_SHA=${{ github.sha }}
           # The cache lives in the registry beside each image. Only a pushing
-          # run writes it; a pull request reads it when the registry allows
-          # anonymous pulls and otherwise builds cold (a cache miss is a
-          # warning, not a failure). A failed cache write never fails a build.
+          # run writes it. Reads are anonymous (the registry allows pulls from
+          # the runners' addresses), so pull requests use it without logging
+          # in; a cache miss is a warning, not a failure. A failed cache write
+          # never fails a build.
           cache-from: >-
             ${{ vars.RUNNER_MODE == 'hosted' && format('type=gha,scope={0}', matrix.app)
             || format('type=registry,ref={0}:buildcache', env.IMAGE) }}
@@ -352,11 +354,7 @@ jobs:
           buildkitd-config-inline: |
             [registry."${{ env.REGISTRY }}"]
               ca = ["${{ env.REGISTRY_CA }}"]
-      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USER }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+      # Reading registry.lan needs no login; only GHCR is written.
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io

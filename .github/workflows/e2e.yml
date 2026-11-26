@@ -44,7 +44,8 @@ jobs:
     if: needs.changes.outputs.smoke == 'true'
     runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-build"]') }}
     # Building the two images is most of the run; the tests take seconds.
-    timeout-minutes: 20
+    # Generous for a cold layer cache on a shared build box.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: e2e
