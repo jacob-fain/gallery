@@ -1,0 +1,80 @@
+/* On wide screens Download sits in the corner with Shuffle above it and the
+   layout switch beside Shuffle. On phones all three share one row, so none
+   is pushed off screen or under another (#276). */
+.controls {
+  position: fixed;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 50;
+  display: grid;
+  grid-template-areas: 'switch shuffle';
+  gap: 12px;
+  align-items: center;
+  justify-items: end;
+  /* The gaps between the buttons are not theirs to take taps from. */
+  pointer-events: none;
+}
+
+.controls.withDownload {
+  grid-template-areas:
+    'switch shuffle'
+    '. download';
+}
+
+.controls > * {
+  pointer-events: auto;
+}
+
+.switch {
+  grid-area: switch;
+}
+
+.shuffle {
+  grid-area: shuffle;
+}
+
+.download {
+  grid-area: download;
+}
+
+.button {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.button:hover {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+  transform: scale(1.05);
+}
+
+.button:active {
+  transform: scale(0.95);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .controls,
+  .controls.withDownload {
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    grid-template-areas: 'switch shuffle download';
+    gap: 8px;
+  }
+}

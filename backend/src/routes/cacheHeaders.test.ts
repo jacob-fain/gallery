@@ -351,6 +351,20 @@ describe('responses that must never be stored', () => {
     });
   });
 
+  it('the original for viewing, which signs it inline and counts no download', async () => {
+    vi.mocked(eventTracking.recordPhotoDownload).mockClear();
+    const res = await get(`/photos/${PHOTO_ID}/original`);
+    expect(res.status).toBe(200);
+    expect(res.cache).toBe('no-store');
+    expect(res.body.data).toEqual({
+      originalUrl: 'https://s3.example/k/original.jpg?sig',
+      width: 100,
+      height: 80,
+      contentType: null,
+    });
+    expect(eventTracking.recordPhotoDownload).not.toHaveBeenCalled();
+  });
+
   it.each(['/admin/stats', '/galleries/admin/all', `/galleries/${GALLERY_ID}/photos/admin`, '/photos/admin/unassigned'])(
     'admin GET %s',
     async (path) => {

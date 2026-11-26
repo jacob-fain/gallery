@@ -3,50 +3,6 @@
   position: relative;
 }
 
-.downloadBtn {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, transform 0.15s;
-  z-index: 50;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.downloadBtn:hover {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-  transform: scale(1.05);
-}
-
-.downloadBtn:active {
-  transform: scale(0.95);
-}
-
-/* Shuffle button stacks above the download button */
-.shuffleBtn {
-  composes: downloadBtn;
-  bottom: 84px;
-}
-
-/* Beside the shuffle button. */
-.layoutSwitch {
-  position: fixed;
-  bottom: 84px;
-  right: 84px;
-  z-index: 50;
-}
-
 .title {
   font-size: 1.5rem;
   font-weight: 500;
@@ -128,19 +84,6 @@
 }
 
 @media (max-width: 640px) {
-  .downloadBtn {
-    bottom: 16px;
-    right: 16px;
-    width: 44px;
-    height: 44px;
-  }
-
-  /* Beside the corner buttons, which sit lower and smaller here. */
-  .layoutSwitch {
-    bottom: 16px;
-    right: 72px;
-  }
-
   .title {
     font-size: 1.25rem;
   }

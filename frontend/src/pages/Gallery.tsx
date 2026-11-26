@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
 import {
   getGallery,
@@ -15,10 +15,10 @@ import PageTitle from '../components/PageTitle';
 import PageHeading from '../components/PageHeading/PageHeading';
 import { DelayedSkeleton, HeadingSkeleton } from '../components/Skeleton/Skeleton';
 import PhotoGridSkeleton from '../components/PhotoGrid/PhotoGridSkeleton';
-import { shuffle } from '../utils/shuffle';
-import LayoutSwitch from '../components/PhotoGrid/LayoutSwitch';
+import { seededOrder } from '../utils/shuffle';
+import FloatingControls from '../components/FloatingControls/FloatingControls';
 import { useGridLayout } from '../components/PhotoGrid/gridLayout';
-import { seedFrom } from '../components/PhotoGrid/collage';
+import { useEntrySeeds } from '../utils/gridSeeds';
 import { withFreshUrls } from '../utils/expiredImages';
 import { useGalleryViewTracking } from '../utils/galleryViewTracking';
 import { isGallerySlug } from '../utils/slug';
@@ -61,7 +61,16 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<'missing' | 'failed' | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [layout, setLayout] = useGridLayout();
+  const [layout, setLayout, { oneColumn }] = useGridLayout();
+  const { key: locationKey } = useLocation();
+  const [seeds, reshuffle] = useEntrySeeds(locationKey);
+  // Derived from the photos in the gallery's order. Each photo's place
+  // follows from its id, so a refresh that drops or adds photos leaves the
+  // rest where they were.
+  const shuffled = useMemo(
+    () => (seeds.shuffle ? seededOrder(photos, seeds.shuffle) : photos),
+    [photos, seeds.shuffle]
+  );
 
   // Password form state
   const [password, setPassword] = useState('');
@@ -286,68 +295,22 @@ export default function Gallery() {
         photoCount={unlocked.photoCount ?? photos.length}
         description={unlocked.description}
       />
-      {photoShown && photos.length > 1 && (
-        <LayoutSwitch layout={layout} onChange={setLayout} className={styles.layoutSwitch} />
-      )}
-      {photoShown && photos.length > 1 && (
-        <button
-          className={styles.shuffleBtn}
-          onClick={() => setPhotos(shuffle(photos))}
-          title="Shuffle photos"
-          aria-label="Shuffle photos"
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22" />
-            <path d="m18 2 4 4-4 4" />
-            <path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2" />
-            <path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8" />
-            <path d="m18 14 4 4-4 4" />
-          </svg>
-        </button>
-      )}
       {photoShown && photos.length > 0 && (
-        <button
-          className={styles.downloadBtn}
-          onClick={handleDownload}
-          title="Download all photos as ZIP"
-          aria-label="Download all photos as ZIP"
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-        </button>
+        <FloatingControls
+          {...(photos.length > 1 && { layout, onLayoutChange: setLayout, oneColumn, onShuffle: reshuffle })}
+          onDownload={handleDownload}
+        />
       )}
       {photos.length === 0 ? (
         <div className="loading">No photos in this gallery yet.</div>
       ) : (
         <PhotoGrid
-          photos={photos}
+          photos={shuffled}
           galleryTitle={gallery.title}
           accessToken={accessToken ?? undefined}
           onImagesExpired={refreshPhotos}
           layout={layout}
-          // Per gallery, so a visitor sees the same collage each visit.
-          collageSeed={seedFrom(slug ?? '')}
+          collageSeed={seeds.layout}
         />
       )}
     </div>

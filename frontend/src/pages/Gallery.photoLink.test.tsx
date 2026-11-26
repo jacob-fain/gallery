@@ -61,11 +61,18 @@ function renderGallery() {
   );
 }
 
+// The photo the viewer shows. Its position depends on the visit's random
+// order, so it is told by its alt text, which names the same place.
 function currentSlide() {
-  return screen
+  const label = screen
     .getByRole('dialog', { name: 'Lightbox' })
     .querySelector('.yarl__slide_current')
     ?.getAttribute('aria-label');
+  const place = Number(label?.match(/^(\d+) of/)?.[1]);
+  const tile = [...document.querySelectorAll<HTMLImageElement>('img[data-tile]')].find((img) =>
+    img.alt.startsWith(`Photo ${place} of`)
+  );
+  return tile?.getAttribute('data-src')?.match(/\/(p\d)-thumb/)?.[1];
 }
 
 describe('Gallery photo link', () => {
@@ -85,7 +92,7 @@ describe('Gallery photo link', () => {
     await user.type(await screen.findByPlaceholderText('Enter password'), 'secret{Enter}');
 
     await screen.findByRole('dialog', { name: 'Lightbox' });
-    expect(currentSlide()).toBe('2 of 3');
+    expect(currentSlide()).toBe('p2');
     expect(window.location.pathname + window.location.search).toBe('/g/smith?photo=p2');
     expect(vi.mocked(client.trackPhotoView).mock.calls).toEqual([['p2']]);
   });
@@ -95,7 +102,7 @@ describe('Gallery photo link', () => {
     renderGallery();
 
     await screen.findByRole('dialog', { name: 'Lightbox' });
-    expect(currentSlide()).toBe('2 of 3');
+    expect(currentSlide()).toBe('p2');
     expect(window.location.href).not.toContain('token-1');
   });
 });

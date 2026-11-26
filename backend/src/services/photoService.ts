@@ -140,6 +140,13 @@ export const getDownloadUrl = (photo: Photo): Promise<string> =>
   getSignedUrl(photo.s3_key, undefined, photoDownloadName(photo));
 
 /**
+ * Signed URL for the full-size original, shown inline: the viewer swaps it in
+ * when zoomed past the web size's resolution. Signed apart from the download
+ * URL, whose attachment disposition is part of its signature.
+ */
+export const getOriginalViewUrl = (photo: Photo): Promise<string> => getSignedUrl(photo.s3_key);
+
+/**
  * Enrich a photo with signed S3 URLs
  * Converts raw S3 keys into temporary accessible URLs
  */

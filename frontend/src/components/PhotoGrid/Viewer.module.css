@@ -189,3 +189,74 @@
     padding: 0 12px;
   }
 }
+
+/* Top centre, small, out of the way of the toolbar and the label. */
+.originalLoading {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Clear of a notch or rounded corner on either side. */
+.label {
+  padding-left: max(16px, env(safe-area-inset-left));
+}
+
+.viewer :global(.yarl__toolbar) {
+  padding-right: max(8px, env(safe-area-inset-right));
+}
+
+/* A phone on its side has little height: the label and toolbar sit tighter
+   and the caption keeps to one short line (ExifOverlay.module.css). */
+@media (orientation: landscape) and (max-height: 500px) {
+  .label {
+    height: 48px;
+    font-size: 12px;
+  }
+
+  /* 44px buttons (a 24px icon in 10px padding) in a 48px toolbar, which
+     the label above matches. */
+  .viewer :global(.yarl__toolbar) {
+    padding: 2px max(4px, env(safe-area-inset-right)) 2px 2px;
+  }
+
+  .viewer :global(.yarl__button) {
+    padding: 10px;
+  }
+
+  .originalLoadingText {
+    display: none;
+  }
+}

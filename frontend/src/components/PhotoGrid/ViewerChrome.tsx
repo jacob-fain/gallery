@@ -206,3 +206,15 @@ export function ReviewActions({ onAct, toast }: { onAct: ReviewAct; toast: Revie
     </div>
   );
 }
+
+// Shown while the original loads for a deep zoom (originalZoom.ts). Not part
+// of the fading chrome: it is status, and the chrome stays hidden while the
+// photo is zoomed in by touch.
+export function OriginalLoading() {
+  return (
+    <div className={styles.originalLoading} role="status">
+      <span className={styles.spinner} aria-hidden="true" />
+      <span className={styles.originalLoadingText}>Loading full resolution</span>
+    </div>
+  );
+}
