@@ -1,7 +1,10 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/auth';
 import { UploadQueueProvider } from '../../../contexts/UploadQueueContext';
-import { useUploadSummary } from '../../../contexts/uploads';
+import { useUploadQueue, useUploadSummary } from '../../../contexts/uploads';
+import { holdReloadWhile } from '../../../utils/lazyWithReload';
+import ErrorBoundary from '../../ErrorBoundary';
 import ThemeToggle from '../../ThemeToggle/ThemeToggle';
 import UploadIndicator from '../UploadIndicator/UploadIndicator';
 import styles from './AdminLayout.module.css';
@@ -21,7 +24,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 function AdminShell({ children }: AdminLayoutProps) {
   const { user, logout } = useAuth();
   const uploads = useUploadSummary();
+  const queue = useUploadQueue();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  // A page whose code fails to load (a deploy since this tab opened) would
+  // reload the page and drop every upload still running. While any run, the
+  // page's area shows the error with a Reload button instead.
+  useEffect(() => holdReloadWhile(() => queue.getSummary().active), [queue]);
 
   const handleLogout = () => {
     // Signing out stops every upload still running.
@@ -109,7 +119,11 @@ function AdminShell({ children }: AdminLayoutProps) {
         </div>
       </nav>
       <main className={styles.content}>
-        {children}
+        {/* Inside the upload queue, so an error in a page leaves the uploads
+            running. Keyed by path: moving to another page tries again. */}
+        <ErrorBoundary key={pathname} fullPage={false}>
+          {children}
+        </ErrorBoundary>
         <UploadIndicator />
       </main>
     </div>

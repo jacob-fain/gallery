@@ -47,7 +47,7 @@ function useContainerWidth() {
  * The grid's tiles in the collage layout (collage.ts). Tiles are keyed by
  * photo, so a resize or a new arrangement moves the same images rather than
  * remounting them. The class names and images are the album's
- * (TileImage), so the grid's tile styles, scheduling, previews and retries
+ * (TileImage), so the grid's tile styles, scheduling, retries and cancelling
  * apply to both layouts.
  */
 const CollageTiles = memo(function CollageTiles({ photos, seed, visibleCount, onOpen }: CollageTilesProps) {
@@ -81,7 +81,7 @@ const CollageTiles = memo(function CollageTiles({ photos, seed, visibleCount, on
           >
             <TileImage
               className={`react-photo-album--image ${styles.image}`}
-              preview={photo.preview}
+              photoId={photo.key}
               src={photo.src}
               srcSet={photo.srcSet.map((c) => `${c.src} ${c.width}w`).join(', ') || undefined}
               // The tile's own width, so the browser picks a file at least

@@ -159,9 +159,10 @@ describe('the collage on All Photos', () => {
       expect(Math.abs(width / (w / h) - height)).toBeLessThan(0.5);
       const img = tile.querySelector('img[data-tile]')!;
       expect(img.getAttribute('sizes')).toBe(`${Math.ceil(width)}px`);
-      // Held for the scheduler (tileScheduler.ts), behind a preview.
+      // Held for the scheduler (tileScheduler.ts); the tile's only image.
       expect(img.getAttribute('data-srcset')).toContain(`https://s3.test/p${index}-web.jpg`);
-      expect(img.previousElementSibling?.getAttribute('data-src')).toBe(`https://s3.test/p${index}-thumb.jpg`);
+      expect(img.getAttribute('data-photo')).toBe(`p${index}`);
+      expect(tile.querySelectorAll('img')).toHaveLength(1);
     }
   });
 

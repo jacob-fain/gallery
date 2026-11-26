@@ -7,13 +7,24 @@
 
 export type ErrorSource = 'error' | 'unhandledrejection' | 'boundary' | 'chunk';
 
+export type ImageFailure = 'error' | 'truncated' | 'timeout';
+
+/** A grid image that kept failing to load. Never its URL: that is signed. */
+export interface ImageFailureDetails {
+  photoId: string;
+  kind: 'thumb' | 'web';
+  failure: ImageFailure;
+  attempts: number;
+}
+
 export interface ClientErrorReport {
-  source: ErrorSource;
+  source: ErrorSource | 'image';
   message: string;
   stack?: string;
   url: string;
   release?: string;
   userAgent: string;
+  image?: ImageFailureDetails;
 }
 
 // Matches the server's limits (backend/src/routes/clientErrors.ts), so a
@@ -25,6 +36,12 @@ const MAX_USER_AGENT = 300;
 
 /** Reports sent per page load at most: a render loop must not flood the log. */
 export const MAX_REPORTS_PER_PAGE = 5;
+
+/**
+ * Image failure reports per page load at most, counted apart from errors: a
+ * grid of failing images must not crowd out a crash. One per photo.
+ */
+export const MAX_IMAGE_REPORTS_PER_PAGE = 20;
 
 // Browser noise that says nothing about this app.
 const IGNORED = [/^ResizeObserver loop/, /^Script error\.?$/];
@@ -92,6 +109,30 @@ export const createReporter = ({ send, path, userAgent, release, max = MAX_REPOR
   };
 };
 
+export const createImageReporter = ({
+  send,
+  path,
+  userAgent,
+  release,
+  max = MAX_IMAGE_REPORTS_PER_PAGE,
+}: ReporterOptions) => {
+  const reported = new Set<string>();
+
+  return (image: ImageFailureDetails): void => {
+    if (reported.size >= max || reported.has(image.photoId)) return;
+    reported.add(image.photoId);
+    const report: ClientErrorReport = {
+      source: 'image',
+      message: `Image failed to load: ${image.kind} ${image.failure} after ${image.attempts} attempts`,
+      url: pathOf(path()).slice(0, MAX_PATH),
+      userAgent: userAgent.slice(0, MAX_USER_AGENT),
+      image,
+    };
+    if (release) report.release = release;
+    send(report);
+  };
+};
+
 /**
  * Posts a report without delaying the page; keepalive lets it outlive the
  * page unloading. Not sendBeacon: a beacon always carries cookies, and the
@@ -113,6 +154,7 @@ export const postTo = (endpoint: string) => (report: ClientErrorReport): void =>
 };
 
 let active: ((source: ErrorSource, error: unknown) => void) | null = null;
+let activeImage: ((image: ImageFailureDetails) => void) | null = null;
 let removeListeners: (() => void) | null = null;
 
 /** Reports an error caught by the app. A no-op until reporting is installed. */
@@ -124,15 +166,26 @@ export const reportClientError = (source: ErrorSource, error: unknown): void => 
   }
 };
 
+/** Reports a grid image that kept failing. A no-op until reporting is installed. */
+export const reportImageFailure = (image: ImageFailureDetails): void => {
+  try {
+    activeImage?.(image);
+  } catch {
+    // Reporting must never raise an error of its own.
+  }
+};
+
 /** Starts reporting uncaught errors and rejections for this page load. */
 export const installClientErrorReporting = (endpoint: string, release?: string): void => {
   if (active) return;
-  active = createReporter({
+  const options: ReporterOptions = {
     send: postTo(endpoint),
     path: () => window.location.pathname,
     userAgent: navigator.userAgent,
     release,
-  });
+  };
+  active = createReporter(options);
+  activeImage = createImageReporter(options);
   const onError = (event: ErrorEvent) => reportClientError('error', event.error ?? event.message);
   const onRejection = (event: PromiseRejectionEvent) => reportClientError('unhandledrejection', event.reason);
   window.addEventListener('error', onError);
@@ -148,4 +201,5 @@ export const resetClientErrorReporting = (): void => {
   removeListeners?.();
   removeListeners = null;
   active = null;
+  activeImage = null;
 };
