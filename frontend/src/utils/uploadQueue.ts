@@ -1,6 +1,6 @@
 import type { DuplicateInfo } from '../api/client';
 import type { Photo } from '../types';
-import { uploadOutcome, type UploadOutcome } from './uploadOutcome';
+import { mayBeStored, uploadOutcome, type UploadOutcome } from './uploadOutcome';
 import { STATUS_LABELS } from './reviewStatus';
 
 // Matches the server-side multer limit
@@ -31,16 +31,26 @@ export interface RetryTiming {
    *  stored the photo before sending it again. The server may still be
    *  writing it to S3 after the proxy in front gave up on the request. */
   serverGraceMs: number;
+  /** How often to ask during that grace, after a first check at delaysMs[0]. */
+  confirmPollMs: number;
 }
 
 export const RETRY_TIMING: RetryTiming = {
   delaysMs: [2_000, 5_000, 15_000, 30_000, 60_000],
   maxAttempts: 10,
   stallMs: 60_000,
-  // Above Cloudflare's 100 s origin timeout, so its 524 normally arrives
-  // first, and below nginx's 300 s proxy timeouts.
-  answerMs: 150_000,
-  serverGraceMs: 120_000,
+  // Progress reaches 100% once the browser has buffered the body, not once
+  // the server has it, so a stall near the end of the body also ends up
+  // here. Behind Cloudflare an answer or its 524 comes within 100 s of the
+  // body arriving. On a model calibrated to production (p90 82 s per whole
+  // upload) the slowest answer after the body was 53 s, so 90 s gives up on
+  // a dead connection sooner without cutting off real answers; one cut off
+  // anyway is found by the check that follows.
+  answerMs: 90_000,
+  // The same model's slowest answer is 53 s, so a photo whose answer was lost
+  // is stored within a minute; polling every 10 s finds it soon after.
+  serverGraceMs: 60_000,
+  confirmPollMs: 10_000,
 };
 
 export const ALREADY_UPLOADED = 'Already uploaded';
@@ -103,8 +113,10 @@ export interface UploadItem {
   retryDelayMs?: number;
   /** A retrying row is waiting for the browser to come back online. */
   offline?: boolean;
-  /** When an attempt that had sent every byte lost its answer (epoch ms). */
+  /** When an attempt that may have been stored lost its answer (epoch ms). */
   lostAt?: number;
+  /** Asking the server whether it stored a photo whose answer was lost. */
+  confirming?: boolean;
   /** Scheduled waits so far, which picks the next delay. */
   waits?: number;
 }
@@ -134,8 +146,15 @@ export interface QueueSummary {
   targetCount: number;
   /** The one running target when targetCount is 1. */
   galleryId: string | null;
-  /** Rows waiting to be tried again by themselves. */
+  /** Rows waiting out a backoff before trying again. */
   retrying: number;
+  /** Rows asking the server whether it stored them. */
+  confirming: number;
+  /** Running rows that are checking, waiting for a slot or sending. */
+  moving: number;
+  /** The earliest backoff to end (epoch ms), and its wait, for a countdown. */
+  nextRetryAt: number | null;
+  nextRetryDelayMs: number | null;
   /** Rows that failed and can be retried, in every target, running or not. */
   failed: number;
 }
@@ -169,6 +188,10 @@ const IDLE: QueueSummary = {
   targetCount: 0,
   galleryId: null,
   retrying: 0,
+  confirming: 0,
+  moving: 0,
+  nextRetryAt: null,
+  nextRetryDelayMs: null,
   failed: 0,
 };
 
@@ -203,10 +226,23 @@ export function summarize(targets: Iterable<TargetState>): QueueSummary {
   let galleryId: string | null = null;
   let checkOnly = true;
   let retrying = 0;
+  let confirming = 0;
+  let moving = 0;
+  let nextRetryAt: number | null = null;
+  let nextRetryDelayMs: number | null = null;
   let failed = 0;
   for (const t of targets) {
-    failed += t.items.filter(isRetryableFailure).length;
-    retrying += t.items.filter((i) => i.status === 'retrying').length;
+    for (const i of t.items) {
+      if (isRetryableFailure(i)) failed += 1;
+      else if (i.status === 'retrying' && i.confirming) confirming += 1;
+      else if (i.status === 'retrying') {
+        retrying += 1;
+        if (i.retryAt !== undefined && (nextRetryAt === null || i.retryAt < nextRetryAt)) {
+          nextRetryAt = i.retryAt;
+          nextRetryDelayMs = i.retryDelayMs ?? null;
+        }
+      } else if (isInFlight(i)) moving += 1;
+    }
     const running = t.items.filter(isInFlight);
     if (running.length === 0) continue;
     targetCount += 1;
@@ -216,7 +252,20 @@ export function summarize(targets: Iterable<TargetState>): QueueSummary {
     if (running.some((i) => !i.checkOnly)) checkOnly = false;
   }
   if (targetCount === 0) return failed === 0 ? IDLE : { ...IDLE, failed };
-  return { active: true, total, processed, checkOnly, targetCount, galleryId, retrying, failed };
+  return {
+    active: true,
+    total,
+    processed,
+    checkOnly,
+    targetCount,
+    galleryId,
+    retrying,
+    confirming,
+    moving,
+    nextRetryAt,
+    nextRetryDelayMs,
+    failed,
+  };
 }
 
 const sameSummary = (a: QueueSummary, b: QueueSummary) =>
@@ -227,6 +276,10 @@ const sameSummary = (a: QueueSummary, b: QueueSummary) =>
   a.targetCount === b.targetCount &&
   a.galleryId === b.galleryId &&
   a.retrying === b.retrying &&
+  a.confirming === b.confirming &&
+  a.moving === b.moving &&
+  a.nextRetryAt === b.nextRetryAt &&
+  a.nextRetryDelayMs === b.nextRetryDelayMs &&
   a.failed === b.failed;
 
 /**
@@ -358,6 +411,7 @@ export class UploadQueue {
               waits: 0,
               retryAt: undefined,
               lostAt: undefined,
+              confirming: undefined,
             }
           : u
       ),
@@ -526,6 +580,7 @@ export class UploadQueue {
                 error: sent ? 'No answer from the server' : 'Upload stalled',
                 retryable: true,
                 auto: true,
+                status: 0,
               }
             : uploadOutcome(err);
           const current = this.find(item.id) ?? item;
@@ -538,7 +593,9 @@ export class UploadQueue {
               this.settle(current, { status: 'duplicate', note: outcome.note }, 'skipped');
             }
           } else if (outcome.auto && attempts < this.timing.maxAttempts) {
-            this.scheduleRetry(current, outcome.error, sent ? this.now() : current.lostAt);
+            const stored = timedOut ? sent : mayBeStored(outcome.status, sent);
+            if (stored && current.hash) this.confirm(this.patched(current, { lostAt: this.now() }), outcome.error, true);
+            else this.scheduleRetry(current, outcome.error);
           } else {
             const error = outcome.auto ? `${outcome.error} (after ${attempts} attempts)` : outcome.error;
             this.settle(current, { status: 'error', error, retryable: outcome.retryable, retryAt: undefined }, 'failed');
@@ -553,16 +610,27 @@ export class UploadQueue {
       });
   }
 
-  private scheduleRetry(item: UploadItem, reason: string, lostAt: number | undefined) {
+  // Waits out the next backoff, then checks once and sends again.
+  private scheduleRetry(item: UploadItem, reason: string) {
     const waits = (item.waits ?? 0) + 1;
     const { delaysMs } = this.timing;
     const delay = delaysMs[Math.min(waits - 1, delaysMs.length - 1)];
+    this.wait(item, delay, { note: reason, waits, confirming: undefined });
+  }
+
+  // Asks again whether the server stored a photo whose answer was lost: first
+  // soon, then every confirmPollMs, until serverGraceMs from the loss.
+  private confirm(item: UploadItem, reason: string, first = false) {
+    const left = (item.lostAt ?? this.now()) + this.timing.serverGraceMs - this.now();
+    const delay = Math.max(0, Math.min(first ? this.timing.delaysMs[0] : this.timing.confirmPollMs, left));
+    this.wait(item, delay, { note: reason, confirming: true });
+  }
+
+  private wait(item: UploadItem, delay: number, patch: Partial<UploadItem>) {
     this.patch(item, {
+      ...patch,
       status: 'retrying',
       progress: 0,
-      note: reason,
-      waits,
-      lostAt,
       retryAt: this.now() + delay,
       retryDelayMs: delay,
       offline: undefined,
@@ -573,6 +641,14 @@ export class UploadQueue {
       void this.resume(item.id);
     }, delay);
     this.retryTimers.set(item.id, timer);
+  }
+
+  private withinGrace(item: UploadItem) {
+    return (
+      item.confirming === true &&
+      item.lostAt !== undefined &&
+      this.now() - item.lostAt < this.timing.serverGraceMs
+    );
   }
 
   // Asks the server whether it already has the file before sending it again.
@@ -604,8 +680,9 @@ export class UploadQueue {
             'failed'
           );
         } else {
-          this.patch(item, { attempts });
-          this.scheduleRetry(this.find(id)!, 'No connection to the server', item.lostAt);
+          const next = this.patched(item, { attempts });
+          if (this.withinGrace(next)) this.confirm(next, 'No connection to the server');
+          else this.scheduleRetry(next, 'No connection to the server');
         }
         return;
       }
@@ -617,16 +694,21 @@ export class UploadQueue {
         else this.settle(item, { status: 'duplicate', note: duplicateNote(found) }, 'skipped');
         return;
       }
-      if (item.lostAt !== undefined && this.now() - item.lostAt < this.timing.serverGraceMs) {
-        this.scheduleRetry(item, 'Checking whether the server saved it', item.lostAt);
+      if (this.withinGrace(item)) {
+        this.confirm(item, item.note ?? 'No answer from the server');
         return;
       }
     }
 
-    this.patch(item, { status: 'pending', note: undefined });
+    this.patch(item, { status: 'pending', note: undefined, confirming: undefined });
     // Ahead of files not yet tried, so a batch does not end on its retries.
     this.waiting.unshift(id);
     this.pump();
+  }
+
+  private patched(item: UploadItem, patch: Partial<UploadItem>): UploadItem {
+    this.patch(item, patch);
+    return this.find(item.id) ?? { ...item, ...patch };
   }
 
   private recover(item: UploadItem) {

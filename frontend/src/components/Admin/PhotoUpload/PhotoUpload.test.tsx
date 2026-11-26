@@ -331,7 +331,7 @@ describe('PhotoUpload drop zone', () => {
       review_status: 'review',
     });
     await step(() => uploads.get('big.jpg')!.reject(failure('The server took too long to answer (HTTP 524)', 524)));
-    expect(within(row('big.jpg')).getByText(/^Retrying in/)).toBeTruthy();
+    expect(within(row('big.jpg')).getByText('Confirming upload...')).toBeTruthy();
 
     await wait(2000);
     expect(within(row('big.jpg')).getByText('Already uploaded')).toBeTruthy();

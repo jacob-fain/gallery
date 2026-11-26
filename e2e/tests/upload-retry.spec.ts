@@ -45,7 +45,7 @@ test('a photo the server stored before Cloudflare timed out (524) is reported up
     buffer: uniqueJpeg('lost-answer'),
   });
 
-  await expect(page.getByText(/Retrying in \d+s \(attempt 2\)/)).toBeVisible();
+  await expect(page.getByText('Confirming upload...').first()).toBeVisible();
   await expect(page.getByText('Done · 1 uploaded')).toBeVisible({ timeout: 15_000 });
   // The list reloads, since there is no photo object to add.
   await expect(page.locator('[class*="card"]', { hasText: 'lost-answer.jpg' }).first()).toBeVisible();
@@ -56,13 +56,15 @@ test('a photo the server stored before Cloudflare timed out (524) is reported up
   expect(await countCards(page, gallery.id)).toBe(1);
 });
 
-test('an upload whose connection drops is sent again by itself', async ({ page }) => {
-  const gallery = await openGallery(page, 'Dropped connection');
+test('an upload refused by the proxy (502) is sent again by itself after a short wait', async ({ page }) => {
+  const gallery = await openGallery(page, 'Bad gateway');
 
+  // The proxy answers without the request reaching the app, so nothing is
+  // stored and the queue sends again on its first backoff.
   let uploads = 0;
   await page.route(UPLOAD, async (route) => {
     uploads += 1;
-    if (uploads === 1) return route.abort('connectionreset');
+    if (uploads === 1) return route.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad Gateway</html>' });
     return route.continue();
   });
 
@@ -73,7 +75,7 @@ test('an upload whose connection drops is sent again by itself', async ({ page }
   });
 
   await expect(page.getByText(/Retrying in \d+s \(attempt 2\)/)).toBeVisible();
-  await expect(page.locator('[class*="card"]', { hasText: 'dropped.jpg' }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[class*="card"]', { hasText: 'dropped.jpg' }).first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('Done · 1 uploaded')).toBeVisible();
   expect(uploads).toBe(2);
   expect(await countCards(page, gallery.id)).toBe(1);

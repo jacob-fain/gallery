@@ -388,25 +388,89 @@ describe('UploadQueue retries', () => {
     expect(done).not.toHaveBeenCalled();
   });
 
-  it('keeps asking, without sending again, while the server may still be storing a photo whose answer was lost', async () => {
+  it('confirms every 10 s, without sending again, while the server may still be storing a photo whose answer was lost', async () => {
     vi.useFakeTimers();
-    const { queue, calls, stored } = lossy();
+    const { queue, calls, stored, checkDuplicates } = lossy();
     queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
     await flush();
     calls[0].onProgress(100);
     calls[0].reject(rejected('Gateway timeout', 524));
     await flush();
+    expect(row(queue, 'a')).toMatchObject({ status: 'retrying', confirming: true });
+    expect(queue.getSummary()).toMatchObject({ confirming: 1, retrying: 0, moving: 0 });
+    checkDuplicates.mockClear();
 
-    // Not stored yet at the first two checks (2 s, then 5 s later).
+    // Not stored yet at the first check (2 s) or the next (12 s).
     await advance(2000);
-    await advance(5000);
+    await advance(10_000);
+    expect(checkDuplicates).toHaveBeenCalledTimes(2);
     expect(calls).toHaveLength(1);
-    expect(row(queue, 'a')).toMatchObject({ status: 'retrying' });
+    expect(row(queue, 'a')).toMatchObject({ status: 'retrying', confirming: true });
 
     stored.set('a1', { id: 'p1', gallery_id: 'a' });
-    await advance(15000);
+    await advance(10_000);
     expect(calls).toHaveLength(1);
     expect(row(queue, 'a')).toMatchObject({ status: 'complete', note: 'Already uploaded' });
+  });
+
+  it('sends again 60 s after a lost answer when the server never stored it', async () => {
+    vi.useFakeTimers();
+    const { queue, calls, checkDuplicates } = lossy();
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    calls[0].onProgress(100);
+    calls[0].reject(rejected('Gateway timeout', 524));
+    await flush();
+    checkDuplicates.mockClear();
+
+    await advance(59_000);
+    expect(calls).toHaveLength(1);
+    // 2 s, then every 10 s: 2, 12, 22, 32, 42, 52.
+    expect(checkDuplicates).toHaveBeenCalledTimes(6);
+    await advance(1000);
+    expect(checkDuplicates).toHaveBeenCalledTimes(7);
+    expect(calls).toHaveLength(2);
+    expect(row(queue, 'a')).toMatchObject({ status: 'uploading', attempts: 2, confirming: undefined });
+  });
+
+  it.each([502, 503, 504, 408, 429, 522])(
+    'sends again on the normal backoff after %i, which never reached the app, checking once first',
+    async (status) => {
+      vi.useFakeTimers();
+      const { queue, calls, checkDuplicates } = lossy();
+      queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+      await flush();
+      calls[0].onProgress(100);
+      calls[0].reject(rejected('Bad gateway', status));
+      await flush();
+      expect(row(queue, 'a')).toMatchObject({ status: 'retrying', confirming: undefined });
+      expect(queue.getSummary()).toMatchObject({ retrying: 1, confirming: 0, moving: 0 });
+      checkDuplicates.mockClear();
+
+      await advance(2000);
+      expect(checkDuplicates).toHaveBeenCalledTimes(1);
+      expect(calls).toHaveLength(2);
+    }
+  );
+
+  it('gives up on a stall at the end of the body within 2.5 minutes, not 5', async () => {
+    vi.useFakeTimers();
+    const { queue, calls } = lossy();
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    // The browser has buffered every byte; the connection then stops.
+    calls[0].onProgress(100);
+    await advance(RETRY_TIMING.answerMs);
+    expect(calls[0].signal.aborted).toBe(true);
+    calls[0].reject(rejected('Upload aborted', 0));
+    await flush();
+    expect(row(queue, 'a')).toMatchObject({ confirming: true });
+
+    await advance(RETRY_TIMING.serverGraceMs - 1000);
+    expect(calls).toHaveLength(1);
+    await advance(1000);
+    expect(calls).toHaveLength(2);
+    expect(RETRY_TIMING.answerMs + RETRY_TIMING.serverGraceMs).toBe(150_000);
   });
 
   it('sends again once the grace has passed and the server never stored it', async () => {

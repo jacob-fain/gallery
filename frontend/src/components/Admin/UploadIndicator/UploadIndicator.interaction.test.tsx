@@ -2,7 +2,7 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { UploadQueueContext } from '../../../contexts/uploads';
 import type { Photo } from '../../../types';
 import { UploadQueue } from '../../../utils/uploadQueue';
@@ -122,5 +122,33 @@ describe('UploadIndicator while uploads run', () => {
     await started(2);
     expect(screen.getByText('Uploading 0/2')).toBeTruthy();
     expect(screen.queryByText(/failed/)).toBeNull();
+  });
+
+  it('says it is confirming, not uploading, while it asks whether a lost answer was stored', async () => {
+    const { queue, started, fail } = controlledQueue();
+    renderIndicator(queue);
+    act(() => queue.add([image('a')], { galleryId: 'g1', checkOnly: false }));
+    await started(1);
+
+    await fail('a', 524);
+    expect(screen.getByText('Confirming upload...')).toBeTruthy();
+    expect(screen.queryByText(/^Uploading/)).toBeNull();
+    expect(screen.queryByText(/confirming$/)).toBeNull();
+  });
+
+  it('counts down to the next retry while nothing is being sent', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { queue, started, fail } = controlledQueue();
+      renderIndicator(queue);
+      act(() => queue.add([image('a')], { galleryId: 'g1', checkOnly: false }));
+      await started(1);
+
+      await fail('a', 503);
+      expect(screen.getByText(/^Retrying in [12]s$/)).toBeTruthy();
+      expect(screen.queryByText(/^Uploading/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

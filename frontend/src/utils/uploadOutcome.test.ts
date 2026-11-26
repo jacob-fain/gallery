@@ -18,6 +18,7 @@ describe('uploadOutcome', () => {
         error: 'No',
         retryable: false,
         auto: false,
+        status,
       });
     }
   });
@@ -30,6 +31,7 @@ describe('uploadOutcome', () => {
       error: message,
       retryable: false,
       auto: false,
+      status: 415,
     });
   });
 
@@ -54,6 +56,7 @@ describe('uploadOutcome', () => {
       error: 'Failed to upload photo',
       retryable: true,
       auto: false,
+      status: 500,
     });
   });
 

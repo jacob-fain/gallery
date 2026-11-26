@@ -22,5 +22,8 @@ describe('retryText', () => {
   it('says when it waits for the connection, or is asking the server', () => {
     expect(retryText(item({ attempts: 4, offline: true }), 0)).toBe('Waiting for connection (attempt 5)');
     expect(retryText(item({ attempts: 1 }), 0)).toBe('Checking whether it was saved...');
+    expect(retryText(item({ attempts: 1, confirming: true, retryAt: 5000, retryDelayMs: 5000 }), 0)).toBe(
+      'Confirming upload...'
+    );
   });
 });

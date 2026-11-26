@@ -3,6 +3,7 @@ import { useUploadQueue, useUploadTarget } from '../../../contexts/uploads';
 import type { Photo } from '../../../types';
 import { processedCount, type UploadItem as UploadingFile } from '../../../utils/uploadQueue';
 import { retryText } from './retryText';
+import { useNow } from './useNow';
 import styles from './PhotoUpload.module.css';
 
 interface PhotoUploadProps {
@@ -19,25 +20,8 @@ interface UploadItemProps {
   onRetry: (id: string) => void;
 }
 
-/** Ticks once a second while a retry countdown shows. */
-function useNow(active: boolean) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const tick = () => setNow(Date.now());
-    // The first tick at once: the row may have rendered long before it retried.
-    const first = setTimeout(tick, 0);
-    const timer = setInterval(tick, 1000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
-  }, [active]);
-  return now;
-}
-
 const UploadItem = memo(function UploadItem({ item, onDismiss, onRetry }: UploadItemProps) {
-  const now = useNow(item.status === 'retrying' && item.retryAt !== undefined);
+  const now = useNow(item.status === 'retrying' && !item.confirming && item.retryAt !== undefined);
   const getStatusText = () => {
     switch (item.status) {
       case 'checking': return 'Checking...';
