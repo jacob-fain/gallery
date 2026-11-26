@@ -32,3 +32,11 @@
 .shuffleBtn:active {
   transform: scale(0.95);
 }
+
+/* Beside the shuffle button. */
+.layoutSwitch {
+  position: fixed;
+  bottom: 24px;
+  right: 84px;
+  z-index: 50;
+}
