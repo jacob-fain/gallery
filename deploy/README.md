@@ -10,7 +10,7 @@ here as host code first.
 
 1. A merge to `main` builds both images, pushes them to GHCR, and records a
    staging Deployment whose payload holds the two image digests. A `v*` tag,
-   created only by a release on Jacob's word (`.claude/skills/release`),
+   created only by a release on Jacob's word,
    builds nothing: it promotes the images built for that commit on `main`,
    which staging already ran, and records a production Deployment. Both are
    off until the `PULL_DEPLOY_ENABLED` repository variable is `true`.
