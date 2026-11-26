@@ -14,17 +14,19 @@ export const ADMIN_PASSWORD = 'e2e-admin-password';
 export const ADMIN_STATE = path.join(import.meta.dirname, '../.auth/admin.json');
 
 const fixture = readFileSync(path.join(import.meta.dirname, '../fixtures/photo.jpg'));
+// Wider than a thumbnail (600px), so the photo has a thumbnail and a web size.
+export const WIDE_FIXTURE = readFileSync(path.join(import.meta.dirname, '../fixtures/wide.jpg'));
 
 /**
  * The fixture JPEG with a comment segment naming `label` after its SOI
  * marker. Uploads are deduplicated by content, so each test needs bytes of
  * its own.
  */
-export function uniqueJpeg(label: string): Buffer {
+export function uniqueJpeg(label: string, base: Buffer = fixture): Buffer {
   const text = Buffer.from(`${label} ${Date.now()} ${Math.random()}`);
   const length = Buffer.alloc(2);
   length.writeUInt16BE(text.length + 2);
-  return Buffer.concat([fixture.subarray(0, 2), Buffer.from([0xff, 0xfe]), length, text, fixture.subarray(2)]);
+  return Buffer.concat([base.subarray(0, 2), Buffer.from([0xff, 0xfe]), length, text, base.subarray(2)]);
 }
 
 export function uniqueSlug(prefix: string): string {

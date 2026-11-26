@@ -2,7 +2,7 @@ import type { RequestHandler, Response } from 'express';
 
 /**
  * How long a browser may reuse a public response without asking again.
- * Responses carry signed URLs, which the URL cache hands out only while 50+
+ * Responses carry signed URLs, which the API hands out only while 30+
  * minutes remain (MIN_REMAINING_LIFETIME_MS in services/s3Service.ts), and
  * the SPA keeps a response in memory for another 5 minutes, so this must stay
  * at or under 5 minutes. It is shorter still so that hiding a photo or

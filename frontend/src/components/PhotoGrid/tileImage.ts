@@ -1,14 +1,17 @@
 import type { SyntheticEvent } from 'react';
 
 /**
- * Load handling for grid tile images. A tile shows its photo as the bytes
- * arrive, painted over the tile's placeholder: hiding it until the whole file
- * had loaded left tiles blank for the full download of a 1920px image.
+ * Load handling for grid tile images. When each tile's full image starts
+ * loading, and when its preview may show, is decided in tileScheduler.ts.
  *
- * - A failed load is hidden (data-failed), so the tile shows its placeholder
- *   and not a broken-image icon, and is retried once after RETRY_DELAY_MS.
- *   An expired URL is replaced by the grid's refresh instead; a new src is a
- *   new load and earns its own retry.
+ * - A tile's full image is marked data-loaded once it has loaded. Behind it
+ *   sits a preview (the photo's thumbnail), and while the preview shows the
+ *   full image stays hidden until it has loaded completely, so it replaces
+ *   the preview in one quick fade instead of painting over it top down.
+ * - A failed load is hidden (data-failed), so the tile shows its preview or
+ *   placeholder and not a broken-image icon, and is retried once after
+ *   RETRY_DELAY_MS. An expired URL is replaced by the grid's refresh instead;
+ *   a new src is a new load and earns its own retry.
  * - A tile removed before its image finished cancels the download. A shuffle
  *   remounts most tiles (the album keys tiles within each column), and the
  *   browser otherwise finishes every abandoned download first while the tiles
@@ -37,9 +40,11 @@ function sourceOf(img: HTMLImageElement): string {
   return `${img.getAttribute('src') ?? ''} ${img.getAttribute('srcset') ?? ''}`;
 }
 
+const isLoaded = (img: HTMLImageElement) => img.complete && img.naturalWidth > 0;
+
 // Removing the sources stops the load; setting them again starts a new one,
 // which is how the browser retries an image that failed.
-function setSources(img: HTMLImageElement, src: string | null, srcset: string | null) {
+export function setSources(img: HTMLImageElement, src: string | null, srcset: string | null) {
   img.removeAttribute('srcset');
   img.removeAttribute('src');
   if (srcset !== null) img.setAttribute('srcset', srcset);
@@ -58,15 +63,20 @@ function cancelDownload(img: HTMLImageElement) {
 
 function attach(img: HTMLImageElement | null) {
   if (!img) return;
+  if (isLoaded(img)) img.dataset.loaded = '';
   return () => cancelDownload(img);
 }
 
 function onLoad(event: SyntheticEvent<HTMLImageElement>) {
-  delete event.currentTarget.dataset.failed;
+  const img = event.currentTarget;
+  delete img.dataset.failed;
+  img.dataset.loaded = '';
 }
 
 function onError(event: SyntheticEvent<HTMLImageElement>) {
   const img = event.currentTarget;
+  // A tile whose download was cancelled has no sources and did not fail.
+  if (!img.hasAttribute('src') && !img.hasAttribute('srcset')) return;
   img.dataset.failed = '';
   const state = stateOf(img);
   const source = sourceOf(img);
@@ -82,3 +92,23 @@ function onError(event: SyntheticEvent<HTMLImageElement>) {
 
 // Stable references, so React attaches the ref once per image.
 export const TILE_IMAGE_PROPS = { ref: attach, onLoad, onError };
+
+function onPreviewLoad(event: SyntheticEvent<HTMLImageElement>) {
+  delete event.currentTarget.dataset.failed;
+  event.currentTarget.dataset.shown = '';
+}
+
+// A failed preview stays hidden; the full image then shows as it arrives.
+function onPreviewError(event: SyntheticEvent<HTMLImageElement>) {
+  const img = event.currentTarget;
+  if (img.hasAttribute('src')) img.dataset.failed = '';
+}
+
+export const PREVIEW_IMAGE_PROPS = {
+  alt: '',
+  'aria-hidden': true,
+  'data-preview': '',
+  decoding: 'async',
+  onLoad: onPreviewLoad,
+  onError: onPreviewError,
+} as const;

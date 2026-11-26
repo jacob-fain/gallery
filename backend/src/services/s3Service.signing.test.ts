@@ -11,19 +11,20 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: vi.fn(async () => `https://s3.example/signed-${++signed}`),
 }));
 
-const { cacheReuseDeadline, getSignedUrl, MIN_REMAINING_LIFETIME_MS } = await import('./s3Service');
+const { signingWindow, getSignedUrl, MIN_REMAINING_LIFETIME_MS } = await import('./s3Service');
 
 const MINUTE = 60 * 1000;
 
-describe('cacheReuseDeadline', () => {
-  it('reuses a one-hour URL only while it has at least the minimum lifetime left', () => {
-    const deadline = cacheReuseDeadline(0, 3600);
-    expect(deadline).toBe(10 * MINUTE);
-    expect(3600 * 1000 - deadline).toBe(MIN_REMAINING_LIFETIME_MS);
+describe('signingWindow', () => {
+  it('splits time into windows that leave a one-hour URL the minimum lifetime at their end', () => {
+    const window = signingWindow(Date.UTC(2026, 0, 1, 0, 45), 3600)!;
+    expect(window.start).toBe(Date.UTC(2026, 0, 1, 0, 30));
+    expect(window.end - window.start).toBe(30 * MINUTE);
+    expect(window.start + 3600 * 1000 - window.end).toBe(MIN_REMAINING_LIFETIME_MS);
   });
 
-  it('never reuses a URL whose whole lifetime is under the minimum', () => {
-    expect(cacheReuseDeadline(5000, 600)).toBe(5000);
+  it('never shares a URL whose whole lifetime is under the minimum', () => {
+    expect(signingWindow(5000, 600)).toBeNull();
   });
 });
 
@@ -37,20 +38,40 @@ describe('getSignedUrl cache', () => {
     vi.useRealTimers();
   });
 
-  it('serves a cached URL inside the reuse window and signs a new one after it', async () => {
+  it('signs as of the window start, serves that URL for the window, and signs anew after it', async () => {
+    const presigner = await import('@aws-sdk/s3-request-presigner');
+    vi.mocked(presigner.getSignedUrl).mockClear();
+    vi.setSystemTime(new Date('2026-01-01T00:10:00Z'));
     const first = await getSignedUrl('a.jpg');
+    expect(vi.mocked(presigner.getSignedUrl).mock.calls[0][2]).toEqual({
+      expiresIn: 3600,
+      signingDate: new Date('2026-01-01T00:00:00Z'),
+    });
 
-    vi.advanceTimersByTime(10 * MINUTE - 1);
+    vi.setSystemTime(new Date('2026-01-01T00:29:59.999Z'));
     expect(await getSignedUrl('a.jpg')).toBe(first);
 
-    vi.advanceTimersByTime(1);
+    vi.setSystemTime(new Date('2026-01-01T00:30:00Z'));
     const second = await getSignedUrl('a.jpg');
     expect(second).not.toBe(first);
+    expect(vi.mocked(presigner.getSignedUrl).mock.calls[1][2]).toMatchObject({
+      signingDate: new Date('2026-01-01T00:30:00Z'),
+    });
   });
 
-  it('never caches a short-lived URL', async () => {
+  it('never caches a short-lived URL, and signs it as of now', async () => {
+    const presigner = await import('@aws-sdk/s3-request-presigner');
+    vi.mocked(presigner.getSignedUrl).mockClear();
     const first = await getSignedUrl('b.jpg', 300);
     expect(await getSignedUrl('b.jpg', 300)).not.toBe(first);
+    expect(vi.mocked(presigner.getSignedUrl).mock.calls[0][2]).toEqual({ expiresIn: 300 });
+  });
+
+  it('keeps URLs for a download name apart from the plain URL', async () => {
+    const plain = await getSignedUrl('f.jpg');
+    const named = await getSignedUrl('f.jpg', undefined, 'photo.jpg');
+    expect(named).not.toBe(plain);
+    expect(await getSignedUrl('f.jpg')).toBe(plain);
   });
 });
 

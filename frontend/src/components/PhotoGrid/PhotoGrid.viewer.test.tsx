@@ -316,10 +316,22 @@ describe('grid tiles', () => {
     vi.restoreAllMocks();
   });
 
-  it('show each photo as it loads, and hide only a failed one', () => {
+  it('sit on a preview of the photo, its thumbnail, until the full image loads', async () => {
+    render(<PhotoGrid photos={photos} />);
+    const first = screen.getByAltText('Photo 1 of 3');
+    const preview = first.previousElementSibling as HTMLImageElement;
+    expect(preview.dataset.preview).toBe('');
+    expect(preview.getAttribute('aria-hidden')).toBe('true');
+    await waitFor(() => expect(preview.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg'));
+    expect(first.getAttribute('srcset')).toContain('https://s3.test/a-web.jpg');
+  });
+
+  it('show each photo as it loads, and hide only a failed one', async () => {
     render(<PhotoGrid photos={photos} />);
     const first = screen.getByAltText('Photo 1 of 3');
     const second = screen.getByAltText('Photo 2 of 3');
+    // The scheduler gives tiles their sources once they are laid out.
+    await waitFor(() => expect(first.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg'));
     expect(first.dataset.failed).toBeUndefined();
 
     fireEvent.error(first);

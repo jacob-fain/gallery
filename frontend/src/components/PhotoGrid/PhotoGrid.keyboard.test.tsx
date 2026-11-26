@@ -53,7 +53,7 @@ function focusedLabel() {
   const active = document.activeElement;
   return (
     active?.getAttribute('aria-label') ??
-    active?.querySelector('img')?.alt ??
+    active?.querySelector('img[data-tile]')?.getAttribute('alt') ??
     (active?.textContent || active?.tagName)
   );
 }

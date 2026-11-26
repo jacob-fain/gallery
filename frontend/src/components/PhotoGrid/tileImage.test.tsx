@@ -2,7 +2,7 @@
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { RETRY_DELAY_MS, TILE_IMAGE_PROPS } from './tileImage';
+import { PREVIEW_IMAGE_PROPS, RETRY_DELAY_MS, TILE_IMAGE_PROPS } from './tileImage';
 
 function Tile({ src }: { src: string }) {
   return <img alt="tile" src={src} srcSet={`${src} 600w`} {...TILE_IMAGE_PROPS} />;
@@ -27,9 +27,24 @@ afterEach(() => {
 });
 
 describe('grid tile images', () => {
-  it('stay shown when they load', () => {
+  it('stay shown when they load, marked as loaded for the fade over the preview', () => {
     render(<Tile src="https://s3.test/a.webp" />);
+    expect(tile().dataset.loaded).toBeUndefined();
     fireEvent.load(tile());
+    expect(tile().dataset.failed).toBeUndefined();
+    expect(tile().dataset.loaded).toBe('');
+  });
+
+  it('count an image already loaded when it mounts as loaded', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
+    render(<Tile src="https://s3.test/a.webp" />);
+    expect(tile().dataset.loaded).toBe('');
+  });
+
+  it('do not count a cancelled download, which has no sources, as failed', () => {
+    render(<img alt="tile" {...TILE_IMAGE_PROPS} />);
+    fireEvent.error(tile());
     expect(tile().dataset.failed).toBeUndefined();
   });
 
@@ -114,5 +129,31 @@ describe('grid tile images', () => {
     );
     await act(async () => {});
     expect(tile().getAttribute('src')).toBe('https://s3.test/a.webp');
+  });
+});
+
+describe('grid tile previews', () => {
+  function preview(src?: string) {
+    const { container } = render(<img src={src} {...PREVIEW_IMAGE_PROPS} />);
+    return container.querySelector<HTMLImageElement>('img[data-preview]')!;
+  }
+
+  it('are hidden from assistive technology', () => {
+    const img = preview('https://s3.test/a-thumb.webp');
+    expect(img.alt).toBe('');
+    expect(img.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('are marked shown once loaded, and failed only when a load with a source failed', () => {
+    const img = preview('https://s3.test/a-thumb.webp');
+    fireEvent.error(img);
+    expect(img.dataset.failed).toBe('');
+    fireEvent.load(img);
+    expect(img.dataset.shown).toBe('');
+    expect(img.dataset.failed).toBeUndefined();
+
+    const cancelled = preview();
+    fireEvent.error(cancelled);
+    expect(cancelled.dataset.failed).toBeUndefined();
   });
 });
