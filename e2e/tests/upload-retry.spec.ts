@@ -48,7 +48,7 @@ test('a photo the server stored before Cloudflare timed out (524) is reported up
   await expect(page.getByText(/Retrying in \d+s \(attempt 2\)/)).toBeVisible();
   await expect(page.getByText('Done · 1 uploaded')).toBeVisible({ timeout: 15_000 });
   // The list reloads, since there is no photo object to add.
-  await expect(page.locator('[class*="card"]', { hasText: 'lost-answer.jpg' })).toBeVisible();
+  await expect(page.locator('[class*="card"]', { hasText: 'lost-answer.jpg' }).first()).toBeVisible();
 
   expect(uploads).toBe(1);
   // The batch check, then the check before the retry found it.
@@ -73,7 +73,7 @@ test('an upload whose connection drops is sent again by itself', async ({ page }
   });
 
   await expect(page.getByText(/Retrying in \d+s \(attempt 2\)/)).toBeVisible();
-  await expect(page.locator('[class*="card"]', { hasText: 'dropped.jpg' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[class*="card"]', { hasText: 'dropped.jpg' }).first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('Done · 1 uploaded')).toBeVisible();
   expect(uploads).toBe(2);
   expect(await countCards(page, gallery.id)).toBe(1);
