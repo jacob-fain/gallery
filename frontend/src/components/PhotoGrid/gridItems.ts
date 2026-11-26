@@ -13,6 +13,9 @@ export interface AlbumPhoto {
   key: string;
   src: string;
   srcSet: ImageCandidate[];
+  // The thumbnail, shown behind the tile until its full image has loaded.
+  // Unset when the photo has a single size.
+  preview?: string;
   width: number;
   height: number;
   alt: string;
@@ -61,6 +64,7 @@ export function toAlbumPhotos(
       key: photo.id,
       src: candidates[0]?.src ?? fallbackUrl(photo),
       srcSet: candidates,
+      ...(candidates.length > 1 && { preview: candidates[0].src }),
       width: largest?.width ?? photo.width,
       height: largest?.height ?? photo.height,
       alt: altFor(photo, index, photos.length, galleryTitle),

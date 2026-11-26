@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MasonryPhotoAlbum, type RenderExtras } from 'react-photo-album';
+import { MasonryPhotoAlbum, type RenderExtras, type RenderImage } from 'react-photo-album';
 import 'react-photo-album/masonry.css';
 import Lightbox, { type ControllerRef } from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
@@ -25,7 +25,8 @@ import {
 import styles from './PhotoGrid.module.css';
 import { TILE_KEYBOARD_PROPS, useLightboxFocusTrap } from './keyboard';
 import { useLightboxHistory } from './lightboxHistory';
-import { TILE_IMAGE_PROPS } from './tileImage';
+import { PREVIEW_IMAGE_PROPS, TILE_IMAGE_PROPS } from './tileImage';
+import { useTileScheduler } from './tileScheduler';
 import { createHistoryMemory, entryKey } from '../../utils/historyMemory';
 import CollageTiles from './CollageTiles';
 import type { GridLayout } from './gridLayout';
@@ -83,8 +84,9 @@ const LIGHTBOX_PLUGINS = [Download, Zoom];
 const REVIEW_PLUGINS = [Zoom];
 const TILE_PROPS = { ...TILE_KEYBOARD_PROPS, image: TILE_IMAGE_PROPS };
 // More tiles are added while the end of the grid is this far below the
-// viewport, so they are laid out before the visitor reaches them.
-const MORE_TILES_MARGIN = '0px 0px 1500px 0px';
+// viewport, so they are laid out before the visitor reaches them and before
+// the scheduler, which looks 2.5 screens ahead (tileScheduler.ts), needs them.
+const MORE_TILES_MARGIN = '0px 0px 3000px 0px';
 const tileCounts = createHistoryMemory('tiles');
 
 function initialTileCount(perPage: number, memoryKey: string | undefined): number {
@@ -118,7 +120,17 @@ const renderReviewExtras: RenderExtras<AlbumPhoto> = (_, { photo }) => (
     {photo.galleryLabel && <span className={styles.galleryLabel}>{photo.galleryLabel}</span>}
   </>
 );
-const REVIEW_RENDER = { extras: renderReviewExtras };
+// The images' sources wait in data attributes until the scheduler starts
+// them (tileScheduler.ts). The preview comes first so the full image,
+// positioned after it, paints over it, and the review extras over both.
+const renderTileImage: RenderImage<AlbumPhoto> = ({ src, srcSet, ...props }, { photo }) => (
+  <>
+    {photo.preview && <img data-src={photo.preview} className={styles.preview} {...PREVIEW_IMAGE_PROPS} />}
+    <img {...props} data-tile="" data-src={src} data-srcset={srcSet} />
+  </>
+);
+const TILE_RENDER = { image: renderTileImage };
+const REVIEW_RENDER = { image: renderTileImage, extras: renderReviewExtras };
 
 // Memoized so that moving through the lightbox, which changes only the
 // parent's index state, re-renders the lightbox and not every tile. Its props
@@ -132,7 +144,7 @@ const PhotoTiles = memo(function PhotoTiles({ photos, onOpen, review }: PhotoTil
       spacing={12}
       sizes={GRID_SIZES}
       componentsProps={TILE_PROPS}
-      render={review ? REVIEW_RENDER : undefined}
+      render={review ? REVIEW_RENDER : TILE_RENDER}
       onClick={({ index }) => onOpen(index)}
     />
   );
@@ -162,6 +174,7 @@ export default function PhotoGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   const [mayRefresh] = useState(() => createRefreshGuard(REFRESH_INTERVAL_MS));
   useLightboxFocusTrap(lightboxIndex >= 0, LIGHTBOX_CLASS, lightboxController);
+  useTileScheduler(gridRef);
   const viewerIdle = useViewerIdle(lightboxIndex >= 0, LIGHTBOX_CLASS);
 
   // Image error events do not bubble, so they are caught in the capture

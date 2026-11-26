@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 import { isAdminSubdomain } from './utils/subdomain';
 import { lazyWithReload } from './utils/lazyWithReload';
 import { getSettings, type SiteSettings } from './api/client';
@@ -12,6 +12,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import PageTitle from './components/PageTitle';
 import ScrollRestorer from './components/ScrollRestorer';
 import { DEFAULT_SITE_TITLE, SiteTitleContext } from './contexts/siteTitle';
+import { startAllPhotosRequest, startGalleryRequests } from './pages/gridRequests';
 import './styles/globals.css';
 
 // Public pages - keep eager (small, always needed)
@@ -23,6 +24,20 @@ import NotFound from './pages/NotFound';
 // homepage and the galleries list do not need.
 const Gallery = lazyWithReload(() => import('./pages/Gallery'));
 const AllPhotos = lazyWithReload(() => import('./pages/AllPhotos'));
+
+// Their first requests start as the route matches, alongside their code
+// (gridRequests.ts). A state initializer runs once per mount, and again only
+// if the first render suspends, which the request cache absorbs.
+function GalleryRoute() {
+  const { slug } = useParams<{ slug: string }>();
+  useState(() => startGalleryRequests(slug));
+  return <Gallery />;
+}
+
+function AllPhotosRoute() {
+  useState(startAllPhotosRequest);
+  return <AllPhotos />;
+}
 
 // Admin pages - lazy load (reduces initial bundle for public visitors)
 const Login = lazyWithReload(() => import('./pages/admin/Login'));
@@ -45,8 +60,8 @@ export function PublicApp({ settings }: { settings?: Partial<SiteSettings> }) {
           <Routes>
             <Route path="/" element={<><PageTitle /><Home /></>} />
             <Route path="/galleries" element={<><PageTitle page="Galleries" /><Galleries /></>} />
-            <Route path="/photos" element={<><PageTitle page="Photos" /><AllPhotos /></>} />
-            <Route path="/g/:slug" element={<Gallery />} />
+            <Route path="/photos" element={<><PageTitle page="Photos" /><AllPhotosRoute /></>} />
+            <Route path="/g/:slug" element={<GalleryRoute />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
