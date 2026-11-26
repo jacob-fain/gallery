@@ -24,8 +24,12 @@ function controlledQueue() {
     await act(async () => {
       const upload = pending.get(name)!;
       if (ok) upload.resolve({ id: name } as Photo);
-      else upload.reject(new Error('Network error'));
+      // A refusal that would repeat, so the row fails at once with no retry.
+      else upload.reject(Object.assign(new Error('Unsupported'), { status: 415 }));
     });
+  };
+  const fail = async (name: string, status: number) => {
+    await act(async () => pending.get(name)!.reject(Object.assign(new Error('Failed'), { status })));
   };
   // Hashing and the duplicate check run before any upload starts.
   const started = async (count: number) => {
@@ -33,7 +37,7 @@ function controlledQueue() {
       while (pending.size < count) await new Promise((r) => setTimeout(r, 0));
     });
   };
-  return { queue, settle, started };
+  return { queue, settle, started, fail, pending };
 }
 
 function renderIndicator(queue: UploadQueue) {
@@ -88,5 +92,35 @@ describe('UploadIndicator while uploads run', () => {
     act(() => queue.setSession(null));
 
     expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('counts uploads that are retrying by themselves', async () => {
+    const { queue, started, fail } = controlledQueue();
+    renderIndicator(queue);
+    act(() => queue.add([image('a'), image('b')], { galleryId: 'g1', checkOnly: false }));
+    await started(2);
+
+    await fail('a', 0);
+    expect(screen.getByText('Uploading 0/2')).toBeTruthy();
+    expect(screen.getByText('1 retrying')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry all failed' })).toBeNull();
+  });
+
+  it('stays after the batch while uploads failed, and retries them all', async () => {
+    const { queue, started, fail, pending } = controlledQueue();
+    renderIndicator(queue);
+    act(() => queue.add([image('a'), image('b')], { galleryId: 'g1', checkOnly: false }));
+    await started(2);
+    await fail('a', 500);
+    await fail('b', 500);
+
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByText('2 uploads failed')).toBeTruthy();
+
+    pending.clear();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry all failed' }));
+    await started(2);
+    expect(screen.getByText('Uploading 0/2')).toBeTruthy();
+    expect(screen.queryByText(/failed/)).toBeNull();
   });
 });

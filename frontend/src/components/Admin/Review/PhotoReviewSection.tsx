@@ -78,6 +78,11 @@ function Section({
     [shift, status, update, uploadsGo]
   );
 
+  const handleUploadsRecovered = useCallback(() => {
+    reload();
+    refreshCounts();
+  }, [reload, refreshCounts]);
+
   const handlePhotosChange = useCallback(() => {
     onGalleryChange?.();
     refreshCounts();
@@ -93,7 +98,11 @@ function Section({
   return (
     <>
       {header(counts)}
-      <PhotoUpload galleryId={gallery?.id ?? null} onUploadComplete={handleUploadComplete} />
+      <PhotoUpload
+        galleryId={gallery?.id ?? null}
+        onUploadComplete={handleUploadComplete}
+        onUploadsRecovered={handleUploadsRecovered}
+      />
 
       <div className={styles.toolbar}>
         <StatusPills value={status} counts={counts} onChange={setStatus} />

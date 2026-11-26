@@ -462,15 +462,26 @@ export async function checkDuplicates(
   return found;
 }
 
-/** A rejected upload. status is the HTTP status, or 0 when no response arrived. */
+/** A rejected upload. status is the HTTP status, or 0 when no response arrived.
+ *  existing is the stored photo a 409 names. */
 export class UploadError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  readonly existing?: { id: string; gallery_id: string | null };
+  constructor(message: string, status: number, existing?: { id: string; gallery_id: string | null }) {
     super(message);
     this.name = 'UploadError';
     this.status = status;
+    if (existing) this.existing = existing;
   }
 }
+
+// Answers that come from a proxy as HTML, not from the API as JSON.
+const proxyMessage = (status: number) =>
+  status === 413
+    ? 'File is larger than the server accepts'
+    : status === 524
+    ? 'The server took too long to answer (HTTP 524)'
+    : `Upload failed (HTTP ${status})`;
 
 export async function uploadPhoto(
   galleryId: string | null,
@@ -501,17 +512,16 @@ export async function uploadPhoto(
       // must still end.
       checkSession(xhr.status);
       try {
-        const data: ApiResponse<Photo> = JSON.parse(xhr.responseText);
+        const data: ApiResponse<Photo> & { existing?: { id: string; gallery_id: string | null } } =
+          JSON.parse(xhr.responseText);
         if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data) {
           resolve(data.data);
         } else {
-          reject(new UploadError(data.error || 'Upload failed', xhr.status));
+          reject(new UploadError(data.error || 'Upload failed', xhr.status, data.existing));
         }
       } catch {
-        // Not JSON: the response came from the proxy (nginx), not the API.
-        const message =
-          xhr.status === 413 ? 'File is larger than the server accepts' : `Upload failed (HTTP ${xhr.status})`;
-        reject(new UploadError(message, xhr.status));
+        // Not JSON: the response came from a proxy (nginx, Cloudflare), not the API.
+        reject(new UploadError(proxyMessage(xhr.status), xhr.status));
       }
     });
 

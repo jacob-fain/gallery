@@ -2,11 +2,15 @@ import { useState, useRef, useEffect, useCallback, memo, type DragEvent, type Ch
 import { useUploadQueue, useUploadTarget } from '../../../contexts/uploads';
 import type { Photo } from '../../../types';
 import { processedCount, type UploadItem as UploadingFile } from '../../../utils/uploadQueue';
+import { retryText } from './retryText';
 import styles from './PhotoUpload.module.css';
 
 interface PhotoUploadProps {
   galleryId: string | null;
   onUploadComplete: (photo: Photo) => void;
+  /** A retry found photos already stored whose answers were lost, so there
+   *  is no photo to add: the page reloads its list. */
+  onUploadsRecovered?: () => void;
 }
 
 interface UploadItemProps {
@@ -15,14 +19,32 @@ interface UploadItemProps {
   onRetry: (id: string) => void;
 }
 
+/** Ticks once a second while a retry countdown shows. */
+function useNow(active: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const tick = () => setNow(Date.now());
+    // The first tick at once: the row may have rendered long before it retried.
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [active]);
+  return now;
+}
+
 const UploadItem = memo(function UploadItem({ item, onDismiss, onRetry }: UploadItemProps) {
+  const now = useNow(item.status === 'retrying' && item.retryAt !== undefined);
   const getStatusText = () => {
     switch (item.status) {
       case 'checking': return 'Checking...';
       case 'pending': return 'Waiting...';
       case 'uploading': return `${item.progress}%`;
       case 'processing': return 'Processing...';
-      case 'complete': return '✓ Done';
+      case 'complete': return item.note ?? '✓ Done';
       default: return '';
     }
   };
@@ -48,6 +70,10 @@ const UploadItem = memo(function UploadItem({ item, onDismiss, onRetry }: Upload
             Dismiss
           </button>
         </>
+      ) : item.status === 'retrying' ? (
+        <span className={styles.retryNote} title={item.note}>
+          {retryText(item, now)}
+        </span>
       ) : item.status === 'duplicate' || item.status === 'new' ? (
         <>
           <span className={item.status === 'duplicate' ? styles.duplicateNote : styles.newNote}>
@@ -82,7 +108,7 @@ const UploadItem = memo(function UploadItem({ item, onDismiss, onRetry }: Upload
   );
 });
 
-export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUploadProps) {
+export default function PhotoUpload({ galleryId, onUploadComplete, onUploadsRecovered }: PhotoUploadProps) {
   const queue = useUploadQueue();
   const { items: uploading, stats } = useUploadTarget(galleryId);
   const [isDragging, setIsDragging] = useState(false);
@@ -97,6 +123,14 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
         if (target === galleryId) onUploadComplete(photo);
       }),
     [queue, galleryId, onUploadComplete]
+  );
+
+  useEffect(
+    () =>
+      queue.onRecovered((target) => {
+        if (target === galleryId) onUploadsRecovered?.();
+      }),
+    [queue, galleryId, onUploadsRecovered]
   );
 
   const handleFiles = useCallback(
@@ -134,6 +168,7 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
   const dismissError = useCallback((id: string) => queue.dismiss(id), [queue]);
 
   const hasResults = uploading.some((u) => u.status === 'duplicate' || u.status === 'new');
+  const failedCount = uploading.filter((u) => u.status === 'error' && u.retryable).length;
   const processed = processedCount(stats);
   const batchDone = stats.total > 0 && processed >= stats.total;
 
@@ -180,14 +215,21 @@ export default function PhotoUpload({ galleryId, onUploadComplete }: PhotoUpload
           />
           Check only — don't upload
         </label>
-        {hasResults && (
-          <button
-            className={styles.clearBtn}
-            onClick={() => queue.clearResults(galleryId)}
-          >
-            Clear results
-          </button>
-        )}
+        <div className={styles.optionsActions}>
+          {failedCount > 0 && (
+            <button className={styles.clearBtn} onClick={() => queue.retryAllFailed(galleryId)}>
+              Retry all failed ({failedCount})
+            </button>
+          )}
+          {hasResults && (
+            <button
+              className={styles.clearBtn}
+              onClick={() => queue.clearResults(galleryId)}
+            >
+              Clear results
+            </button>
+          )}
+        </div>
       </div>
 
       {stats.total > 0 && (
