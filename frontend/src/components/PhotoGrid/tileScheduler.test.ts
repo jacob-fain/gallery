@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTileScheduler, PREVIEW_DELAY_MS } from './tileScheduler';
+import { createTileScheduler, PREVIEW_DELAY_MS, replanTiles } from './tileScheduler';
 
 // jsdom has no layout and loads no images. Tiles are stacked 300px apart in
 // one column, a tile's position follows window.scrollY, and a test decides
@@ -134,6 +134,22 @@ describe('tile scheduler', () => {
     expect(started(tiles[1].full)).toBe(false);
     expect(started(tiles[1].preview)).toBe(false);
     expect(startedFull(tiles)).toEqual([0, 4, 5, 6]);
+    stop();
+  });
+
+  it('plans again when asked after tiles move without a scroll', async () => {
+    const { root, tiles } = grid(12);
+    const stop = createTileScheduler(root);
+    // A new layout swaps the first and the last tile.
+    tops.set(tiles[0].full, 11 * TILE_HEIGHT);
+    tops.set(tiles[11].full, 0);
+    await Promise.resolve();
+    expect(started(tiles[11].full)).toBe(false);
+
+    replanTiles(tiles[11].full);
+    await Promise.resolve();
+    expect(started(tiles[11].full)).toBe(true);
+    expect(started(tiles[0].full)).toBe(false);
     stop();
   });
 

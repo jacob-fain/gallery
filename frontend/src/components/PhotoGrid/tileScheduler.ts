@@ -41,6 +41,16 @@ export const PREVIEW_DELAY_MS = 100;
 // Scrolling back this far turns what counts as ahead around.
 const TURN_DISTANCE = 50;
 const TILE_SELECTOR = 'img[data-tile]';
+const REPLAN_EVENT = 'tilereplan';
+
+/**
+ * Asks the scheduler of the grid holding `from` to plan again. For a layout
+ * that moves its tiles without adding any or changing their sources (the
+ * collage after a resize or a new arrangement), which nothing else notices.
+ */
+export function replanTiles(from: Element): void {
+  from.dispatchEvent(new Event(REPLAN_EVENT, { bubbles: true }));
+}
 
 const isLoaded = (img: HTMLImageElement) => img.complete && img.naturalWidth > 0;
 
@@ -195,6 +205,7 @@ export function createTileScheduler(grid: HTMLElement) {
   // A finished download frees its place for the next.
   grid.addEventListener('load', schedule, true);
   grid.addEventListener('error', schedule, true);
+  grid.addEventListener(REPLAN_EVENT, schedule);
   window.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('resize', schedule);
   plan();
@@ -205,6 +216,7 @@ export function createTileScheduler(grid: HTMLElement) {
     mutations.disconnect();
     grid.removeEventListener('load', schedule, true);
     grid.removeEventListener('error', schedule, true);
+    grid.removeEventListener(REPLAN_EVENT, schedule);
     window.removeEventListener('scroll', onScroll);
     window.removeEventListener('resize', schedule);
     for (const img of started.keys()) if (!img.isConnected) cancel(img);

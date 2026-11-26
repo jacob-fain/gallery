@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import PhotoGrid from '../components/PhotoGrid/PhotoGrid';
 import { getAllPhotos } from '../api/client';
@@ -9,11 +9,30 @@ import LoadError from '../components/StatusMessage/LoadError';
 import PageHeading from '../components/PageHeading/PageHeading';
 import { DelayedSkeleton, HeadingSkeleton } from '../components/Skeleton/Skeleton';
 import PhotoGridSkeleton from '../components/PhotoGrid/PhotoGridSkeleton';
+import LayoutSwitch from '../components/PhotoGrid/LayoutSwitch';
+import { useGridLayout } from '../components/PhotoGrid/gridLayout';
+import { randomSeed, seededRandom } from '../components/PhotoGrid/collage';
+import { createHistoryMemory, entryKey } from '../utils/historyMemory';
 import styles from './AllPhotos.module.css';
 
 // Every photo is fetched, since shuffle and the lightbox need the whole set,
 // but laying out hundreds of tiles at once stalls a phone.
 const TILES_PER_PAGE = 60;
+
+// Kept per history entry, so Back to the page (or a reload of it) deals the
+// same order and collage again. A shuffle seed of 0 is the API's order.
+const layoutSeeds = createHistoryMemory('collageSeed');
+const shuffleSeeds = createHistoryMemory('shuffleSeed');
+
+interface Seeds {
+  layout: number;
+  shuffle: number;
+}
+
+function initialSeeds(locationKey: string): Seeds {
+  const key = entryKey(locationKey);
+  return { layout: layoutSeeds.get(key) ?? randomSeed(), shuffle: shuffleSeeds.get(key) ?? 0 };
+}
 
 export default function AllPhotos() {
   const { key: locationKey } = useLocation();
@@ -21,6 +40,21 @@ export default function AllPhotos() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [layout, setLayout] = useGridLayout();
+  const [seeds, setSeeds] = useState(() => initialSeeds(locationKey));
+
+  useEffect(() => {
+    const key = entryKey(locationKey);
+    layoutSeeds.set(key, seeds.layout);
+    shuffleSeeds.set(key, seeds.shuffle);
+  }, [locationKey, seeds]);
+
+  // Derived from the photos in the API's order, so refreshed URLs keep the
+  // shuffled order.
+  const shown = useMemo(
+    () => (seeds.shuffle ? shuffle(photos, seededRandom(seeds.shuffle)) : photos),
+    [photos, seeds.shuffle]
+  );
 
   const refreshPhotos = useCallback(() => {
     getAllPhotos(undefined, { fresh: true })
@@ -68,9 +102,12 @@ export default function AllPhotos() {
     <div className={styles.container}>
       <PageHeading title="All Photos" />
       {photos.length > 0 && (
+        <LayoutSwitch layout={layout} onChange={setLayout} className={styles.layoutSwitch} />
+      )}
+      {photos.length > 0 && (
         <button
           className={styles.shuffleBtn}
-          onClick={() => setPhotos(shuffle(photos))}
+          onClick={() => setSeeds({ layout: randomSeed(), shuffle: randomSeed() })}
           title="Shuffle photos"
           aria-label="Shuffle photos"
         >
@@ -96,10 +133,12 @@ export default function AllPhotos() {
         <div className="loading">No photos yet. Check back soon!</div>
       ) : (
         <PhotoGrid
-          photos={photos}
+          photos={shown}
           onImagesExpired={refreshPhotos}
           tilesPerPage={TILES_PER_PAGE}
           tileMemoryKey={locationKey}
+          layout={layout}
+          collageSeed={seeds.layout}
         />
       )}
     </div>
