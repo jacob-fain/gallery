@@ -13,8 +13,20 @@ export const CLIENT_ERROR_BODY_LIMIT = '8kb';
 
 export const LIMITS = { message: 500, stack: 4000, path: 300, release: 64, userAgent: 300 };
 
-export const SOURCES = ['error', 'unhandledrejection', 'boundary', 'chunk'] as const;
+export const SOURCES = ['error', 'unhandledrejection', 'boundary', 'chunk', 'image'] as const;
 type Source = (typeof SOURCES)[number];
+
+const IMAGE_KINDS = ['thumb', 'web'] as const;
+const IMAGE_FAILURES = ['error', 'truncated', 'timeout'] as const;
+const MAX_ATTEMPTS = 1000;
+
+/** A grid image that kept failing to load, as the browser saw it. */
+export interface ImageFailureDetails {
+  photoId: string;
+  kind: (typeof IMAGE_KINDS)[number];
+  failure: (typeof IMAGE_FAILURES)[number];
+  attempts: number;
+}
 
 export interface ClientErrorReport {
   source: Source;
@@ -23,9 +35,29 @@ export interface ClientErrorReport {
   path: string;
   release?: string;
   userAgent?: string;
+  image?: ImageFailureDetails;
 }
 
 const RELEASE = /^[\w.:-]+$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Only these fields are kept, so nothing else the client sent (a URL with its
+// signature, say) reaches the log.
+const parseImageDetails = (value: unknown): ImageFailureDetails | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.photoId !== 'string' || !UUID.test(v.photoId)) return null;
+  if (!IMAGE_KINDS.includes(v.kind as ImageFailureDetails['kind'])) return null;
+  if (!IMAGE_FAILURES.includes(v.failure as ImageFailureDetails['failure'])) return null;
+  const attempts = v.attempts;
+  if (typeof attempts !== 'number' || !Number.isInteger(attempts) || attempts < 1 || attempts > MAX_ATTEMPTS) return null;
+  return {
+    photoId: v.photoId.toLowerCase(),
+    kind: v.kind as ImageFailureDetails['kind'],
+    failure: v.failure as ImageFailureDetails['failure'],
+    attempts,
+  };
+};
 
 const optionalString = (value: unknown, max: number): string | undefined | null => {
   if (value === undefined || value === null) return undefined;
@@ -51,6 +83,12 @@ export const parseClientError = (body: unknown, headerUserAgent?: string): Clien
   const userAgent = optionalString(b.userAgent, LIMITS.userAgent);
   if (stack === null || release === null || userAgent === null) return null;
 
+  let image: ImageFailureDetails | null = null;
+  if (b.source === 'image') {
+    image = parseImageDetails(b.image);
+    if (!image) return null;
+  }
+
   const report: ClientErrorReport = {
     source: b.source as Source,
     message: b.message.trim().slice(0, LIMITS.message),
@@ -61,6 +99,7 @@ export const parseClientError = (body: unknown, headerUserAgent?: string): Clien
   if (release && RELEASE.test(release)) report.release = release;
   const ua = userAgent ?? headerUserAgent?.slice(0, LIMITS.userAgent);
   if (ua) report.userAgent = ua;
+  if (image) report.image = image;
   return report;
 };
 

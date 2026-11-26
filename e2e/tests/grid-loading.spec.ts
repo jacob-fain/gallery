@@ -34,7 +34,7 @@ async function delayImages(page: Page, { failFirst = false } = {}) {
   });
 }
 
-// A tile's full image; its preview sits in an img before it.
+// A tile's image.
 const tiles = (page: Page) => page.locator('.react-photo-album img[data-tile]');
 
 // Every tile shows its photo once it is on screen: loaded with real pixels
@@ -150,34 +150,39 @@ test('tiles below the viewport start loading before they are scrolled to', async
   expect(ahead).toBeGreaterThan(0);
 });
 
-test('a tile shows its preview while a slow full image loads, then the full image', async ({ browser, page: adminPage }) => {
+test('a tile on a high-DPR screen loads only its web image, shown as its bytes arrive', async ({ browser, page: adminPage }) => {
   const api = adminApi(adminPage.request);
-  const wideSlug = uniqueSlug('preview');
-  const gallery = await api.createGallery({ title: 'Previews', slug: wideSlug, is_public: true });
+  const wideSlug = uniqueSlug('no-preview');
+  const gallery = await api.createGallery({ title: 'No preview', slug: wideSlug, is_public: true });
   const photo = await api.upload(gallery.id, 'wide.jpg', uniqueJpeg('wide', WIDE_FIXTURE));
   await api.setStatus(photo.id, 'shown');
 
-  // At 2x the tile takes the web size; at 1x the thumbnail would be its
-  // full image and no preview would be needed.
+  // At 2x the tile takes the web size.
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, ignoreHTTPSErrors: true });
   const page = await context.newPage();
-  // Previews (thumbnails) arrive at once, full images 3 seconds late.
+  const requested: string[] = [];
+  // Web images arrive 3 seconds late.
   await page.route('https://s3.e2e.amazonaws.com/**', async (route) => {
-    if (!/thumb\.webp/.test(route.request().url())) await new Promise((resolve) => setTimeout(resolve, 3000));
+    const url = route.request().url();
+    requested.push(url);
+    if (/web\.webp/.test(url)) await new Promise((resolve) => setTimeout(resolve, 3000));
     return route.continue().catch(() => {});
   });
   await page.goto(`${PUBLIC}/g/${wideSlug}`);
   const first = tiles(page).first();
-  const preview = page.locator('.react-photo-album img[data-preview]').first();
 
-  await expect(preview).toHaveAttribute('data-due', '');
-  await expect(preview).toHaveAttribute('data-shown', '');
-  await expect(preview).toHaveCSS('opacity', '1');
-  await expect(first).toHaveCSS('opacity', '0');
-
-  await expect(first).toHaveAttribute('data-loaded', '', { timeout: 10_000 });
+  // Started, and nothing hides it while it loads, so it paints as it arrives.
+  await expect(first).toHaveAttribute('srcset', /web\.webp/);
+  expect(await first.evaluate((img: HTMLImageElement) => img.complete)).toBe(false);
   await expect(first).toHaveCSS('opacity', '1');
-  await expect(preview).toHaveCSS('visibility', 'hidden');
+  await expect(first).toHaveCSS('visibility', 'visible');
+  await expect(page.locator('.react-photo-album img')).toHaveCount(1);
+
+  await expect
+    .poll(() => first.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), { timeout: 10_000 })
+    .toBe(true);
   expect(await first.evaluate((img: HTMLImageElement) => img.currentSrc)).toContain('web.webp');
+  await expect(first).not.toHaveAttribute('data-failed');
+  expect(requested.filter((url) => /thumb\.webp/.test(url))).toEqual([]);
   await context.close();
 });

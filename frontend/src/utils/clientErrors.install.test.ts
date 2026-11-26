@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { installClientErrorReporting, reportClientError, resetClientErrorReporting } from './clientErrors';
+import { installClientErrorReporting, reportClientError, reportImageFailure, resetClientErrorReporting } from './clientErrors';
 
 type FetchMock = ReturnType<typeof vi.fn<(url: string, init: RequestInit) => Promise<Response>>>;
 
@@ -50,6 +50,19 @@ describe('installClientErrorReporting', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     reportClientError('boundary', new Error('early'));
+    reportImageFailure({ photoId: '00000000-0000-4000-8000-000000000001', kind: 'web', failure: 'error', attempts: 3 });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('posts image failure reports to the same endpoint', () => {
+    const { fetchMock } = install();
+    reportImageFailure({ photoId: '00000000-0000-4000-8000-000000000001', kind: 'thumb', failure: 'timeout', attempts: 3 });
+    const [report] = sentReports(fetchMock);
+    expect(report).toMatchObject({
+      source: 'image',
+      release: 'build-1',
+      image: { photoId: '00000000-0000-4000-8000-000000000001', kind: 'thumb', failure: 'timeout', attempts: 3 },
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/client-errors');
   });
 });
