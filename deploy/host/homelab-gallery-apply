@@ -8,9 +8,9 @@
 #
 # A caller chooses only which image digests run. Production also names the
 # release, and runs the digests only if the registry's tag for that release
-# points at them and the backend image carries a CI build id label. Image names, compose files,
-# env files and ports are fixed here and on the host, so a deployment cannot
-# mount host paths or change how containers run.
+# points at them and the backend image carries a build id label. Image names,
+# compose files, env files and ports are fixed here and on the host, so a
+# deployment cannot mount host paths or change how containers run.
 #
 # Exit codes: 0 deployed, 2 bad arguments, 75 busy (lock held), 1 failed.
 #
@@ -119,12 +119,13 @@ expected=$(docker image inspect "$backend_image" \
   --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^BUILD_ID=//p')
 [[ $expected =~ $BUILD_RE ]] || fail "backend image has no release build id"
 
-# Production also requires the build id as an image label, which only CI's
-# builds set, and requires it to agree with the environment.
+# Production also requires the build id as an image label, which release
+# builds set and a plain local build leaves as "dev", and requires it to
+# agree with the environment.
 if [[ $env_name == prod ]]; then
   label=$(docker image inspect "$backend_image" --format '{{index .Config.Labels "BUILD_ID"}}') || label=""
   [[ $label =~ $BUILD_RE ]] \
-    || fail "backend image has no BUILD_ID label; production runs only images built by CI"
+    || fail "backend image has no release BUILD_ID label; production runs only release builds"
   [[ $label == "$expected" ]] \
     || fail "backend image's BUILD_ID label ($label) does not match its BUILD_ID environment ($expected)"
 fi
