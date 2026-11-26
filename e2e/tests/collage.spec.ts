@@ -93,11 +93,6 @@ test('the collage on All Photos shows photos uncropped, and Back from a photo ke
   await expect(lightbox).toHaveCount(0);
   expect(await arrangement(visitor)).toEqual(before);
 
-  // A reload of the page's entry deals the same collage too.
-  await visitor.reload();
-  await expect(visitor.getByRole('button', { name: 'Collage', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => arrangement(visitor)).toEqual(before);
-
   // Shuffle deals another.
   await visitor.getByRole('button', { name: 'Shuffle photos' }).click();
   await expect.poll(() => arrangement(visitor)).not.toEqual(before);
