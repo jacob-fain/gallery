@@ -16,6 +16,9 @@ import PageHeading from '../components/PageHeading/PageHeading';
 import { DelayedSkeleton, HeadingSkeleton } from '../components/Skeleton/Skeleton';
 import PhotoGridSkeleton from '../components/PhotoGrid/PhotoGridSkeleton';
 import { shuffle } from '../utils/shuffle';
+import LayoutSwitch from '../components/PhotoGrid/LayoutSwitch';
+import { useGridLayout } from '../components/PhotoGrid/gridLayout';
+import { seedFrom } from '../components/PhotoGrid/collage';
 import { withFreshUrls } from '../utils/expiredImages';
 import { useGalleryViewTracking } from '../utils/galleryViewTracking';
 import { isGallerySlug } from '../utils/slug';
@@ -58,6 +61,7 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<'missing' | 'failed' | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [layout, setLayout] = useGridLayout();
 
   // Password form state
   const [password, setPassword] = useState('');
@@ -283,6 +287,9 @@ export default function Gallery() {
         description={unlocked.description}
       />
       {photoShown && photos.length > 1 && (
+        <LayoutSwitch layout={layout} onChange={setLayout} className={styles.layoutSwitch} />
+      )}
+      {photoShown && photos.length > 1 && (
         <button
           className={styles.shuffleBtn}
           onClick={() => setPhotos(shuffle(photos))}
@@ -338,6 +345,9 @@ export default function Gallery() {
           galleryTitle={gallery.title}
           accessToken={accessToken ?? undefined}
           onImagesExpired={refreshPhotos}
+          layout={layout}
+          // Per gallery, so a visitor sees the same collage each visit.
+          collageSeed={seedFrom(slug ?? '')}
         />
       )}
     </div>

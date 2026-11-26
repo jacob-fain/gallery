@@ -39,6 +39,14 @@
   bottom: 84px;
 }
 
+/* Beside the shuffle button. */
+.layoutSwitch {
+  position: fixed;
+  bottom: 84px;
+  right: 84px;
+  z-index: 50;
+}
+
 .title {
   font-size: 1.5rem;
   font-weight: 500;
@@ -125,6 +133,12 @@
     right: 16px;
     width: 44px;
     height: 44px;
+  }
+
+  /* Beside the corner buttons, which sit lower and smaller here. */
+  .layoutSwitch {
+    bottom: 16px;
+    right: 72px;
   }
 
   .title {

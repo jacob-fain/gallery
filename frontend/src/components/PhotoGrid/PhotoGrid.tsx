@@ -27,6 +27,8 @@ import { TILE_KEYBOARD_PROPS, useLightboxFocusTrap } from './keyboard';
 import { useLightboxHistory } from './lightboxHistory';
 import { TILE_IMAGE_PROPS } from './tileImage';
 import { createHistoryMemory, entryKey } from '../../utils/historyMemory';
+import CollageTiles from './CollageTiles';
+import type { GridLayout } from './gridLayout';
 
 /**
  * The admin's Review view: the public layout and viewer, with each photo's
@@ -63,6 +65,9 @@ interface PhotoGridProps {
   // position the visitor left.
   tileMemoryKey?: string;
   review?: GridReview;
+  // Columns unless set. The collage's arrangement comes from collageSeed.
+  layout?: GridLayout;
+  collageSeed?: number;
 }
 
 const REFRESH_INTERVAL_MS = 60 * 1000;
@@ -141,6 +146,8 @@ export default function PhotoGrid({
   tilesPerPage,
   tileMemoryKey,
   review,
+  layout = 'columns',
+  collageSeed = 1,
 }: PhotoGridProps) {
   const lightboxController = useRef<ControllerRef>(null);
   const lightbox = useLightboxHistory(photos, lightboxController);
@@ -259,7 +266,11 @@ export default function PhotoGrid({
 
   return (
     <div className={`${styles.grid}${review ? ` ${styles.reviewGrid}` : ''}`} ref={gridRef}>
-      <PhotoTiles photos={albumTiles} onOpen={lightbox.open} review={!!review} />
+      {layout === 'collage' && !review ? (
+        <CollageTiles photos={albumPhotos} seed={collageSeed} visibleCount={tileCount} onOpen={lightbox.open} />
+      ) : (
+        <PhotoTiles photos={albumTiles} onOpen={lightbox.open} review={!!review} />
+      )}
       {hasMoreTiles && <div ref={moreTiles} aria-hidden="true" />}
 
       <Lightbox
