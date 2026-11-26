@@ -241,13 +241,16 @@ const STATUS_NAMES: Record<ReviewStatus, string> = {
 };
 
 // The state is named so a re-upload of a rejected photo says why it is not
-// on the site.
-const alreadyUploaded = (existing: Photo | null) => ({
-  success: false,
-  error: existing
-    ? `Already uploaded as ${existing.original_filename} (${STATUS_NAMES[existing.review_status]})`
-    : 'Already uploaded',
-});
+// on the site. existing names the stored photo: a client retrying an upload
+// whose answer it lost finds its own photo there, in the gallery it sent to.
+const alreadyUploaded = (existing: Photo | null) =>
+  existing
+    ? {
+        success: false,
+        error: `Already uploaded as ${existing.original_filename} (${STATUS_NAMES[existing.review_status]})`,
+        existing: { id: existing.id, gallery_id: existing.gallery_id },
+      }
+    : { success: false, error: 'Already uploaded' };
 
 export const uploadPhoto = async (req: Request, res: Response) => {
   try {
