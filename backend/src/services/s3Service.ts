@@ -10,28 +10,43 @@ import { s3Client, S3_BUCKET, isS3Configured } from '../config/s3';
 import { attachmentDisposition } from './downloadNames';
 import { logger } from '../utils/logger';
 
-// Default signed URL expiration: 1 hour
+// Default signed URL expiration: 1 hour. This is also the longest a URL to a
+// photo stays usable after the photo is rejected or deleted.
 const DEFAULT_EXPIRES_IN = 3600;
 
-// Every URL handed out, fresh or cached, stays valid at least this long. The
-// API response holding it can sit in the browser's HTTP cache and the SPA's
-// in-memory cache for 5 minutes each before an image loads from it, and a
-// page can stay open long after that, so a URL near the end of its life
-// breaks images (#59).
-export const MIN_REMAINING_LIFETIME_MS = 50 * 60 * 1000;
+// Every URL handed out stays valid at least this long. The API response
+// holding it can sit in the browser's HTTP cache and the SPA's in-memory
+// cache for 5 minutes each before an image loads from it, and the grid and
+// viewer refetch the photos when a URL has expired (#59).
+export const MIN_REMAINING_LIFETIME_MS = 30 * 60 * 1000;
+
+// Objects are never served from a URL that outlives an hour, and the URL
+// changes every signing window, so a long browser cache lifetime cannot
+// keep a rewritten file (orientationBackfill) stale beyond one window.
+export const OBJECT_CACHE_CONTROL = 'private, max-age=31536000, immutable';
 
 /**
- * The time until which a URL signed at `signedAt` for `expiresIn` seconds may
- * be served from the cache. A URL whose whole lifetime is under
- * MIN_REMAINING_LIFETIME_MS is never reused.
+ * The signing window holding `now` for URLs valid `expiresIn` seconds. Every
+ * URL for an object signed within one window is signed as of the window's
+ * start, so it is the same URL, and a browser that loaded it earlier in the
+ * window (another page, or a revisit) uses its cached copy instead of
+ * downloading the image again. A window is as long as the URL's lifetime
+ * less MIN_REMAINING_LIFETIME_MS, so a URL handed out at the end of its
+ * window still has that long left. Null for a lifetime too short to share:
+ * such a URL is signed fresh every time.
  */
-export const cacheReuseDeadline = (signedAt: number, expiresIn: number): number =>
-  Math.max(signedAt, signedAt + expiresIn * 1000 - MIN_REMAINING_LIFETIME_MS);
+export const signingWindow = (now: number, expiresIn: number): { start: number; end: number } | null => {
+  const length = expiresIn * 1000 - MIN_REMAINING_LIFETIME_MS;
+  if (length <= 0) return null;
+  const start = Math.floor(now / length) * length;
+  return { start, end: start + length };
+};
 
+// Keyed by lifetime too: a caller asking for a long-lived URL must never
+// receive a short-lived one.
 const urlCache = new Map<string, { url: string; expires: number }>();
 // Signings in progress, so concurrent cold requests for the same object share
-// one signature. Keyed by lifetime too: a caller asking for a long-lived URL
-// must never receive a short-lived one.
+// one signature.
 const signing = new Map<string, Promise<string>>();
 
 // Periodic cleanup of expired cache entries (run every 10 minutes)
@@ -64,6 +79,7 @@ export const uploadFile = async (
     Key: key,
     Body: buffer,
     ContentType: contentType,
+    CacheControl: OBJECT_CACHE_CONTROL,
   });
 
   await s3Client.send(command);
@@ -93,13 +109,15 @@ export const getSignedUrl = async (
     return `https://placehold.co/800x600/1a1a1a/ffffff?text=S3+Not+Configured`;
   }
 
-  const cacheKey = downloadName ? `${key}\n${downloadName}` : key;
+  const now = Date.now();
+  const window = signingWindow(now, expiresIn);
+  const cacheKey = `${key}\n${downloadName ?? ''}\n${expiresIn}`;
   const cached = urlCache.get(cacheKey);
-  if (cached && Date.now() < cached.expires) {
+  if (cached && now < cached.expires) {
     return cached.url;
   }
 
-  const signingKey = `${cacheKey}\n${expiresIn}`;
+  const signingKey = `${cacheKey}\n${window?.start ?? now}`;
   const inFlight = signing.get(signingKey);
   if (inFlight) return inFlight;
 
@@ -109,12 +127,12 @@ export const getSignedUrl = async (
     ResponseContentDisposition: downloadName ? attachmentDisposition(downloadName) : undefined,
   });
 
-  const pending = awsGetSignedUrl(s3Client, command, { expiresIn })
+  const pending = awsGetSignedUrl(s3Client, command, {
+    expiresIn,
+    ...(window && { signingDate: new Date(window.start) }),
+  })
     .then((url) => {
-      urlCache.set(cacheKey, {
-        url,
-        expires: cacheReuseDeadline(Date.now(), expiresIn),
-      });
+      if (window) urlCache.set(cacheKey, { url, expires: window.end });
       return url;
     })
     .finally(() => signing.delete(signingKey));

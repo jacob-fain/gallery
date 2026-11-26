@@ -72,7 +72,7 @@ describe('Gallery expired image refresh', () => {
 
     const first = await screen.findByAltText('Photo 1 of 2 in Smith Wedding');
     const second = screen.getByAltText('Photo 2 of 2 in Smith Wedding');
-    expect(first.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg?sig=old');
+    await waitFor(() => expect(first.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg?sig=old'));
 
     fireEvent.error(first);
 
@@ -117,6 +117,7 @@ describe('Gallery expired image refresh', () => {
     renderGallery();
 
     const image = await screen.findByAltText('Photo 1 of 1 in Smith Wedding');
+    await waitFor(() => expect(image.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg?sig=old'));
     fireEvent.error(image);
 
     await waitFor(() => expect(client.getGalleryPhotos).toHaveBeenCalledTimes(2));
