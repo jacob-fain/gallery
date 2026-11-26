@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Gallery, PublicPhoto } from '../types';
@@ -56,6 +56,7 @@ async function renderHome(featured: PublicPhoto[], list: Gallery[] = galleries) 
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.mocked(client.getFeaturedPhotos).mockReset();
   vi.mocked(client.getGalleries).mockReset();
 });
@@ -115,6 +116,16 @@ describe('Galleries', () => {
     await renderHome([photo('hero')]);
     expect(within(doors()[2]).queryByRole('img')).toBeNull();
     expect(doors()[2].querySelector('[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  it('leaves out galleries with no photos', async () => {
+    await renderHome([photo('hero')], [gallery('empty', 'Empty', 0), ...galleries, gallery('new', 'New', 0)]);
+    expect(doors().map((d) => d.getAttribute('href'))).toEqual(['/g/people', '/g/soccer', '/g/chicago']);
+  });
+
+  it('leaves the section out when every gallery is empty', async () => {
+    await renderHome([photo('hero'), photo('a', chicago)], [gallery('empty', 'Empty', 0)]);
+    expect(screen.queryByRole('heading', { name: 'Galleries' })).toBeNull();
   });
 
   it('leaves the section out when there are no galleries', async () => {
@@ -180,18 +191,61 @@ describe('Selected Work', () => {
   });
 });
 
-describe('loading', () => {
-  it('offers a retry when the gallery list fails, and loads the page on retry', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(client.getFeaturedPhotos).mockResolvedValue([photo('hero')]);
-    vi.mocked(client.getGalleries).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(galleries);
+describe('when a request fails', () => {
+  const renderWith = () =>
     render(
       <MemoryRouter>
         <Home />
       </MemoryRouter>
     );
+
+  it('keeps the hero and Selected Work when the gallery list fails, and retries it in place', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(client.getFeaturedPhotos).mockResolvedValue([photo('hero', chicago), photo('a', chicago)]);
+    vi.mocked(client.getGalleries).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(galleries);
+    renderWith();
+
+    const section = await screen.findByRole('region', { name: 'Galleries' });
+    expect(within(section).getByText("Couldn't load galleries.")).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Selected Work' })).toBeTruthy();
+    expect(screen.getByAltText('Photo 1 of 1 in Chicago')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+
+    fireEvent.click(within(section).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(doors()).toHaveLength(3));
+    expect(screen.queryByText("Couldn't load galleries.")).toBeNull();
+    // Only the failed request is asked again; Selected Work stayed in place.
+    expect(client.getFeaturedPhotos).toHaveBeenCalledTimes(1);
+    expect(screen.getByAltText('Photo 1 of 1 in Chicago')).toBeTruthy();
+  });
+
+  it('keeps the galleries when the featured photos fail, and retries Selected Work in place', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(client.getFeaturedPhotos)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue([photo('hero', chicago), photo('a', chicago)]);
+    vi.mocked(client.getGalleries).mockResolvedValue(galleries);
+    renderWith();
+
+    const section = await screen.findByRole('region', { name: 'Selected Work' });
+    expect(within(section).getByText("Couldn't load selected work.")).toBeTruthy();
+    expect(doors()).toHaveLength(3);
+
+    fireEvent.click(within(section).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByAltText('Photo 1 of 1 in Chicago')).toBeTruthy();
+    expect(screen.queryByText("Couldn't load selected work.")).toBeNull();
+    expect(client.getGalleries).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the full-page retry only when both fail, and loads the page on retry', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(client.getFeaturedPhotos).mockRejectedValueOnce(new Error('offline')).mockResolvedValue([photo('hero')]);
+    vi.mocked(client.getGalleries).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(galleries);
+    renderWith();
+
     fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('heading', { name: 'Galleries' })).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load/)).toBeNull();
   });
 });
 
