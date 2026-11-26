@@ -45,15 +45,17 @@ const MAX_DESCRIPTION_LENGTH = 300;
 export const COVER_WIDTH = 1200;
 export const COVER_HEIGHT = 630;
 
+/** Names the cover photo without revealing its S3 key. */
+export const coverVersion = (coverWebKey: string): string =>
+  crypto.createHash('sha256').update(coverWebKey).digest('hex').slice(0, 12);
+
 /**
- * The cover's preview URL. The query names the photo, so a new cover gets a
- * new URL instead of waiting out the caches holding the old one; the route
- * ignores it.
+ * The cover's preview URL. The query names the photo, and the route serves
+ * only the current one, so a URL for a cover that has since changed or been
+ * rejected stops working instead of serving the old photo.
  */
-export const coverUrl = (origin: string, gallery: ShareGallery & { coverWebKey: string }): string => {
-  const version = crypto.createHash('sha256').update(gallery.coverWebKey).digest('hex').slice(0, 12);
-  return `${origin}/api/share/g/${gallery.slug}/cover.jpg?v=${version}`;
-};
+export const coverUrl = (origin: string, gallery: ShareGallery & { coverWebKey: string }): string =>
+  `${origin}/api/share/g/${gallery.slug}/cover.jpg?v=${coverVersion(gallery.coverWebKey)}`;
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

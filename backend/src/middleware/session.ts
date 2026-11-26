@@ -55,7 +55,8 @@ export function adminOrigin(): string | null {
 
 const DEV_HOSTS = new Set(['localhost', '127.0.0.1', 'manage.localhost']);
 
-function isAllowedOrigin(origin: string): boolean {
+/** The admin site, or in development a local dev host over plain http. */
+export function isAllowedOrigin(origin: string): boolean {
   if (origin === adminOrigin()) return true;
   if (process.env.NODE_ENV !== 'development') return false;
   try {
@@ -80,8 +81,9 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
  * CSRF guard for cookie-authenticated requests. SameSite=Strict keeps the
- * cookie off cross-site requests, but the public site is the same site, and
- * CORS lets it make credentialed requests here. So any request that names a
+ * cookie off cross-site requests, but the public site is the same site, so
+ * its requests here carry the cookie. CORS never lets it read the answers
+ * (app.ts), and this refuses them outright. So any request that names a
  * foreign Origin is refused, reads included, and a state-changing request
  * must show the admin origin in Origin or Referer. Browsers send Origin on
  * every non-GET fetch, so one with neither header did not come from the admin
