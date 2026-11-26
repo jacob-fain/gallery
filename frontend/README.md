@@ -37,8 +37,8 @@ npm test
 npm run build
 ```
 
-These are the frontend half of the gate CI runs on every pull request
-(`docs/agents/developer/PROCEDURES.md`).
+These are the frontend half of the checks CI runs on every pull request
+(`.github/workflows/ci.yml`).
 
 ## Layout
 
