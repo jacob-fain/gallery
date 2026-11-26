@@ -21,7 +21,7 @@ export const API_BASE = import.meta.env.VITE_API_URL ||
 
 // ============ Simple In-Memory Cache ============
 // Makes back navigation instant. Photo URLs in a response stay valid for at
-// least 50 minutes when the API sends them (MIN_REMAINING_LIFETIME_MS in
+// least 30 minutes when the API sends them (MIN_REMAINING_LIFETIME_MS in
 // backend/src/services/s3Service.ts), so this must stay well under that.
 //
 // Only the public getters below fill it, and only public pages call them.

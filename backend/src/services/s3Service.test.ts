@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectsCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 
 const send = vi.fn();
 vi.mock('../config/s3', () => ({
@@ -8,7 +8,7 @@ vi.mock('../config/s3', () => ({
   isS3Configured: () => true,
 }));
 
-const { deleteFiles } = await import('./s3Service');
+const { deleteFiles, uploadFile } = await import('./s3Service');
 
 const keys = (n: number) => Array.from({ length: n }, (_, i) => `galleries/g/${i}.jpg`);
 
@@ -44,5 +44,20 @@ describe('deleteFiles', () => {
       .mockResolvedValueOnce({});
     expect(await deleteFiles(keys(2100))).toBe(2 + 1000);
     expect(send).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('uploadFile', () => {
+  it('stores the object with a long browser cache lifetime', async () => {
+    send.mockReset();
+    send.mockResolvedValue({});
+    await uploadFile(Buffer.from('x'), 'galleries/g/p/web.webp', 'image/webp');
+    const [cmd] = send.mock.calls[0];
+    expect(cmd).toBeInstanceOf(PutObjectCommand);
+    expect(cmd.input).toMatchObject({
+      Key: 'galleries/g/p/web.webp',
+      ContentType: 'image/webp',
+      CacheControl: 'private, max-age=31536000, immutable',
+    });
   });
 });

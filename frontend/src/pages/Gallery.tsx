@@ -19,6 +19,7 @@ import { shuffle } from '../utils/shuffle';
 import { withFreshUrls } from '../utils/expiredImages';
 import { useGalleryViewTracking } from '../utils/galleryViewTracking';
 import { isGallerySlug } from '../utils/slug';
+import { galleryTokenKey } from './gridRequests';
 import type { Gallery as GalleryType, PublicPhoto, PrivateGalleryResponse } from '../types';
 import styles from './Gallery.module.css';
 
@@ -29,8 +30,7 @@ function isPrivateGallery(
   return 'requires_password' in data && data.requires_password === true;
 }
 
-// Session storage key for gallery access tokens
-const getStorageKey = (slug: string) => `gallery_access_${slug}`;
+const getStorageKey = galleryTokenKey;
 
 // What the unlock response adds to a private gallery's heading. The locked
 // response leaves it out, so a revisit with a stored token reads it from here.
