@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DESKTOP_LIMITS,
   PHONE_LIMITS,
@@ -9,6 +9,10 @@ import {
   seededRandom,
   type Collage,
 } from './collage';
+
+// These tests lay out hundreds of seeded collages. They take about 2 s under
+// coverage locally and can pass 5 s on a busy CI runner.
+vi.setConfig({ testTimeout: 30_000 });
 
 // The shapes of a real portfolio: 3:2, 4:3, 16:9, and portraits down to 9:16.
 const MIXED = [

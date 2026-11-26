@@ -1,15 +1,19 @@
-import type { PublicPhoto } from '../types';
+import type { Gallery, PublicPhoto } from '../types';
 import { responsiveImage } from '../utils/imageSizes';
 import { IMAGE_FADE_PROPS } from '../utils/imageFade';
 import styles from './Home.module.css';
 
 // The hero fills the viewport width at every breakpoint (Home.module.css).
 export const HERO_SIZES = '100vw';
-// Featured images span .featured less its side padding, capped by its
-// 1200px max-width; from 900px up, alternating 15% padding leaves 85%.
+// A gallery cover is one column of .doors: the full width less a 16px gutter
+// each side up to 640px; above that, half of the width less the 48px gutters
+// and the 24px column gap, until .doors stops at 1600px.
+export const COVER_SIZES =
+  '(max-width: 640px) calc(100vw - 32px), (max-width: 1600px) calc(50vw - 60px), 740px';
+// A Selected Work photo spans .featured less its gutters (16px a side up to
+// 640px, 48px above), until .featured stops at 1400px.
 export const FEATURED_SIZES =
-  '(max-width: 640px) calc(100vw - 48px), (max-width: 899px) calc(100vw - 96px), ' +
-  '(max-width: 1200px) calc((100vw - 96px) * 0.85), 939px';
+  '(max-width: 640px) calc(100vw - 32px), (max-width: 1400px) calc(100vw - 96px), 1304px';
 
 export function HeroImage({ photo }: { photo: PublicPhoto }) {
   const image = responsiveImage(photo);
@@ -28,6 +32,31 @@ export function HeroImage({ photo }: { photo: PublicPhoto }) {
   );
 }
 
+// Covers and Selected Work photos are shown whole at their own proportions:
+// the width and height attributes reserve that box, and the image paints into
+// it over the placeholder colour as it downloads, with no fade that waits for
+// the whole file.
+
+export function CoverImage({ gallery }: { gallery: Gallery }) {
+  const image = responsiveImage({
+    width: gallery.coverWidth ?? 0,
+    height: gallery.coverHeight ?? 0,
+    thumbnailUrl: gallery.coverUrl ?? undefined,
+    webUrl: gallery.coverWebUrl ?? undefined,
+  });
+  if (!image.src) return <div className={styles.coverPlaceholder} aria-hidden="true" />;
+  // The caption under the cover names the link, so the image is decorative.
+  return (
+    <img
+      {...image}
+      sizes={image.srcSet ? COVER_SIZES : undefined}
+      alt=""
+      className={styles.coverImage}
+      loading="lazy"
+    />
+  );
+}
+
 export function FeaturedImage({ photo, alt }: { photo: PublicPhoto; alt: string }) {
   const image = responsiveImage(photo);
   return (
@@ -37,8 +66,6 @@ export function FeaturedImage({ photo, alt }: { photo: PublicPhoto; alt: string 
       alt={alt}
       className={styles.featuredImage}
       loading="lazy"
-      decoding="async"
-      {...IMAGE_FADE_PROPS}
     />
   );
 }

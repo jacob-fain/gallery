@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { PublicPhoto } from '../types';
-import { FEATURED_SIZES, FeaturedImage, HERO_SIZES, HeroImage } from './HomeImages';
+import { COVER_SIZES, CoverImage, FEATURED_SIZES, FeaturedImage, HERO_SIZES, HeroImage } from './HomeImages';
 
 const photo: PublicPhoto = {
   id: 'p1',
@@ -38,9 +38,42 @@ describe('FeaturedImage', () => {
 
   it('loads lazily with its size reserved and a layout-matched sizes', () => {
     expect(html).toContain('loading="lazy"');
-    expect(html).toContain('decoding="async"');
     expect(html).toContain('width="1920"');
     expect(html).toContain('height="1280"');
     expect(html).toContain(`sizes="${FEATURED_SIZES}"`);
+  });
+
+  it('paints as it downloads instead of waiting to fade in', () => {
+    expect(html).not.toContain('data-loaded');
+    expect(html).not.toContain('decoding="async"');
+  });
+});
+
+describe('CoverImage', () => {
+  const cover = {
+    id: 'g1',
+    title: 'Chicago',
+    slug: 'chicago',
+    coverUrl: 'thumb.webp',
+    coverWebUrl: 'web.webp',
+    coverWidth: 4000,
+    coverHeight: 6000,
+  };
+
+  it('reserves the cover at its own proportions with a layout-matched sizes', () => {
+    const html = renderToStaticMarkup(createElement(CoverImage, { gallery: cover }));
+    expect(html).toContain('width="1920"');
+    expect(html).toContain('height="2880"');
+    expect(html).toContain('srcSet="thumb.webp 600w, web.webp 1920w"');
+    expect(html).toContain(`sizes="${COVER_SIZES}"`);
+    expect(html).toContain('loading="lazy"');
+  });
+
+  it('falls back to a single file when the API sent no dimensions', () => {
+    const html = renderToStaticMarkup(
+      createElement(CoverImage, { gallery: { ...cover, coverWidth: null, coverHeight: null } })
+    );
+    expect(html).toContain('src="web.webp"');
+    expect(html).not.toContain('sizes=');
   });
 });

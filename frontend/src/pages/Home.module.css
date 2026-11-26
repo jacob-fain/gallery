@@ -39,18 +39,13 @@
 }
 
 /* Hidden on the placeholder until loaded (utils/imageFade.ts). */
-.heroImage:not([data-loaded]),
-.featuredImage:not([data-loaded]) {
+.heroImage:not([data-loaded]) {
   opacity: 0;
 }
 
 /* The zoom keeps running from mount: only the fade is added to it. */
 .heroImage[data-loaded='fade'] {
   animation: heroZoom 20s ease-out forwards, imageFadeIn 300ms ease-out;
-}
-
-.featuredImage[data-loaded='fade'] {
-  animation: imageFadeIn 300ms ease-out;
 }
 
 @keyframes imageFadeIn {
@@ -60,8 +55,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .heroImage[data-loaded='fade'],
-  .featuredImage[data-loaded='fade'] {
+  .heroImage[data-loaded='fade'] {
     animation: none;
   }
 }
@@ -145,88 +139,133 @@
 }
 
 /* =========================================
-   FEATURED SECTION
+   SECTIONS: Galleries, then Selected Work
    ========================================= */
-.featured {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 120px 48px;
-}
-
-.featuredHeader {
-  text-align: center;
-  margin-bottom: 80px;
-}
-
-.featuredLabel {
+.sectionLabel {
+  margin: 0;
+  padding: 88px 0 40px;
   font-size: 0.75rem;
   font-weight: 500;
-  letter-spacing: 0.25em;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
+  text-align: center;
   color: var(--color-text-secondary);
-  display: inline-block;
-  position: relative;
 }
 
-/* Decorative line under label */
-.featuredLabel::after {
-  content: '';
-  position: absolute;
-  bottom: -16px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 40px;
-  height: 1px;
-  background: var(--color-border);
+/* Covers are shown whole: the image's width and height attributes give the
+   box its proportions, so it is never cropped and nothing shifts as it loads. */
+.doors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 56px 24px;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 48px;
 }
 
-/* Single column grid with generous spacing */
-.featuredGrid {
+.door {
+  display: block;
+  color: var(--color-text);
+}
+
+.coverImage,
+.coverPlaceholder {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--color-placeholder);
+}
+
+.coverPlaceholder {
+  aspect-ratio: 3 / 2;
+}
+
+.doorCaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  margin-top: 14px;
+  font-size: 14px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.doorCount {
+  flex-shrink: 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--color-text-secondary);
+}
+
+/* The ring goes on the cover, not around the cover and caption together. */
+.door:focus-visible {
+  outline: none;
+}
+
+.door:focus-visible .coverImage,
+.door:focus-visible .coverPlaceholder {
+  outline: 2px solid var(--color-text);
+  outline-offset: 4px;
+}
+
+/* A section whose request failed: a quiet line and a retry in its place. */
+.sectionError {
   display: flex;
   flex-direction: column;
-  gap: 72px;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  text-align: center;
+  color: var(--color-text-light);
 }
 
-.featuredItem {
-  opacity: 0;
-  transform: translateY(20px);
-  animation: fadeInUp 0.6s ease-out forwards;
-  animation-delay: var(--delay, 0s);
+.sectionError p {
+  margin: 0;
 }
 
-@keyframes fadeInUp {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.sectionRetry {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  background: transparent;
+  padding: 10px 22px;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
 }
 
-/* Alternating padding for visual rhythm on desktop */
-@media (min-width: 900px) {
-  .featuredItem:nth-child(odd) {
-    padding-right: 15%;
-  }
+.sectionRetry:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-text);
+}
 
-  .featuredItem:nth-child(even) {
-    padding-left: 15%;
-  }
+.sectionRetry:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.featured {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 48px;
+}
+
+.featuredList {
+  display: flex;
+  flex-direction: column;
+  gap: 96px;
 }
 
 .featuredImageWrapper {
-  position: relative;
-  overflow: hidden;
   background: var(--color-placeholder);
 }
 
 .featuredImage {
+  display: block;
   width: 100%;
   height: auto;
-  display: block;
-  transition: transform 0.6s ease;
-}
-
-.featuredItem:hover .featuredImage {
-  transform: scale(1.02);
 }
 
 .featuredLink {
@@ -234,7 +273,6 @@
   cursor: zoom-in;
 }
 
-/* The ring goes on the image, not around the image and caption together. */
 .featuredLink:focus-visible {
   outline: none;
 }
@@ -259,14 +297,15 @@
   transition: transform 0.3s ease;
 }
 
+.door:hover .captionArrow,
+.door:focus-visible .captionArrow,
 .featuredLink:hover .captionArrow,
 .featuredLink:focus-visible .captionArrow {
   transform: translateX(4px);
 }
 
-/* Footer with CTA */
-.featuredFooter {
-  margin-top: 120px;
+.viewAll {
+  padding: 64px 16px 72px;
   text-align: center;
 }
 
@@ -274,12 +313,12 @@
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--color-text-secondary);
-  padding: 16px 32px;
+  padding: 14px 26px;
   border: 1px solid var(--color-border);
   transition: all 0.3s ease;
 }
@@ -336,24 +375,18 @@
     display: none;
   }
 
+  .doors {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+    padding: 0 16px;
+  }
+
   .featured {
-    padding: 80px 24px;
+    padding: 0 16px;
   }
 
-  .featuredHeader {
-    margin-bottom: 48px;
-  }
-
-  .featuredGrid {
-    gap: 48px;
-  }
-
-  .featuredFooter {
-    margin-top: 64px;
-  }
-
-  .viewAllLink {
-    padding: 14px 24px;
+  .featuredList {
+    gap: 40px;
   }
 }
 
@@ -367,18 +400,23 @@
     animation: none;
   }
 
-  .featuredItem {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
-
   .captionArrow {
     transition: none;
   }
 
+  .door:hover .captionArrow,
+  .door:focus-visible .captionArrow,
   .featuredLink:hover .captionArrow,
   .featuredLink:focus-visible .captionArrow {
+    transform: none;
+  }
+
+  .viewAllLink,
+  .linkArrow {
+    transition: none;
+  }
+
+  .viewAllLink:hover .linkArrow {
     transform: none;
   }
 }

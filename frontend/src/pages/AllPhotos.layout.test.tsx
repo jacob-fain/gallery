@@ -202,6 +202,8 @@ describe('the collage on All Photos', () => {
   });
 
   it('deals a new collage on a fresh visit', async () => {
+    // Fixed seeds, so the two visits can't draw the same arrangement by chance.
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.11);
     const first = renderAllPhotos();
     await screen.findByAltText('Photo 1 of 24');
     const before = arrangement();
@@ -210,9 +212,11 @@ describe('the collage on All Photos', () => {
     // A new history entry has nothing remembered.
     window.history.replaceState(null, '', '/photos');
     sessionStorage.clear();
+    random.mockReturnValue(0.73);
     renderAllPhotos();
     await screen.findByAltText('Photo 1 of 24');
     expect(arrangement()).not.toEqual(before);
+    random.mockRestore();
   });
 });
 
