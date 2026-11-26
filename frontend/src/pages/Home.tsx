@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getFeaturedPhotos, getGalleries } from '../api/client';
-import type { Gallery, PublicPhoto } from '../types';
+import type { Gallery } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import { photoAlt } from '../utils/photoAlt';
 import { CoverImage, FeaturedImage, HeroImage } from './HomeImages';
@@ -29,45 +29,82 @@ function GalleryDoor({ gallery }: { gallery: Gallery }) {
   );
 }
 
-export default function Home() {
-  const [featuredPhotos, setFeaturedPhotos] = useState<PublicPhoto[]>([]);
-  const [galleries, setGalleries] = useState<Gallery[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
+/**
+ * One of the homepage's two requests. Each can fail and be retried on its
+ * own: "retrying" keeps the rest of the page in place while a section asks
+ * again, where "loading" holds the whole page on the loading screen.
+ */
+type Load<T> =
+  | { state: 'loading' }
+  | { state: 'retrying' }
+  | { state: 'ok'; data: T }
+  | { state: 'failed' };
+
+function SectionError({ message, retrying, onRetry }: { message: string; retrying: boolean; onRetry: () => void }) {
+  return (
+    <div className={styles.sectionError} role="status">
+      <p>{message}</p>
+      <button type="button" onClick={onRetry} disabled={retrying} className={styles.sectionRetry}>
+        {retrying ? 'Retrying' : 'Retry'}
+      </button>
+    </div>
+  );
+}
+
+function useLoad<T>(request: () => Promise<T>, what: string) {
+  const [load, setLoad] = useState<Load<T>>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    async function load() {
-      try {
-        // The same list, and so the same order, as the Galleries page: it
-        // holds only public galleries.
-        const [photos, list] = await Promise.all([getFeaturedPhotos(), getGalleries()]);
-        setFeaturedPhotos(photos);
-        setGalleries(list);
-      } catch (err) {
-        console.error('Failed to load the homepage:', err);
-        setFailed(true);
-      } finally {
-        setLoading(false);
+    let current = true;
+    request().then(
+      (data) => {
+        if (current) setLoad({ state: 'ok', data });
+      },
+      (err: unknown) => {
+        console.error(`Failed to load ${what}:`, err);
+        if (current) setLoad({ state: 'failed' });
       }
-    }
-    load();
-  }, [attempt]);
+    );
+    return () => {
+      current = false;
+    };
+  }, [request, what, attempt]);
 
+  const retry = (state: 'loading' | 'retrying') => {
+    setLoad({ state });
+    setAttempt((n) => n + 1);
+  };
+  return [load, retry] as const;
+}
+
+export default function Home() {
+  const [featured, retryFeatured] = useLoad(getFeaturedPhotos, 'featured photos');
+  // The same list, and so the same order, as the Galleries page: it holds
+  // only public galleries.
+  const [galleryList, retryGalleries] = useLoad(getGalleries, 'galleries');
+
+  const featuredPhotos = featured.state === 'ok' ? featured.data : [];
   const heroPhoto = featuredPhotos[0];
   const gridPhotos = featuredPhotos.slice(1);
+  // An empty gallery opens to nothing, so the homepage does not offer it.
+  // The Galleries page still lists it.
+  const galleries =
+    galleryList.state === 'ok' ? galleryList.data.filter((g) => g.photoCount === undefined || g.photoCount > 0) : [];
+  const galleriesFailed = galleryList.state === 'failed' || galleryList.state === 'retrying';
+  const featuredFailed = featured.state === 'failed' || featured.state === 'retrying';
 
-  if (loading) {
+  if (featured.state === 'loading' || galleryList.state === 'loading') {
     return <div className={styles.loadingScreen} />;
   }
 
-  if (failed) {
+  // Only when nothing loaded does the whole page give way to the retry.
+  if (featured.state === 'failed' && galleryList.state === 'failed') {
     return (
       <LoadError
         onRetry={() => {
-          setFailed(false);
-          setLoading(true);
-          setAttempt((n) => n + 1);
+          retryFeatured('loading');
+          retryGalleries('loading');
         }}
       />
     );
@@ -93,16 +130,38 @@ export default function Home() {
         </div>
       </section>
 
-      {galleries.length > 0 && (
+      {(galleries.length > 0 || galleriesFailed) && (
         <section className={styles.galleries} aria-labelledby="home-galleries">
           <h2 id="home-galleries" className={styles.sectionLabel}>
             Galleries
           </h2>
-          <div className={styles.doors}>
-            {galleries.map((gallery) => (
-              <GalleryDoor key={gallery.id} gallery={gallery} />
-            ))}
-          </div>
+          {galleriesFailed && (
+            <SectionError
+              message="Couldn't load galleries."
+              retrying={galleryList.state === 'retrying'}
+              onRetry={() => retryGalleries('retrying')}
+            />
+          )}
+          {galleries.length > 0 && (
+            <div className={styles.doors}>
+              {galleries.map((gallery) => (
+                <GalleryDoor key={gallery.id} gallery={gallery} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {featuredFailed && (
+        <section className={styles.featured} aria-labelledby="home-featured">
+          <h2 id="home-featured" className={styles.sectionLabel}>
+            Selected Work
+          </h2>
+          <SectionError
+            message="Couldn't load selected work."
+            retrying={featured.state === 'retrying'}
+            onRetry={() => retryFeatured('retrying')}
+          />
         </section>
       )}
 
