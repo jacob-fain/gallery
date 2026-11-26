@@ -69,7 +69,12 @@ test('the collage on All Photos shows photos uncropped, and Back from a photo ke
         const img = tile.querySelector('img[data-tile]')!;
         const box = tile.getBoundingClientRect();
         const shown = img.getBoundingClientRect();
+        const album = tile.parentElement!.getBoundingClientRect();
         return {
+          // Placed where the layout put it.
+          placeError:
+            Math.abs(box.left - album.left - parseFloat(tile.style.left)) +
+            Math.abs(box.top - album.top - parseFloat(tile.style.top)),
           // The height the photo's own shape gives the tile's width.
           heightError: Math.abs(box.width / (img.naturalWidth / img.naturalHeight) - box.height),
           // The image fills the tile exactly: nothing cut off.
@@ -83,6 +88,7 @@ test('the collage on All Photos shows photos uncropped, and Back from a photo ke
   for (const shape of shapes) {
     expect(shape.heightError).toBeLessThan(1);
     expect(shape.fillError).toBeLessThan(1);
+    expect(shape.placeError).toBeLessThan(1);
   }
 
   const before = await arrangement(visitor);

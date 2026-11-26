@@ -5,7 +5,8 @@
   width: 100%;
 }
 
-.tile {
+/* Over the grid's rule for album tiles, which makes them relative. */
+.collage .tile {
   position: absolute;
   box-sizing: border-box;
   margin: 0;
