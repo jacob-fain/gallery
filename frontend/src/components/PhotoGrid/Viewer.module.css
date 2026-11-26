@@ -23,6 +23,14 @@
   pointer-events: none;
 }
 
+/* The library hides a slide's image until the whole file has loaded and
+   decoded. Shown, it paints as its bytes arrive, as the grid's tiles do; the
+   loading spinner stays over it until it is done. A copy the zoom plugin
+   loads in the background keeps its own inline visibility: hidden. */
+.viewer :global(.yarl__slide_image_loading) {
+  opacity: 1;
+}
+
 .viewer :global(.yarl__toolbar),
 .viewer :global(.yarl__navigation_prev),
 .viewer :global(.yarl__navigation_next),

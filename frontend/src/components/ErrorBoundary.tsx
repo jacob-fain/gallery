@@ -13,7 +13,13 @@ interface ErrorBoundaryState {
  * boundary reports it to the API, since a caught error never reaches the
  * window error handler.
  */
-export default class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  // Fills the page; inside a layout it fills only its own area.
+  fullPage?: boolean;
+}
+
+export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { failed: false };
 
   static getDerivedStateFromError(): ErrorBoundaryState {
@@ -28,7 +34,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, Er
     if (!this.state.failed) return this.props.children;
     return (
       <StatusMessage
-        fullPage
+        fullPage={this.props.fullPage ?? true}
         title="Something went wrong"
         message="Reloading the page usually fixes this."
         action={{ label: 'Reload', onClick: () => window.location.reload() }}

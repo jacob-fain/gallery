@@ -414,14 +414,12 @@ describe('grid tiles', () => {
     vi.restoreAllMocks();
   });
 
-  it('sit on a preview of the photo, its thumbnail, until the full image loads', async () => {
-    render(<PhotoGrid photos={photos} />);
+  it('are one image each, with no preview in front of it', async () => {
+    const { container } = render(<PhotoGrid photos={photos} />);
     const first = screen.getByAltText('Photo 1 of 3');
-    const preview = first.previousElementSibling as HTMLImageElement;
-    expect(preview.dataset.preview).toBe('');
-    expect(preview.getAttribute('aria-hidden')).toBe('true');
-    await waitFor(() => expect(preview.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg'));
-    expect(first.getAttribute('srcset')).toContain('https://s3.test/a-web.jpg');
+    await waitFor(() => expect(first.getAttribute('srcset')).toContain('https://s3.test/a-web.jpg'));
+    expect(container.querySelectorAll('.react-photo-album img')).toHaveLength(photos.length);
+    expect(first.dataset.photo).toBe('a');
   });
 
   it('show each photo as it loads, and hide only a failed one', async () => {

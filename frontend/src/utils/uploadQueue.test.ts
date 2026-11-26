@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { DuplicateInfo } from '../api/client';
 import type { Photo } from '../types';
 import {
   COMPLETE_ROW_MS,
   HEIC_NOT_SUPPORTED,
   MAX_FILE_SIZE,
+  RETRY_TIMING,
   UPLOAD_CONCURRENCY,
   UploadQueue,
   invalidReason,
   type UploadQueueDeps,
+  type UploadQueueOptions,
 } from './uploadQueue';
 
 interface Call {
@@ -28,7 +31,7 @@ const flush = async () => {
   for (let i = 0; i < 50; i++) await Promise.resolve();
 };
 
-function setup(overrides: Partial<UploadQueueDeps> = {}) {
+function setup(overrides: Partial<UploadQueueDeps> = {}, options: UploadQueueOptions = {}) {
   const calls: Call[] = [];
   const deps: UploadQueueDeps = {
     upload: (galleryId, file, onProgress, signal) =>
@@ -40,7 +43,7 @@ function setup(overrides: Partial<UploadQueueDeps> = {}) {
     hash: (file) => file.text(),
     ...overrides,
   };
-  const queue = new UploadQueue(deps);
+  const queue = new UploadQueue(deps, options);
   queue.setSession('user-1');
   return { queue, calls, deps };
 }
@@ -62,11 +65,11 @@ describe('UploadQueue', () => {
     expect(calls).toHaveLength(UPLOAD_CONCURRENCY);
     calls[0].resolve(photo('p1'));
     await flush();
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(UPLOAD_CONCURRENCY + 1);
   });
 
   it('keeps each gallery its own rows and counters', async () => {
-    const { queue, calls } = setup();
+    const { queue, calls } = setup({}, { concurrency: 3 });
     queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
     queue.add([image('u1'), image('u2')], { galleryId: null, checkOnly: false });
     await flush();
@@ -169,7 +172,7 @@ describe('UploadQueue', () => {
   });
 
   it('maps rejections through uploadOutcome and retries only what can succeed', async () => {
-    const { queue, calls } = setup();
+    const { queue, calls } = setup({}, { concurrency: 3 });
     queue.add([image('a1'), image('a2'), image('a3')], { galleryId: 'a', checkOnly: false });
     await flush();
 
@@ -288,5 +291,323 @@ describe('invalidReason', () => {
   it('lets supported images through', () => {
     expect(invalidReason(file('IMG_1.jpg', 'image/jpeg'))).toBeNull();
     expect(invalidReason(file('IMG_1.tif', ''))).toBeNull();
+  });
+});
+
+describe('UploadQueue retries', () => {
+  // Every file's hash is its contents; the server holds the hashes in `stored`.
+  function lossy(options: UploadQueueOptions = {}) {
+    const stored = new Map<string, { id: string; gallery_id: string | null }>();
+    const checkDuplicates = vi.fn(async (hashes: string[]) => {
+      const found: Record<string, DuplicateInfo> = {};
+      for (const h of hashes) {
+        const s = stored.get(h);
+        if (s) found[h] = { ...s, original_filename: h, gallery_title: null, review_status: 'review' };
+      }
+      return found;
+    });
+    const setupResult = setup({ checkDuplicates }, options);
+    return { ...setupResult, stored, checkDuplicates };
+  }
+
+  const row = (queue: UploadQueue, galleryId: string | null, index = 0) => queue.getTarget(galleryId).items[index];
+  const advance = async (ms: number) => {
+    await vi.advanceTimersByTimeAsync(ms);
+    await flush();
+  };
+
+  it('retries a lost connection by itself after 2, 5, 15, 30 then 60 s, and gives up after 10 attempts', async () => {
+    vi.useFakeTimers();
+    const { queue, calls } = lossy();
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+
+    const waits: number[] = [];
+    for (let attempt = 1; attempt <= RETRY_TIMING.maxAttempts; attempt++) {
+      expect(calls).toHaveLength(attempt);
+      calls[attempt - 1].reject(rejected('Upload failed', 0));
+      await flush();
+      const item = row(queue, 'a');
+      if (attempt === RETRY_TIMING.maxAttempts) break;
+      expect(item).toMatchObject({ status: 'retrying', attempts: attempt });
+      waits.push(item.retryAt! - Date.now());
+      await advance(item.retryAt! - Date.now());
+    }
+
+    expect(waits).toEqual([2000, 5000, 15000, 30000, 60000, 60000, 60000, 60000, 60000]);
+    expect(row(queue, 'a')).toMatchObject({
+      status: 'error',
+      error: 'Upload failed (after 10 attempts)',
+      retryable: true,
+    });
+    expect(queue.getTarget('a').stats).toMatchObject({ failed: 1 });
+    expect(queue.getSummary()).toMatchObject({ active: false, failed: 1 });
+  });
+
+  it.each([
+    ['a duplicate', 409, 'duplicate'],
+    ['an unsupported type', 415, 'error'],
+    ['a file too large', 413, 'error'],
+    ['a plain server error', 500, 'error'],
+  ])('does not retry %s by itself', async (_case, status, expected) => {
+    vi.useFakeTimers();
+    const { queue, calls } = lossy();
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    calls[0].reject(rejected('No', status));
+    await flush();
+    await advance(10 * 60_000);
+    expect(calls).toHaveLength(1);
+    expect(row(queue, 'a').status).toBe(expected);
+  });
+
+  it('reports a photo the server stored before its answer was lost (Cloudflare 524) as already uploaded', async () => {
+    vi.useFakeTimers();
+    const { queue, calls, stored, checkDuplicates } = lossy();
+    const done = vi.fn();
+    const recovered = vi.fn();
+    queue.onComplete(done);
+    queue.onRecovered(recovered);
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+
+    // Every byte arrives, the server stores the photo, and the browser gets
+    // Cloudflare's timeout page instead of the 201.
+    calls[0].onProgress(100);
+    stored.set('a1', { id: 'p1', gallery_id: 'a' });
+    calls[0].reject(rejected('The server took too long to answer (HTTP 524)', 524));
+    await flush();
+    expect(row(queue, 'a')).toMatchObject({ status: 'retrying' });
+
+    await advance(2000);
+    expect(checkDuplicates).toHaveBeenLastCalledWith(['a1']);
+    expect(calls).toHaveLength(1);
+    expect(row(queue, 'a')).toMatchObject({ status: 'complete', note: 'Already uploaded' });
+    expect(queue.getTarget('a').stats).toMatchObject({ uploaded: 1, failed: 0, skipped: 0 });
+    expect(recovered).toHaveBeenCalledWith('a');
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  it('confirms every 10 s, without sending again, while the server may still be storing a photo whose answer was lost', async () => {
+    vi.useFakeTimers();
+    const { queue, calls, stored, checkDuplicates } = lossy();
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    calls[0].onProgress(100);
+    calls[0].reject(rejected('Gateway timeout', 524));
+    await flush();
+    expect(row(queue, 'a')).toMatchObject({ status: 'retrying', confirming: true });
+    expect(queue.getSummary()).toMatchObject({ confirming: 1, retrying: 0, moving: 0 });
+    checkDuplicates.mockClear();
+
+    // Not stored yet at the first check (2 s) or the next (12 s).
+    await advance(2000);
+    await advance(10_000);
+    expect(checkDuplicates).toHaveBeenCalledTimes(2);
+    expect(calls).toHaveLength(1);
+    expect(row(queue, 'a')).toMatchObject({ status: 'retrying', confirming: true });
+
+    stored.set('a1', { id: 'p1', gallery_id: 'a' });
+    await advance(10_000);
+    expect(calls).toHaveLength(1);
+    expect(row(queue, 'a')).toMatchObject({ status: 'complete', note: 'Already uploaded' });
+  });
+
+  it('sends again 60 s after a lost answer when the server never stored it', async () => {
+    vi.useFakeTimers();
+    const { queue, calls, checkDuplicates } = lossy();
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    calls[0].onProgress(100);
+    calls[0].reject(rejected('Gateway timeout', 524));
+    await flush();
+    checkDuplicates.mockClear();
+
+    await advance(59_000);
+    expect(calls).toHaveLength(1);
+    // 2 s, then every 10 s: 2, 12, 22, 32, 42, 52.
+    expect(checkDuplicates).toHaveBeenCalledTimes(6);
+    await advance(1000);
+    expect(checkDuplicates).toHaveBeenCalledTimes(7);
+    expect(calls).toHaveLength(2);
+    expect(row(queue, 'a')).toMatchObject({ status: 'uploading', attempts: 2, confirming: undefined });
+  });
+
+  it.each([502, 503, 504, 408, 429, 522])(
+    'sends again on the normal backoff after %i, which never reached the app, checking once first',
+    async (status) => {
+      vi.useFakeTimers();
+      const { queue, calls, checkDuplicates } = lossy();
+      queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+      await flush();
+      calls[0].onProgress(100);
+      calls[0].reject(rejected('Bad gateway', status));
+      await flush();
+      expect(row(queue, 'a')).toMatchObject({ status: 'retrying', confirming: undefined });
+      expect(queue.getSummary()).toMatchObject({ retrying: 1, confirming: 0, moving: 0 });
+      checkDuplicates.mockClear();
+
+      await advance(2000);
+      expect(checkDuplicates).toHaveBeenCalledTimes(1);
+      expect(calls).toHaveLength(2);
+    }
+  );
+
+  it('gives up on a stall at the end of the body within 2.5 minutes, not 5', async () => {
+    vi.useFakeTimers();
+    const { queue, calls } = lossy();
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    // The browser has buffered every byte; the connection then stops.
+    calls[0].onProgress(100);
+    await advance(RETRY_TIMING.answerMs);
+    expect(calls[0].signal.aborted).toBe(true);
+    calls[0].reject(rejected('Upload aborted', 0));
+    await flush();
+    expect(row(queue, 'a')).toMatchObject({ confirming: true });
+
+    await advance(RETRY_TIMING.serverGraceMs - 1000);
+    expect(calls).toHaveLength(1);
+    await advance(1000);
+    expect(calls).toHaveLength(2);
+    expect(RETRY_TIMING.answerMs + RETRY_TIMING.serverGraceMs).toBe(150_000);
+  });
+
+  it('sends again once the grace has passed and the server never stored it', async () => {
+    vi.useFakeTimers();
+    const { queue, calls } = lossy({ timing: { serverGraceMs: 10_000 } });
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    calls[0].onProgress(100);
+    calls[0].reject(rejected('Gateway timeout', 524));
+    await flush();
+
+    await advance(2000);
+    await advance(5000);
+    expect(calls).toHaveLength(1);
+    await advance(15000);
+    expect(calls).toHaveLength(2);
+    expect(row(queue, 'a')).toMatchObject({ status: 'uploading', attempts: 2 });
+  });
+
+  it("treats a retry's 409 naming a photo in the same gallery as its own earlier attempt", async () => {
+    vi.useFakeTimers();
+    // No hash, so nothing is asked before sending again: the server's 409 decides.
+    const { queue, calls } = setup({ hash: () => Promise.reject(new Error('no hashing')) });
+    queue.add([image('a1'), image('a2')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    calls[0].reject(rejected('Upload failed', 0));
+    calls[1].reject(rejected('Upload failed', 0));
+    await flush();
+    await advance(2000);
+    expect(calls).toHaveLength(4);
+
+    const dup = (galleryId: string | null) =>
+      Object.assign(rejected('Already uploaded as a.jpg (needs review)', 409), {
+        existing: { id: 'p1', gallery_id: galleryId },
+      });
+    calls[2].reject(dup('a'));
+    calls[3].reject(dup('elsewhere'));
+    await flush();
+
+    expect(row(queue, 'a', 0)).toMatchObject({ status: 'complete', note: 'Already uploaded' });
+    expect(row(queue, 'a', 1)).toMatchObject({ status: 'duplicate', note: 'Already uploaded as a.jpg (needs review)' });
+    expect(queue.getTarget('a').stats).toMatchObject({ uploaded: 1, skipped: 1, failed: 0 });
+  });
+
+  it('gives up on a connection that stops sending, and on an answer that never comes', async () => {
+    vi.useFakeTimers();
+    const { queue, calls } = lossy();
+    queue.add([image('a1'), image('a2')], { galleryId: 'a', checkOnly: false });
+    await flush();
+
+    // Progress keeps a slow upload alive.
+    calls[0].onProgress(10);
+    calls[1].onProgress(10);
+    await advance(RETRY_TIMING.stallMs - 1000);
+    calls[0].onProgress(50);
+    calls[1].onProgress(100);
+    await advance(2000);
+    expect(calls[0].signal.aborted).toBe(false);
+    expect(calls[1].signal.aborted).toBe(false);
+
+    await advance(RETRY_TIMING.stallMs);
+    expect(calls[0].signal.aborted).toBe(true);
+    calls[0].reject(rejected('Upload aborted', 0));
+    await flush();
+    expect(row(queue, 'a', 0)).toMatchObject({ status: 'retrying', note: 'Upload stalled' });
+
+    await advance(RETRY_TIMING.answerMs - RETRY_TIMING.stallMs);
+    expect(calls[1].signal.aborted).toBe(true);
+    calls[1].reject(rejected('Upload aborted', 0));
+    await flush();
+    expect(row(queue, 'a', 1)).toMatchObject({ status: 'retrying', note: 'No answer from the server' });
+    expect(row(queue, 'a', 1).lostAt).toBeDefined();
+  });
+
+  it('waits while the browser is offline and goes as soon as it is back', async () => {
+    vi.useFakeTimers();
+    let online = true;
+    const { queue, calls } = lossy({ isOnline: () => online });
+    queue.add([image('a1'), image('a2'), image('a3')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    expect(calls).toHaveLength(2);
+
+    online = false;
+    calls[0].reject(rejected('Upload failed', 0));
+    await flush();
+    // The free slot is not used while offline.
+    expect(calls).toHaveLength(2);
+    await advance(60_000);
+    expect(calls).toHaveLength(2);
+    expect(row(queue, 'a', 0)).toMatchObject({ status: 'retrying', offline: true });
+
+    online = true;
+    queue.resumeOnline();
+    await flush();
+    // The free slot goes at once; the retry, after its check, is next in line.
+    expect(calls.map((c) => c.file.name)).toEqual(['a1', 'a2', 'a3']);
+    expect(row(queue, 'a', 0)).toMatchObject({ status: 'pending', offline: undefined });
+    calls[1].resolve(photo('p2'));
+    await flush();
+    expect(calls[3].file.name).toBe('a1');
+    expect(row(queue, 'a', 0)).toMatchObject({ status: 'uploading', attempts: 2 });
+  });
+
+  it('retries every failed file at once with Retry all failed, in one gallery or all', async () => {
+    const { queue, calls } = lossy({ concurrency: 3 });
+    queue.add([image('a1'), image('a2')], { galleryId: 'a', checkOnly: false });
+    queue.add([image('b1')], { galleryId: 'b', checkOnly: false });
+    await flush();
+    const call = (name: string) => calls.find((c) => c.file.name === name)!;
+    call('a1').reject(rejected('Server error', 500));
+    call('a2').reject(rejected('Unsupported', 415));
+    call('b1').reject(rejected('Server error', 500));
+    await flush();
+    expect(queue.getSummary()).toMatchObject({ failed: 2 });
+
+    queue.retryAllFailed('a');
+    await flush();
+    expect(calls.map((c) => c.file.name).slice(3)).toEqual(['a1']);
+    expect(queue.getTarget('b').stats.failed).toBe(1);
+
+    queue.retryAllFailed();
+    await flush();
+    expect(calls.map((c) => c.file.name).slice(3)).toEqual(['a1', 'b1']);
+    expect(statuses(queue, 'a')).toEqual(['a1:uploading', 'a2:error']);
+    expect(queue.getSummary()).toMatchObject({ failed: 0 });
+  });
+
+  it('stops retries when the session ends', async () => {
+    vi.useFakeTimers();
+    const { queue, calls } = lossy();
+    queue.add([image('a1')], { galleryId: 'a', checkOnly: false });
+    await flush();
+    calls[0].reject(rejected('Upload failed', 0));
+    await flush();
+    queue.setSession(null);
+    await advance(10 * 60_000);
+    expect(calls).toHaveLength(1);
+    expect(queue.getTarget('a').items).toEqual([]);
   });
 });

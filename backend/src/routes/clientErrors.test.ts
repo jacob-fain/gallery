@@ -65,6 +65,49 @@ describe('parseClientError', () => {
   });
 });
 
+describe('parseClientError for an image that failed to load', () => {
+  const PHOTO = '0a1b2c3d-0000-4000-8000-00000000000f';
+  const imageReport = (image: Record<string, unknown> = {}) =>
+    report({
+      source: 'image',
+      message: 'Image failed to load: web truncated after 3 attempts',
+      stack: undefined,
+      image: { photoId: PHOTO, kind: 'web', failure: 'truncated', attempts: 3, ...image },
+    });
+
+  it('keeps the photo, size, failure and attempt count', () => {
+    expect(parseClientError(imageReport())).toMatchObject({
+      source: 'image',
+      path: '/gallery/wedding',
+      image: { photoId: PHOTO, kind: 'web', failure: 'truncated', attempts: 3 },
+    });
+    for (const failure of ['error', 'truncated', 'timeout']) {
+      expect(parseClientError(imageReport({ failure }))?.image?.failure).toBe(failure);
+    }
+    expect(parseClientError(imageReport({ kind: 'thumb' }))?.image?.kind).toBe('thumb');
+  });
+
+  it('keeps nothing else the client put in the details, such as the image URL', () => {
+    const parsed = parseClientError(imageReport({ url: 'https://bucket.s3.amazonaws.com/p.webp?X-Amz-Signature=sig' }));
+    expect(parsed?.image).toEqual({ photoId: PHOTO, kind: 'web', failure: 'truncated', attempts: 3 });
+  });
+
+  it('refuses an image report without valid details', () => {
+    expect(parseClientError(report({ source: 'image' }))).toBeNull();
+    expect(parseClientError(imageReport({ photoId: 'not-a-uuid' }))).toBeNull();
+    expect(parseClientError(imageReport({ kind: 'original' }))).toBeNull();
+    expect(parseClientError(imageReport({ failure: 'slow' }))).toBeNull();
+    expect(parseClientError(imageReport({ attempts: 0 }))).toBeNull();
+    expect(parseClientError(imageReport({ attempts: 2.5 }))).toBeNull();
+    expect(parseClientError(imageReport({ attempts: '3' }))).toBeNull();
+    expect(parseClientError(imageReport({ attempts: 100_000 }))).toBeNull();
+  });
+
+  it('attaches no image details to other reports', () => {
+    expect(parseClientError(report({ image: { photoId: PHOTO } }))).not.toHaveProperty('image');
+  });
+});
+
 describe('POST /api/client-errors', () => {
   let server: Server;
   let base = '';
@@ -114,6 +157,16 @@ describe('POST /api/client-errors', () => {
     });
     expect(entry.requestId).toEqual(expect.any(String));
     expect(clientErrorMetrics.summarize().count).toBe(before + 1);
+  });
+
+  it('logs the details of an image that failed to load', async () => {
+    const image = { photoId: '0a1b2c3d-0000-4000-8000-00000000000f', kind: 'thumb', failure: 'timeout', attempts: 3 };
+    const res = await post(
+      JSON.stringify(report({ source: 'image', message: 'Image failed to load: thumb timeout after 3 attempts', image }))
+    );
+    expect(res.status).toBe(204);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toMatchObject({ msg: 'client error', source: 'image', image });
   });
 
   it('accepts application/json as well as the text/plain a beacon sends', async () => {

@@ -124,9 +124,7 @@ const renderReviewExtras: RenderExtras<AlbumPhoto> = (_, { photo }) => (
   </>
 );
 // The review extras render after the images, so they paint over both.
-const renderTileImage: RenderImage<AlbumPhoto> = (props, { photo }) => (
-  <TileImage {...props} preview={photo.preview} />
-);
+const renderTileImage: RenderImage<AlbumPhoto> = (props, { photo }) => <TileImage {...props} photoId={photo.key} />;
 const TILE_RENDER = { image: renderTileImage };
 const REVIEW_RENDER = { image: renderTileImage, extras: renderReviewExtras };
 

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  MAX_IMAGE_REPORTS_PER_PAGE,
   MAX_REPORTS_PER_PAGE,
   postTo,
+  createImageReporter,
   createReporter,
   pathOf,
   stripUrlQueries,
@@ -101,6 +103,52 @@ describe('createReporter', () => {
     report('error', 'ResizeObserver loop completed with undelivered notifications.');
     report('error', 'Script error.');
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe('createImageReporter', () => {
+  const setupImages = () => {
+    const sent: ClientErrorReport[] = [];
+    const report = createImageReporter({
+      send: (r) => sent.push(r),
+      path: () => '/g/wedding?access=SECRET',
+      userAgent: 'Mozilla/5.0 test',
+      release: 'abc123',
+    });
+    return { sent, report };
+  };
+  const photoId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+  it('sends the photo, size, failure and attempts, and the page path alone', () => {
+    const { sent, report } = setupImages();
+    report({ photoId: photoId(1), kind: 'web', failure: 'truncated', attempts: 3 });
+    expect(sent).toEqual([
+      {
+        source: 'image',
+        message: 'Image failed to load: web truncated after 3 attempts',
+        url: '/g/wedding',
+        release: 'abc123',
+        userAgent: 'Mozilla/5.0 test',
+        image: { photoId: photoId(1), kind: 'web', failure: 'truncated', attempts: 3 },
+      },
+    ]);
+  });
+
+  it(`sends one report per photo and ${MAX_IMAGE_REPORTS_PER_PAGE} per page`, () => {
+    const { sent, report } = setupImages();
+    report({ photoId: photoId(1), kind: 'web', failure: 'error', attempts: 3 });
+    report({ photoId: photoId(1), kind: 'web', failure: 'timeout', attempts: 4 });
+    expect(sent).toHaveLength(1);
+    for (let n = 2; n < 40; n++) report({ photoId: photoId(n), kind: 'thumb', failure: 'error', attempts: 3 });
+    expect(sent).toHaveLength(MAX_IMAGE_REPORTS_PER_PAGE);
+  });
+
+  it('has a budget of its own, apart from error reports', () => {
+    const errors = setup();
+    const images = setupImages();
+    for (let i = 0; i < MAX_REPORTS_PER_PAGE; i++) errors.report('error', new Error(`e${i}`));
+    images.report({ photoId: photoId(1), kind: 'web', failure: 'error', attempts: 3 });
+    expect(images.sent).toHaveLength(1);
   });
 });
 

@@ -27,6 +27,7 @@ import { emptyListMessage, isShown, STATUS_ACTIONS, STATUS_LABELS } from '../../
 import LoadMore from './LoadMore';
 import type { PhotoListHandle } from './usePhotoList';
 import { useRefreshOnImageError } from './useRefreshOnImageError';
+import { useColumnWidth } from './useColumnWidth';
 import styles from './PhotoManager.module.css';
 
 // Select value for the Unassigned target; gallery ids are UUIDs, so it cannot collide.
@@ -57,15 +58,25 @@ interface SortablePhotoCardProps {
   onCoverClick: (photoId: string) => void;
   onDelete: (photoId: string) => void;
   onSetStatus: (photoId: string, status: ReviewStatus) => void;
+  // The grid's column width in CSS pixels; 0 before it is measured.
+  cardWidth: number;
 }
 
-function Thumbnail({ photo, alt }: { photo: Photo; alt: string }) {
+function Thumbnail({ photo, alt, cardWidth }: { photo: Photo; alt: string; cardWidth: number }) {
   // The card's square box reserves the space, so an image below the fold
   // stays unloaded; the size attributes give the browser the aspect ratio.
-  const size = derivedImages({ width: photo.width, height: photo.height, thumbnailUrl: photo.thumbnailUrl })[0];
+  const candidates = derivedImages(photo);
+  const size = candidates[0];
+  // object-fit: cover fills the square, so a landscape photo is drawn as
+  // wide as the card is tall times its aspect ratio. The browser picks the
+  // web size where the thumbnail has fewer pixels than that on this screen.
+  const drawn = cardWidth * Math.max(1, size ? size.width / size.height : 1);
+  const responsive = cardWidth > 0 && candidates.length > 1;
   return (
     <img
       src={photo.thumbnailUrl}
+      srcSet={responsive ? candidates.map((c) => `${c.src} ${c.width}w`).join(', ') : undefined}
+      sizes={responsive ? `${Math.ceil(drawn)}px` : undefined}
       alt={alt}
       className={styles.image}
       loading="lazy"
@@ -90,6 +101,7 @@ const SortablePhotoCard = memo(function SortablePhotoCard({
   onCoverClick,
   onDelete,
   onSetStatus,
+  cardWidth,
 }: SortablePhotoCardProps) {
   const {
     attributes,
@@ -123,7 +135,7 @@ const SortablePhotoCard = memo(function SortablePhotoCard({
             className={styles.coverSelectArea}
             onClick={() => onCoverClick(photo.id)}
           >
-            <Thumbnail photo={photo} alt={alt} />
+            <Thumbnail photo={photo} alt={alt} cardWidth={cardWidth} />
             <div className={styles.coverSelectHint}>Click to set as cover</div>
           </div>
         ) : (
@@ -133,7 +145,7 @@ const SortablePhotoCard = memo(function SortablePhotoCard({
             {...attributes}
             {...listeners}
           >
-            <Thumbnail photo={photo} alt={alt} />
+            <Thumbnail photo={photo} alt={alt} cardWidth={cardWidth} />
             {sortable && <div className={styles.dragHint}>Drag to reorder</div>}
           </div>
         )}
@@ -210,6 +222,14 @@ export default function PhotoManager({
   const { list, update, latest, reload, loadAll, loadMore, refreshUrls } = photos;
   const gridRef = useRef<HTMLDivElement>(null);
   useRefreshOnImageError(gridRef, refreshUrls);
+  const [measureGrid, cardWidth] = useColumnWidth();
+  const setGrid = useCallback(
+    (el: HTMLDivElement | null) => {
+      gridRef.current = el;
+      measureGrid(el);
+    },
+    [measureGrid]
+  );
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -631,7 +651,7 @@ export default function PhotoManager({
           items={sortableIds}
           strategy={rectSortingStrategy}
         >
-          <div ref={gridRef} className={`${styles.grid} ${coverSelectMode ? styles.coverSelectMode : ''}`}>
+          <div ref={setGrid} className={`${styles.grid} ${coverSelectMode ? styles.coverSelectMode : ''}`}>
             {items.map((photo, index) => (
               <SortablePhotoCard
                 key={photo.id}
@@ -646,6 +666,7 @@ export default function PhotoManager({
                 onCoverClick={handleSetCover}
                 onDelete={setDeleteConfirm}
                 onSetStatus={handleSetStatus}
+                cardWidth={cardWidth}
               />
             ))}
           </div>

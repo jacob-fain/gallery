@@ -18,6 +18,8 @@ export interface ApiResponse {
 
 export interface RequestOptions {
   body?: unknown;
+  // A multipart body, sent as it is instead of body.
+  form?: FormData;
   // Send the admin Origin and, unless session is false, the admin session
   // cookie (default true).
   admin?: boolean;
@@ -65,7 +67,7 @@ export function useAppServer() {
   const request = async (
     method: string,
     path: string,
-    { body, admin = true, session = admin, headers: extra = {}, redirect }: RequestOptions = {}
+    { body, form, admin = true, session = admin, headers: extra = {}, redirect }: RequestOptions = {}
   ): Promise<ApiResponse> => {
     const headers: Record<string, string> = { ...extra };
     if (admin) headers.Origin = ADMIN_ORIGIN;
@@ -74,7 +76,7 @@ export function useAppServer() {
     const res = await fetch(`${base}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: form ?? (body === undefined ? undefined : JSON.stringify(body)),
       redirect,
     });
     const raw = Buffer.from(await res.arrayBuffer());

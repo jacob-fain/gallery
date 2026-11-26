@@ -1,22 +1,14 @@
 import type { ComponentProps } from 'react';
-import { PREVIEW_IMAGE_PROPS } from './tileImage';
-import styles from './PhotoGrid.module.css';
 
 type TileImageProps = ComponentProps<'img'> & {
-  // The photo's thumbnail, shown until the full image has loaded.
-  preview?: string;
+  // Named in a report of the image failing to load (tileImage.ts).
+  photoId: string;
 };
 
 /**
- * A grid tile's images, for either layout. Their sources wait in data
- * attributes until the scheduler starts them (tileScheduler.ts). The preview
- * comes first so the full image, positioned after it, paints over it.
+ * A grid tile's image, for either layout. Its sources wait in data
+ * attributes until the scheduler starts it (tileScheduler.ts).
  */
-export default function TileImage({ src, srcSet, preview, ...props }: TileImageProps) {
-  return (
-    <>
-      {preview && <img data-src={preview} className={styles.preview} {...PREVIEW_IMAGE_PROPS} />}
-      <img {...props} data-tile="" data-src={src} data-srcset={srcSet} />
-    </>
-  );
+export default function TileImage({ src, srcSet, photoId, ...props }: TileImageProps) {
+  return <img {...props} data-tile="" data-photo={photoId} data-src={src} data-srcset={srcSet} />;
 }

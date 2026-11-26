@@ -27,7 +27,11 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const session = user?.id ?? null;
   const [queue] = useState(
-    () => new UploadQueue({ upload: uploadPhoto, checkDuplicates, hash: hashFile })
+    () =>
+      new UploadQueue(
+        { upload: uploadPhoto, checkDuplicates, hash: hashFile },
+        { isOnline: () => navigator.onLine }
+      )
   );
 
   // Signing out, or the session expiring, clears the user: the uploads stop.
@@ -36,6 +40,13 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   }, [queue, session]);
 
   useEffect(() => () => queue.abortAll(), [queue]);
+
+  // Retries wait while the browser is offline and go as soon as it is back.
+  useEffect(() => {
+    const handleOnline = () => queue.resumeOnline();
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [queue]);
 
   return (
     <UploadQueueContext.Provider value={queue}>

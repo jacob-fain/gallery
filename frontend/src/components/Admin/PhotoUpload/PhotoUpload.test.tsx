@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DuplicateInfo } from '../../../api/client';
 import { AuthContext, type AuthContextType } from '../../../contexts/auth';
 import type { Photo } from '../../../types';
@@ -63,24 +63,38 @@ let stored: Map<string, DuplicateInfo>;
 
 const failure = (message: string, status: number) => Object.assign(new Error(message), { status });
 
-function renderUpload(onUploadComplete = vi.fn()) {
-  const user = userEvent.setup({ applyAccept: false });
+function renderUpload(onUploadComplete = vi.fn(), onUploadsRecovered = vi.fn()) {
+  const user = userEvent.setup({ applyAccept: false, advanceTimers: (ms) => {
+      if (vi.isFakeTimers()) vi.advanceTimersByTime(ms);
+    },
+  });
   render(
     <AuthContext.Provider value={auth}>
       <UploadQueueProvider>
-        <PhotoUpload galleryId={GALLERY} onUploadComplete={onUploadComplete} />
+        <PhotoUpload
+          galleryId={GALLERY}
+          onUploadComplete={onUploadComplete}
+          onUploadsRecovered={onUploadsRecovered}
+        />
       </UploadQueueProvider>
     </AuthContext.Provider>
   );
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
   const dropzone = screen.getByText('Drop photos here or click to upload').closest('div')!.parentElement!;
-  return { user, input, dropzone, onUploadComplete };
+  return { user, input, dropzone, onUploadComplete, onUploadsRecovered };
 }
 
 /** Waits for hashing and the duplicate check, until `count` uploads have started. */
 async function started(count: number) {
   await act(async () => {
     while (uploads.size < count) await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+/** Moves the clock on (fake timers) and lets the queue's checks run. */
+async function wait(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
   });
 }
 
@@ -95,6 +109,10 @@ const row = (name: string) => screen.getByText(name).parentElement!;
 const summary = () => document.querySelector('[class*="summaryText"]')?.textContent;
 
 describe('PhotoUpload drop zone', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     uploads = new Map();
@@ -275,21 +293,69 @@ describe('PhotoUpload drop zone', () => {
     expect(summary()).toBe('Done · 0 uploaded · 1 skipped');
   });
 
-  it('offers Retry for a lost connection and uploads the file again', async () => {
+  it('retries a lost connection by itself, counting down to the next attempt', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const onUploadComplete = vi.fn();
     const { user, input } = renderUpload(onUploadComplete);
     await user.upload(input, [image('flaky.jpg')]);
     await started(1);
 
     await step(() => uploads.get('flaky.jpg')!.reject(failure('Upload failed', 0)));
-    expect(within(row('flaky.jpg')).getByText('Upload failed')).toBeTruthy();
+    expect(within(row('flaky.jpg')).getByText(/^Retrying in [12]s \(attempt 2\)$/)).toBeTruthy();
+    expect(summary()).toBe('0/1 · 0 uploaded');
+
+    uploads.clear();
+    await wait(2000);
+    await started(1);
+    expect(client.uploadPhoto).toHaveBeenCalledTimes(2);
+
+    await step(() => uploads.get('flaky.jpg')!.resolve({ id: 'p' } as Photo));
+    expect(summary()).toBe('Done · 1 uploaded');
+    expect(onUploadComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a photo the server stored before Cloudflare timed out (HTTP 524) as already uploaded, without sending it again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { user, input, onUploadComplete, onUploadsRecovered } = renderUpload();
+    await user.upload(input, [image('big.jpg')]);
+    await started(1);
+
+    // Every byte arrives and the server stores the photo, but the browser
+    // gets Cloudflare's timeout page instead of the 201.
+    await step(() => uploads.get('big.jpg')!.onProgress(100));
+    stored.set('big.jpg', {
+      id: 'p1',
+      original_filename: 'big.jpg',
+      gallery_id: GALLERY,
+      gallery_title: 'This Gallery',
+      review_status: 'review',
+    });
+    await step(() => uploads.get('big.jpg')!.reject(failure('The server took too long to answer (HTTP 524)', 524)));
+    expect(within(row('big.jpg')).getByText('Confirming upload...')).toBeTruthy();
+
+    await wait(2000);
+    expect(within(row('big.jpg')).getByText('Already uploaded')).toBeTruthy();
+    expect(summary()).toBe('Done · 1 uploaded');
+    expect(client.uploadPhoto).toHaveBeenCalledTimes(1);
+    expect(onUploadsRecovered).toHaveBeenCalledTimes(1);
+    expect(onUploadComplete).not.toHaveBeenCalled();
+  });
+
+  it('offers Retry for a server error and uploads the file again', async () => {
+    const onUploadComplete = vi.fn();
+    const { user, input } = renderUpload(onUploadComplete);
+    await user.upload(input, [image('flaky.jpg')]);
+    await started(1);
+
+    await step(() => uploads.get('flaky.jpg')!.reject(failure('Failed to upload photo', 500)));
+    expect(within(row('flaky.jpg')).getByText('Failed to upload photo')).toBeTruthy();
     expect(summary()).toBe('Done · 0 uploaded · 1 failed');
 
     uploads.clear();
     await user.click(within(row('flaky.jpg')).getByRole('button', { name: 'Retry' }));
     await started(1);
     expect(client.uploadPhoto).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText('Upload failed')).toBeNull();
+    expect(screen.queryByText('Failed to upload photo')).toBeNull();
     expect(summary()).toBe('0/1 · 0 uploaded');
 
     await step(() => uploads.get('flaky.jpg')!.resolve({ id: 'p' } as Photo));
@@ -297,9 +363,25 @@ describe('PhotoUpload drop zone', () => {
     expect(onUploadComplete).toHaveBeenCalledTimes(1);
   });
 
+  it('retries every failed file with Retry all failed', async () => {
+    const { user, input } = renderUpload();
+    await user.upload(input, [image('a.jpg'), image('b.jpg'), image('c.jpg')]);
+    await started(2);
+    await step(() => uploads.get('a.jpg')!.reject(failure('Failed to upload photo', 500)));
+    await step(() => uploads.get('b.jpg')!.reject(failure('Failed to upload photo', 500)));
+    await started(3);
+    await step(() => uploads.get('c.jpg')!.reject(failure('Unsupported', 415)));
+
+    uploads.clear();
+    await user.click(screen.getByRole('button', { name: 'Retry all failed (2)' }));
+    await started(2);
+    expect([...uploads.keys()].sort()).toEqual(['a.jpg', 'b.jpg']);
+    expect(screen.queryByRole('button', { name: /Retry all failed/ })).toBeNull();
+    expect(within(row('c.jpg')).getByText('Unsupported')).toBeTruthy();
+  });
+
   it.each([
     ['a server error', 500, true],
-    ['rate limiting', 429, true],
     ['a refused file type', 415, false],
     ['a file too large for the server', 413, false],
   ])('shows Retry after %s (HTTP %i) only if it can succeed', async (_case, status, retryable) => {

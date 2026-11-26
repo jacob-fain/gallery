@@ -77,11 +77,15 @@ describe('uploadPhoto cleanup', () => {
   it('answers a duplicate that lost the insert race with 409 and deletes its files', async () => {
     vi.mocked(photoService.getPhotoByContentHash)
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ original_filename: 'first.jpg', review_status: 'shown' } as never);
+      .mockResolvedValueOnce({ id: 'p0', gallery_id: 'g1', original_filename: 'first.jpg', review_status: 'shown' } as never);
     vi.mocked(photoService.createPhoto).mockRejectedValue(uniqueViolation);
     const res = await call();
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Already uploaded as first.jpg (shown)' });
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      error: 'Already uploaded as first.jpg (shown)',
+      existing: { id: 'p0', gallery_id: 'g1' },
+    });
     expect(s3Service.deleteFiles).toHaveBeenCalledWith(KEYS);
   });
 
@@ -90,13 +94,27 @@ describe('uploadPhoto cleanup', () => {
     ['review', 'needs review'],
   ])('names the state of a %s duplicate', async (status, name) => {
     vi.mocked(photoService.getPhotoByContentHash).mockResolvedValue({
+      id: 'p0',
+      gallery_id: null,
       original_filename: 'first.jpg',
       review_status: status,
     } as never);
     const res = await call();
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(res.json).toHaveBeenCalledWith({ success: false, error: `Already uploaded as first.jpg (${name})` });
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      error: `Already uploaded as first.jpg (${name})`,
+      existing: { id: 'p0', gallery_id: null },
+    });
     expect(photoService.createPhoto).not.toHaveBeenCalled();
+  });
+
+  it('answers a duplicate whose stored row is gone with no photo named', async () => {
+    vi.mocked(photoService.getPhotoByContentHash).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    vi.mocked(photoService.createPhoto).mockRejectedValue(uniqueViolation);
+    const res = await call();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Already uploaded' });
   });
 
   it('waits for every upload to settle before deleting when one fails', async () => {

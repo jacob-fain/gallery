@@ -81,6 +81,11 @@
   border-color: var(--color-success);
 }
 
+.uploadItem.retrying {
+  background: rgba(217, 119, 6, 0.06);
+  border-color: #d97706;
+}
+
 .uploadItem.error {
   background: rgba(239, 68, 68, 0.05);
   border-color: var(--color-danger);
@@ -181,6 +186,12 @@
   color: #d97706;
 }
 
+.retryNote {
+  font-size: 0.75rem;
+  color: #d97706;
+  white-space: nowrap;
+}
+
 .newNote {
   font-size: 0.75rem;
   color: #16a34a;
@@ -191,6 +202,11 @@
   align-items: center;
   justify-content: space-between;
   margin-top: 0.5rem;
+}
+
+.optionsActions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .checkOnlyLabel {

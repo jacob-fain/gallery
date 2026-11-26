@@ -14,8 +14,7 @@ interface SingleTilesProps {
 /**
  * The single layout: one photo per row, as wide as the grid, uncropped. The
  * class names and images are the album's (TileImage), so the grid's tile
- * styles, scheduling and retries apply. No preview: the thumbnail would
- * stretch across the whole width while the full image loads.
+ * styles, scheduling and retries apply.
  */
 const SingleTiles = memo(function SingleTiles({ photos, onOpen }: SingleTilesProps) {
   return (
@@ -33,6 +32,7 @@ const SingleTiles = memo(function SingleTiles({ photos, onOpen }: SingleTilesPro
           >
             <TileImage
               className={`react-photo-album--image ${styles.image}`}
+              photoId={photo.key}
               src={photo.src}
               srcSet={photo.srcSet.map((c) => `${c.src} ${c.width}w`).join(', ') || undefined}
               sizes={singleTileSizes(ratio)}

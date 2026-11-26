@@ -173,9 +173,10 @@ describe('the collage on All Photos', () => {
       expect(img.getAttribute('sizes')).toMatch(/^\d+px$/);
       expect(sized).toBeGreaterThanOrEqual(width - 1e-3);
       expect(sized - width).toBeLessThan(1 + 1e-3);
-      // Held for the scheduler (tileScheduler.ts), behind a preview.
+      // Held for the scheduler (tileScheduler.ts); the tile's only image.
       expect(img.getAttribute('data-srcset')).toContain(`https://s3.test/p${index}-web.jpg`);
-      expect(img.previousElementSibling?.getAttribute('data-src')).toBe(`https://s3.test/p${index}-thumb.jpg`);
+      expect(img.getAttribute('data-photo')).toBe(`p${index}`);
+      expect(tile.querySelectorAll('img')).toHaveLength(1);
     }
   });
 
