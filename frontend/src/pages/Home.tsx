@@ -1,15 +1,37 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getFeaturedPhotos } from '../api/client';
-import type { PublicPhoto } from '../types';
+import { getFeaturedPhotos, getGalleries } from '../api/client';
+import type { Gallery, PublicPhoto } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import { photoAlt } from '../utils/photoAlt';
-import { FeaturedImage, HeroImage } from './HomeImages';
+import { CoverImage, FeaturedImage, HeroImage } from './HomeImages';
 import { startsGalleryRun } from './HomeFeatured';
 import styles from './Home.module.css';
 
+function GalleryDoor({ gallery }: { gallery: Gallery }) {
+  return (
+    <Link to={`/g/${gallery.slug}`} className={styles.door}>
+      <CoverImage gallery={gallery} />
+      <span className={styles.doorCaption}>
+        <span className={styles.doorTitle}>
+          {gallery.title}{' '}
+          <span className={styles.captionArrow} aria-hidden="true">
+            &#8594;
+          </span>
+        </span>
+        {gallery.photoCount !== undefined && (
+          <span className={styles.doorCount}>
+            {gallery.photoCount} {gallery.photoCount === 1 ? 'photo' : 'photos'}
+          </span>
+        )}
+      </span>
+    </Link>
+  );
+}
+
 export default function Home() {
   const [featuredPhotos, setFeaturedPhotos] = useState<PublicPhoto[]>([]);
+  const [galleries, setGalleries] = useState<Gallery[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -17,10 +39,13 @@ export default function Home() {
   useEffect(() => {
     async function load() {
       try {
-        const photos = await getFeaturedPhotos();
+        // The same list, and so the same order, as the Galleries page: it
+        // holds only public galleries.
+        const [photos, list] = await Promise.all([getFeaturedPhotos(), getGalleries()]);
         setFeaturedPhotos(photos);
+        setGalleries(list);
       } catch (err) {
-        console.error('Failed to load featured photos:', err);
+        console.error('Failed to load the homepage:', err);
         setFailed(true);
       } finally {
         setLoading(false);
@@ -29,7 +54,6 @@ export default function Home() {
     load();
   }, [attempt]);
 
-  // First featured photo becomes hero, rest go in featured grid
   const heroPhoto = featuredPhotos[0];
   const gridPhotos = featuredPhotos.slice(1);
 
@@ -51,7 +75,6 @@ export default function Home() {
 
   return (
     <div className={styles.page}>
-      {/* Hero Section */}
       <section className={styles.hero}>
         {heroPhoto && (
           <div className={styles.heroImageWrapper}>
@@ -70,14 +93,25 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Featured Section */}
-      {gridPhotos.length > 0 && (
-        <section className={styles.featured}>
-          <header className={styles.featuredHeader}>
-            <span className={styles.featuredLabel}>Selected Work</span>
-          </header>
+      {galleries.length > 0 && (
+        <section className={styles.galleries} aria-labelledby="home-galleries">
+          <h2 id="home-galleries" className={styles.sectionLabel}>
+            Galleries
+          </h2>
+          <div className={styles.doors}>
+            {galleries.map((gallery) => (
+              <GalleryDoor key={gallery.id} gallery={gallery} />
+            ))}
+          </div>
+        </section>
+      )}
 
-          <div className={styles.featuredGrid}>
+      {gridPhotos.length > 0 && (
+        <section className={styles.featured} aria-labelledby="home-featured">
+          <h2 id="home-featured" className={styles.sectionLabel}>
+            Selected Work
+          </h2>
+          <div className={styles.featuredList}>
             {gridPhotos.map((photo, index) => {
               const image = (
                 <div className={styles.featuredImageWrapper}>
@@ -88,11 +122,7 @@ export default function Home() {
                 </div>
               );
               return (
-                <article
-                  key={photo.id}
-                  className={styles.featuredItem}
-                  style={{ '--delay': `${index * 0.1}s` } as React.CSSProperties}
-                >
+                <article key={photo.id}>
                   {/* Photos from a private gallery link too: the gallery asks
                       for its password, as the caption link always did. */}
                   {photo.gallery_slug ? (
@@ -120,15 +150,17 @@ export default function Home() {
               );
             })}
           </div>
-
-          <footer className={styles.featuredFooter}>
-            <Link to="/galleries" className={styles.viewAllLink}>
-              View All Galleries
-              <span className={styles.linkArrow}>&#8594;</span>
-            </Link>
-          </footer>
         </section>
       )}
+
+      <div className={styles.viewAll}>
+        <Link to="/photos" className={styles.viewAllLink}>
+          View all photos
+          <span className={styles.linkArrow} aria-hidden="true">
+            &#8594;
+          </span>
+        </Link>
+      </div>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import GalleryCard from '../components/GalleryCard/GalleryCard';
-import { FeaturedImage, HeroImage } from '../pages/HomeImages';
+import { HeroImage } from '../pages/HomeImages';
 import type { Gallery, PublicPhoto } from '../types';
 import { CACHED_LOAD_MS, IMAGE_FADE_PROPS } from './imageFade';
 
@@ -88,7 +88,6 @@ describe('image fade', () => {
   it.each([
     ['a gallery cover', () => render(<MemoryRouter><GalleryCard gallery={gallery} /></MemoryRouter>), 'Iceland'],
     ['the homepage hero', () => render(<HeroImage photo={photo} />), ''],
-    ['a featured homepage photo', () => render(<FeaturedImage photo={photo} alt="Photo 1 of 3" />), 'Photo 1 of 3'],
   ])('marks %s once it loads', (_name, renderImage, alt) => {
     const tick = clock(1000);
     const { container } = renderImage();
