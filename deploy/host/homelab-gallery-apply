@@ -18,12 +18,14 @@
 set -euo pipefail
 umask 077
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-# GHCR pull credentials live here (root 0700), not in /root/.docker: the
-# poller's service hides /home and /root, and this keeps the token out of
-# root's general Docker config.
+# Pull credentials for the LAN registry live here (root 0700), not in
+# /root/.docker: the poller's service hides /home and /root, and this keeps
+# the credential out of root's general Docker config.
 export DOCKER_CONFIG=/etc/homelab/gallery-docker
 
-readonly REGISTRY=ghcr.io/jacob-fain
+# The LAN registry the CI runners push to. dockerd verifies its TLS
+# certificate against the local CA in /etc/docker/certs.d/registry.lan/.
+readonly REGISTRY=registry.lan
 # /run is root-only; /run/lock is world-writable, where any user could hold
 # the lock first.
 readonly LOCK=/run/homelab-gallery.lock

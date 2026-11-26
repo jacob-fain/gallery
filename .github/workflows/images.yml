@@ -1,11 +1,13 @@
 name: Images
 
-# Builds the backend and frontend images on GitHub's runners, never on the
-# server. Pull requests build without pushing, so a broken Dockerfile fails
-# here instead of at deploy time. Pushes to main and v* tags push to GHCR,
-# where the server pulls them by digest, then record a GitHub Deployment
-# that the server's poller applies (deploy/README.md): main to staging, a v*
-# tag to production. Tags are created only by a release on Jacob's word.
+# Builds the backend and frontend images on the self-hosted ci-build runners,
+# never on the production server. Pull requests build the images their
+# change touches without pushing, so a broken Dockerfile fails here instead
+# of at deploy time. Pushes to main build both and push them to the LAN
+# registry, where the server pulls them by digest, then record a GitHub
+# Deployment that the server's poller applies (deploy/README.md): main to
+# staging, a v* tag to production. Tags are created only by a release on
+# Jacob's word.
 on:
   pull_request:
   push:
@@ -13,35 +15,93 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Pull requests cancel a superseded run. Every main commit and tag gets a
+# group of its own: a release promotes the sha-<commit> images of one exact
+# main commit, so no main build may be cancelled or dropped from a queue.
 concurrency:
-  group: images-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' && github.ref != 'refs/heads/main' }}
+  group: images-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
+env:
+  REGISTRY: registry.lan
+  # Where the runner image installs the registry's local CA (docs/ci.md).
+  # BuildKit runs in its own container and does not read the system trust
+  # store, so the builder is given the file explicitly.
+  REGISTRY_CA: /usr/local/share/ca-certificates/registry-lan.crt
+
 jobs:
-  build:
-    name: build ${{ matrix.app }}
-    # A v* tag builds nothing: production gets the exact images built when
-    # that commit reached main, which staging already ran.
-    if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  changes:
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
+    timeout-minutes: 5
     permissions:
       contents: read
-      packages: write
+      pull-requests: read
+    outputs:
+      # JSON list of the images to build: both on main and manual runs, the
+      # touched ones on a pull request, none on a tag.
+      apps: ${{ steps.apps.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: .github/path-filters.yml
+      - id: apps
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          SHARED: ${{ steps.filter.outputs.shared }}
+          BACKEND: ${{ steps.filter.outputs.backend }}
+          FRONTEND: ${{ steps.filter.outputs.frontend }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            apps='[]'
+          elif [ "$EVENT" != pull_request ] || [ "$SHARED" = true ]; then
+            apps='["backend","frontend"]'
+          else
+            list=()
+            [ "$BACKEND" = true ] && list+=('"backend"')
+            [ "$FRONTEND" = true ] && list+=('"frontend"')
+            apps="[$(IFS=,; echo "${list[*]}")]"
+          fi
+          echo "Images to build: $apps"
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build ${{ matrix.app }}
+    needs: changes
+    # A v* tag builds nothing: production gets the exact images built when
+    # that commit reached main, which staging already ran.
+    if: needs.changes.outputs.apps != '[]'
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-build"]') }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        app: [backend, frontend]
+        app: ${{ fromJSON(needs.changes.outputs.apps) }}
     env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/gallery-${{ matrix.app }}
+      IMAGE: registry.lan/gallery-${{ matrix.app }}
       # Only main pushes images (and so only main commits ever have a
-      # sha-<commit> image a release could promote). Pull requests and manual
-      # runs on other branches build without pushing.
-      PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+      # sha-<commit> image a release could promote). Pull requests, Dependabot
+      # and manual runs on other branches build without pushing and never see
+      # the registry credentials. GitHub-hosted runners cannot reach the LAN
+      # registry, so they never push either.
+      PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.RUNNER_MODE != 'hosted' }}
+      HAS_REGISTRY_LOGIN: ${{ secrets.REGISTRY_USER != '' && secrets.REGISTRY_PASSWORD != '' }}
     steps:
+      # A main commit without images can never be released, so missing
+      # credentials fail the run instead of skipping the push.
+      - name: Registry credentials are set
+        if: env.PUSH == 'true' && env.HAS_REGISTRY_LOGIN != 'true'
+        run: |
+          echo "::error::REGISTRY_USER and REGISTRY_PASSWORD must be set to push main's images."
+          exit 1
+
       - uses: actions/checkout@v4
 
       # Opaque id the backend reports on /api/health/ready, so a deploy can
@@ -52,15 +112,33 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: echo "BUILD_ID=$(printf '%s:%s' "$REF_NAME" "$GITHUB_SHA" | sha256sum | cut -c1-16)" >> "$GITHUB_ENV"
 
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The dind sidecar is reached through DOCKER_HOST; buildx can create a
+      # builder on it only through a named context.
+      - name: Docker context for the builder
+        if: vars.RUNNER_MODE != 'hosted'
+        run: docker context create builders
 
-      - name: Log in to GHCR
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: vars.RUNNER_MODE != 'hosted'
+        with:
+          endpoint: builders
+          # Host networking inside dind, so BuildKit resolves and reaches
+          # registry.lan the way the runner does.
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."${{ env.REGISTRY }}"]
+              ca = ["${{ env.REGISTRY_CA }}"]
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: vars.RUNNER_MODE == 'hosted'
+
+      - name: Log in to the registry
         if: env.PUSH == 'true'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Tags
         id: meta
@@ -84,8 +162,16 @@ jobs:
           build-args: |
             BUILD_ID=${{ env.BUILD_ID }}
             GIT_SHA=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.app }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+          # The cache lives in the registry beside each image. Only a pushing
+          # run writes it; a pull request reads it when the registry allows
+          # anonymous pulls and otherwise builds cold (a cache miss is a
+          # warning, not a failure). A failed cache write never fails a build.
+          cache-from: >-
+            ${{ vars.RUNNER_MODE == 'hosted' && format('type=gha,scope={0}', matrix.app)
+            || format('type=registry,ref={0}:buildcache', env.IMAGE) }}
+          cache-to: >-
+            ${{ vars.RUNNER_MODE == 'hosted' && format('type=gha,mode=max,scope={0}', matrix.app)
+            || (env.PUSH == 'true' && format('type=registry,ref={0}:buildcache,mode=max,ignore-error=true', env.IMAGE) || '') }}
 
       - name: Save digest
         if: env.PUSH == 'true'
@@ -117,26 +203,43 @@ jobs:
 
   # Records the deployment the server applies. Off until the server-side
   # poller is installed: set the repository variable PULL_DEPLOY_ENABLED to
-  # true to turn it on, so nothing queues up before then.
+  # true to turn it on, so nothing queues up before then. It needs the LAN
+  # registry, so it never runs in hosted mode.
   deploy:
     needs: build
     if: >-
       !cancelled() && github.event_name == 'push' && vars.PULL_DEPLOY_ENABLED == 'true' &&
+      vars.RUNNER_MODE != 'hosted' &&
       (needs.build.result == 'success' || (github.ref_type == 'tag' && needs.build.result == 'skipped'))
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON('["self-hosted","linux","ci","ci-light"]') }}
     timeout-minutes: 10
     permissions:
       contents: read
       deployments: write
-      packages: write
     concurrency:
       group: deploy-${{ github.ref_type == 'tag' && 'production' || 'staging' }}
       cancel-in-progress: false
-    env:
-      REGISTRY: ghcr.io/${{ github.repository_owner }}
     steps:
-      - uses: actions/download-artifact@v8
+      # Main runs are not serialized (see concurrency above), so an older
+      # commit's build can finish after a newer one's. Staging only ever
+      # moves to the newest main commit; the newer run deploys itself.
+      - name: This commit is still the head of main
+        id: head
         if: github.ref_type != 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          head=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          if [ "$head" = "$GITHUB_SHA" ]; then
+            echo "newest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "newest=false" >> "$GITHUB_OUTPUT"
+            echo "main is at $head now; its own run deploys staging." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/download-artifact@v8
+        if: github.ref_type != 'tag' && steps.head.outputs.newest == 'true'
         with:
           pattern: digest-*
           path: digests
@@ -153,15 +256,25 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
             || { echo "::error::$GITHUB_SHA is not on main. Release only commits that are on main."; exit 1; }
 
+      - name: Docker context for the builder
+        if: github.ref_type == 'tag'
+        run: docker context create builders
+
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         if: github.ref_type == 'tag'
+        with:
+          endpoint: builders
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."${{ env.REGISTRY }}"]
+              ca = ["${{ env.REGISTRY_CA }}"]
 
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         if: github.ref_type == 'tag'
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
 
       # Production promotes the images main built for this exact commit and
       # adds the version tag to them; a tag on a commit that never reached
@@ -186,6 +299,7 @@ jobs:
           done
 
       - name: Create the deployment
+        if: github.ref_type == 'tag' || steps.head.outputs.newest == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -213,6 +327,69 @@ jobs:
             echo "### Deployment to $ENVIRONMENT"
             echo ""
             echo "- Deployment id: $id (the server applies it within about a minute)"
-            echo "- Frontend: \`$frontend\`"
-            echo "- Backend: \`$backend\`"
+            echo "- Frontend: \`$REGISTRY/gallery-frontend@$frontend\`"
+            echo "- Backend: \`$REGISTRY/gallery-backend@$backend\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # An off-box copy of each release on GHCR, for recovery if the LAN registry
+  # is lost. Nothing deploys from it. Off unless the repository variable
+  # GHCR_MIRROR is true; private GHCR storage counts against the account's
+  # package quota.
+  mirror-ghcr:
+    if: github.ref_type == 'tag' && vars.GHCR_MIRROR == 'true' && vars.RUNNER_MODE != 'hosted'
+    runs-on: ${{ fromJSON('["self-hosted","linux","ci","ci-light"]') }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Docker context for the builder
+        run: docker context create builders
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          endpoint: builders
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."${{ env.REGISTRY }}"]
+              ca = ["${{ env.REGISTRY_CA }}"]
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy the release images to GHCR
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+          GHCR: ghcr.io/${{ github.repository_owner }}
+        run: |
+          for app in frontend backend; do
+            source="$REGISTRY/gallery-$app:sha-$GITHUB_SHA"
+            digest=$(docker buildx imagetools inspect "$source" --format '{{json .Manifest}}' | jq -r .digest) \
+              || { echo "::error::No $app image for $GITHUB_SHA."; exit 1; }
+            [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] \
+              || { echo "::error::Unexpected digest for $source: '$digest'"; exit 1; }
+            docker buildx imagetools create -t "$GHCR/gallery-$app:$VERSION" "$REGISTRY/gallery-$app@$digest"
+            echo "- \`$GHCR/gallery-$app:$VERSION\` = \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  # The one check to require for this workflow; see ci-ok in ci.yml. The
+  # deploy and mirror jobs run only after a merge or a release, so on a pull
+  # request this reports the image builds.
+  images-ok:
+    if: always()
+    needs: [changes, build, deploy, mirror-ghcr]
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was skipped
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::An image job failed or was cancelled; see the jobs above."
+          exit 1
+      - run: echo "All image jobs passed or were skipped."

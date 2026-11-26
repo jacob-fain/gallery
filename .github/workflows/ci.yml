@@ -6,18 +6,45 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# A newer push to a pull request supersedes the run in flight. Pushes to main
-# always run to completion, so the deployable branch is never left unverified.
+# A newer push to a pull request supersedes the run in flight. Every other run
+# gets a group of its own (ref and commit), so a push to main is never
+# cancelled, not even while queued behind another: a shared group would drop
+# a pending main run when a third one arrived.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
+# Jobs run on the self-hosted runners (docs/ci.md). The repository variable
+# RUNNER_MODE=hosted sends every job back to GitHub-hosted runners instead.
+
 jobs:
+  changes:
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # paths-filter lists a pull request's files through the API.
+      pull-requests: read
+    outputs:
+      backend: ${{ github.event_name != 'pull_request' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.backend == 'true' }}
+      frontend: ${{ github.event_name != 'pull_request' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.frontend == 'true' }}
+      deploy: ${{ github.event_name != 'pull_request' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.deploy == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: .github/path-filters.yml
+
   backend:
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
     # Install, typecheck, test and build take about two minutes; a hung step
     # fails well before the six-hour default.
     timeout-minutes: 15
@@ -26,7 +53,9 @@ jobs:
         working-directory: backend
     # Database-backed tests run against this throwaway Postgres; the test
     # setup rebuilds its schema with the migration runner, which also proves
-    # every migration applies to an empty database.
+    # every migration applies to an empty database. On a self-hosted runner
+    # the container runs in the runner's dind sidecar, which shares the
+    # runner's network namespace, so localhost reaches the published port.
     services:
       postgres:
         image: postgres:15.20-alpine@sha256:e18480a22d6e48f4d816a6696769b1ec09ac73a824c5649e49c7d8b684913f3d
@@ -50,7 +79,9 @@ jobs:
         with:
           # Matches the Dockerfiles and .nvmrc.
           node-version: 24.22.3
-          cache: npm
+          # Self-hosted runners keep the npm cache on a persistent volume, so
+          # the Actions cache would only add a download and an upload.
+          cache: ${{ vars.RUNNER_MODE == 'hosted' && 'npm' || '' }}
           cache-dependency-path: backend/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
@@ -65,7 +96,9 @@ jobs:
       - run: npm run build
 
   frontend:
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
     timeout-minutes: 15
     defaults:
       run:
@@ -75,7 +108,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.22.3
-          cache: npm
+          cache: ${{ vars.RUNNER_MODE == 'hosted' && 'npm' || '' }}
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --no-audit --no-fund
       # Warnings fail the job too, so lint stays clean instead of drifting.
@@ -86,8 +119,9 @@ jobs:
         run: node ../.github/scripts/coverage-summary.mjs Frontend coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
       - run: npm run build
 
+  # Runs on every change: a secret can land in any file.
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -102,7 +136,9 @@ jobs:
           detect --source . --no-banner --redact --config .gitleaks.toml
 
   deploy-scripts:
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -125,3 +161,18 @@ jobs:
             docker compose -f "$f" --env-file /tmp/pins.env config -q 2>/dev/null
           done
 
+  # The one check to require for this workflow. A job the path filter skipped
+  # counts as passed; a failed or cancelled job fails this one. It runs even
+  # when a job it needs failed, so the check always reports.
+  ci-ok:
+    if: always()
+    needs: [changes, backend, frontend, secret-scan, deploy-scripts]
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was skipped
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::A CI job failed or was cancelled; see the jobs above."
+          exit 1
+      - run: echo "All CI jobs passed or were skipped by the path filter."

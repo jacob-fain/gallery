@@ -1,22 +1,48 @@
 name: E2E
 
-# Browser smoke tests against the production images (e2e/). Too slow to gate
-# every pull request: they run on main and on demand.
+# Browser smoke tests against the production images (e2e/). They run on main,
+# on demand, and on pull requests that touch the app, the tests, compose files
+# or workflows; e2e-ok reports on every pull request either way.
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
+# Pull requests cancel a superseded run; any other run has a group of its own
+# and is never cancelled (see ci.yml).
 concurrency:
-  group: e2e-${{ github.ref }}
-  cancel-in-progress: false
+  group: e2e-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      smoke: >-
+        ${{ github.event_name != 'pull_request' || steps.filter.outputs.shared == 'true' ||
+        steps.filter.outputs.backend == 'true' || steps.filter.outputs.frontend == 'true' ||
+        steps.filter.outputs.e2e == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: .github/path-filters.yml
+
   smoke:
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.smoke == 'true'
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-build"]') }}
     # Building the two images is most of the run; the tests take seconds.
     timeout-minutes: 20
     defaults:
@@ -31,10 +57,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.22.3
-          cache: npm
+          cache: ${{ vars.RUNNER_MODE == 'hosted' && 'npm' || '' }}
           cache-dependency-path: e2e/package-lock.json
       - run: npm ci --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
+      # The ci-build image ships Chromium's system libraries and the runner
+      # keeps browsers on a volume (PLAYWRIGHT_BROWSERS_PATH), so a self-hosted
+      # run only downloads a browser when the pinned Playwright version
+      # changes. A GitHub-hosted runner installs the libraries every run.
+      - run: npx playwright install ${{ vars.RUNNER_MODE == 'hosted' && '--with-deps ' || '' }}chromium
       - run: npm test
       - name: Stack logs
         if: failure()
@@ -50,3 +80,17 @@ jobs:
       - name: Remove the stack
         if: always()
         run: docker compose -p gallery-e2e -f compose.yml down --volumes --remove-orphans
+
+  # The one check to require for this workflow; see ci-ok in ci.yml.
+  e2e-ok:
+    if: always()
+    needs: [changes, smoke]
+    runs-on: ${{ vars.RUNNER_MODE == 'hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","ci","ci-light"]') }}
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was skipped
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::The E2E run failed or was cancelled; see the jobs above."
+          exit 1
+      - run: echo "E2E passed or was skipped by the path filter."
