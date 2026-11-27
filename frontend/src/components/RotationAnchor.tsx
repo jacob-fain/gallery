@@ -1,9 +1,14 @@
 import { useEffect } from 'react';
 
-// What a visitor is looking at: a photo tile, or a page section.
-const ANCHOR_SELECTOR = '[data-photo-index], .react-photo-album--photo, section, article, li';
+// A photo tile, in any layout. Its image names the photo (TileImage).
+const TILE_SELECTOR = '[data-photo-index], .react-photo-album--photo';
+// What else a visitor may be looking at: a page section.
+const SECTION_SELECTOR = 'section, article, li';
 // The point a third of the way down the screen stands for what is in view.
 const PROBE = 1 / 3;
+// Across the screen at the probe's height, so a gap between columns still
+// finds the photo beside it.
+const PROBE_XS = [0.5, 0.3, 0.7, 0.15, 0.85];
 // After a width change the page is held on its anchor this long, while
 // layouts that follow the width (the collage, the masonry, images sized by
 // it) settle.
@@ -11,24 +16,51 @@ export const SETTLE_MS = 700;
 const INPUTS = ['touchstart', 'wheel', 'keydown'] as const;
 
 interface Anchor {
-  el: Element;
+  // The photo in view, found again by id on every frame: a layout may
+  // replace its tiles with new elements as it reflows (the masonry going
+  // from one column to two, or Single to Columns on a narrow screen).
+  photoId?: string;
+  // Anything else in view (a section of the homepage).
+  el?: Element;
   // How far down the element the probe point was, as a fraction of it.
   fraction: number;
+}
+
+function photoTile(photoId: string): Element | null {
+  const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(photoId) : photoId;
+  const img = document.querySelector(`img[data-photo="${id}"]`);
+  return img?.closest(TILE_SELECTOR) ?? img;
+}
+
+function anchorElement(anchor: Anchor): Element | null {
+  if (anchor.photoId) return photoTile(anchor.photoId);
+  return anchor.el?.isConnected ? anchor.el : null;
 }
 
 // 'covered' while the viewer is open: the page under it keeps the anchor it
 // had before the viewer opened.
 function findAnchor(): Anchor | null | 'covered' {
   if (window.scrollY < 1 || typeof document.elementFromPoint !== 'function') return null;
-  const x = document.documentElement.clientWidth / 2;
+  const width = document.documentElement.clientWidth;
   const y = window.innerHeight * PROBE;
-  const hit = document.elementFromPoint(x, y);
-  if (!hit) return null;
-  if (hit.closest('.yarl__root')) return 'covered';
-  const el = hit.closest(ANCHOR_SELECTOR) ?? hit;
+  const fractionOf = (el: Element) => {
+    const rect = el.getBoundingClientRect();
+    return rect.height > 0 ? (y - rect.top) / rect.height : 0;
+  };
+  let first: Element | null = null;
+  for (const share of PROBE_XS) {
+    const hit = document.elementFromPoint(width * share, y);
+    if (!hit) continue;
+    if (hit.closest('.yarl__root')) return 'covered';
+    first ??= hit;
+    const tile = hit.closest(TILE_SELECTOR);
+    const photoId = tile?.querySelector('img[data-photo]')?.getAttribute('data-photo');
+    if (tile && photoId) return { photoId, fraction: fractionOf(tile) };
+  }
+  if (!first) return null;
+  const el = first.closest(SECTION_SELECTOR) ?? first;
   if (el === document.documentElement || el === document.body) return null;
-  const rect = el.getBoundingClientRect();
-  return { el, fraction: rect.height > 0 ? (y - rect.top) / rect.height : 0 };
+  return { el, fraction: fractionOf(el) };
 }
 
 /**
@@ -49,6 +81,18 @@ export default function RotationAnchor() {
     const capture = () => {
       captureFrame = 0;
       if (Date.now() < holdUntil) return;
+      // The photo held through the last change stays the anchor while it
+      // still covers the probe line. Probing afresh could pick its neighbour
+      // in another column, and the next turn would drift to that one.
+      const kept = anchor?.photoId ? photoTile(anchor.photoId) : null;
+      if (kept && anchor) {
+        const rect = kept.getBoundingClientRect();
+        const y = window.innerHeight * PROBE;
+        if (rect.top <= y && rect.bottom >= y && rect.height > 0) {
+          anchor = { photoId: anchor.photoId, fraction: (y - rect.top) / rect.height };
+          return;
+        }
+      }
       const found = findAnchor();
       if (found !== 'covered') anchor = found;
     };
@@ -58,13 +102,17 @@ export default function RotationAnchor() {
     // One read and one write per frame, so the hold does not thrash layout.
     const hold = () => {
       frame = 0;
-      if (anchor?.el.isConnected) {
-        const rect = anchor.el.getBoundingClientRect();
+      if (Date.now() >= holdUntil) {
+        capture();
+        return;
+      }
+      const el = anchor && anchorElement(anchor);
+      if (anchor && el) {
+        const rect = el.getBoundingClientRect();
         const offset = rect.top + anchor.fraction * rect.height - window.innerHeight * PROBE;
         if (Math.abs(offset) >= 1) window.scrollBy(0, offset);
       }
-      if (Date.now() < holdUntil) frame = requestAnimationFrame(hold);
-      else capture();
+      frame = requestAnimationFrame(hold);
     };
     const onResize = () => {
       const next = document.documentElement.clientWidth;

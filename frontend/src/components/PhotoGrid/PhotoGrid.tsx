@@ -11,6 +11,7 @@ import ExifOverlay from './ExifOverlay';
 import { OriginalLoading, ReviewActions, ViewerLabel, ZoomButtons, type ActOutcome, type ReviewToast, type SetPhotoStatus } from './ViewerChrome';
 import type { ReviewStatus } from '../../types';
 import { DOUBLE_TAP_MS, useViewerIdle } from './viewerIdle';
+import { usePointerSeen } from './zoomGestures';
 import viewerStyles from './Viewer.module.css';
 import { createRefreshGuard } from '../../utils/expiredImages';
 import {
@@ -82,6 +83,7 @@ const REFRESH_INTERVAL_MS = 60 * 1000;
  */
 const ACT_GUARD_MS = 400;
 const LIGHTBOX_CLASS = 'photo-grid-lightbox';
+const DOUBLE_CLICK_MS = 300;
 const LIGHTBOX_PLUGINS = [Download, Zoom];
 // The public download route serves only shown photos.
 const REVIEW_PLUGINS = [Zoom];
@@ -217,6 +219,7 @@ export default function PhotoGrid({
   // the original.
   const original = useOriginalOnZoom(lightboxSlides, lightboxIndex, accessToken, LIGHTBOX_CLASS, !review);
   const viewerIdle = useViewerIdle(lightboxIndex >= 0, LIGHTBOX_CLASS, original.zoomed);
+  const pointerSeen = usePointerSeen(lightboxIndex >= 0);
   const isOriginal = original.isOriginal;
 
   // Image error events do not bubble, so they are caught in the capture
@@ -312,8 +315,8 @@ export default function PhotoGrid({
         zoom={{
           maxZoomPixelRatio: original.maxZoomPixelRatio,
           scrollToZoom: true,
-          doubleTapDelay: DOUBLE_TAP_MS,
-          doubleClickDelay: 300,
+          doubleTapDelay: pointerSeen ? DOUBLE_TAP_MS : 0,
+          doubleClickDelay: pointerSeen ? DOUBLE_CLICK_MS : 0,
         }}
         render={{
           controls: () => (
