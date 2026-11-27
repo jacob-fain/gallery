@@ -116,12 +116,7 @@ export const GRID_SIZES = {
   sizes: [{ viewport: '(max-width: 640px)', size: 'calc(100vw - 48px)' }],
 };
 
-// The tile's width as CSS sees it (SingleTiles.module.css): the grid's
-// content width, or less for a photo whose height would pass the viewport's
-// less the navbar. The same sum serves as the image's sizes, so the browser
-// picks a file at least as wide as the tile in device pixels. The gutters
-// are .grid's (PhotoGrid.module.css).
-export function singleTileSizes(ratio: number): string {
-  const tall = `calc((100vh - 64px) * ${ratio.toFixed(4)})`;
-  return `(max-width: 640px) min(calc(100vw - 48px), ${tall}), min(calc(100vw - 96px), ${tall})`;
-}
+// The tile's width as CSS sees it (SingleTiles.module.css): the grid's full
+// content width for every photo. The browser picks a file at least that wide
+// in device pixels. The gutters are .grid's (PhotoGrid.module.css).
+export const SINGLE_TILE_SIZES = '(max-width: 640px) calc(100vw - 48px), calc(100vw - 96px)';

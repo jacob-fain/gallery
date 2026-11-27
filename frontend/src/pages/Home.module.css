@@ -153,19 +153,34 @@
 }
 
 /* Covers are shown whole: the image's width and height attributes give the
-   box its proportions, so it is never cropped and nothing shifts as it loads. */
+   box its proportions, so it is never cropped and nothing shifts as it loads.
+   In a row, each door grows in proportion to its cover's aspect ratio
+   (--ratio), so the two covers share one height. A lone last door takes
+   half the row. Keep in step with coverSizes (HomeImages.tsx). */
 .doors {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 56px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
   max-width: 1600px;
   margin: 0 auto;
   padding: 0 48px;
 }
 
+.doorRow {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+}
+
 .door {
   display: block;
+  flex: var(--ratio) 1 0;
+  min-width: 0;
   color: var(--color-text);
+}
+
+.door:only-child {
+  flex: 0 1 calc(50% - 12px);
 }
 
 .coverImage,
@@ -375,10 +390,19 @@
     display: none;
   }
 
-  .doors {
-    grid-template-columns: minmax(0, 1fr);
+  .doors,
+  .doorRow {
+    flex-direction: column;
     gap: 28px;
+  }
+
+  .doors {
     padding: 0 16px;
+  }
+
+  .door,
+  .door:only-child {
+    flex: none;
   }
 
   .featured {

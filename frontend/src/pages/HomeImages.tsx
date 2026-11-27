@@ -5,11 +5,6 @@ import styles from './Home.module.css';
 
 // The hero fills the viewport width at every breakpoint (Home.module.css).
 export const HERO_SIZES = '100vw';
-// A gallery cover is one column of .doors: the full width less a 16px gutter
-// each side up to 640px; above that, half of the width less the 48px gutters
-// and the 24px column gap, until .doors stops at 1600px.
-export const COVER_SIZES =
-  '(max-width: 640px) calc(100vw - 32px), (max-width: 1600px) calc(50vw - 60px), 740px';
 // A Selected Work photo spans .featured less its gutters (16px a side up to
 // 640px, 48px above), until .featured stops at 1400px.
 export const FEATURED_SIZES =
@@ -37,7 +32,7 @@ export function HeroImage({ photo }: { photo: PublicPhoto }) {
 // it over the placeholder colour as it downloads, with no fade that waits for
 // the whole file.
 
-export function CoverImage({ gallery }: { gallery: Gallery }) {
+export function CoverImage({ gallery, sizes }: { gallery: Gallery; sizes: string }) {
   const image = responsiveImage({
     width: gallery.coverWidth ?? 0,
     height: gallery.coverHeight ?? 0,
@@ -49,7 +44,7 @@ export function CoverImage({ gallery }: { gallery: Gallery }) {
   return (
     <img
       {...image}
-      sizes={image.srcSet ? COVER_SIZES : undefined}
+      sizes={image.srcSet ? sizes : undefined}
       alt=""
       className={styles.coverImage}
       loading="lazy"
