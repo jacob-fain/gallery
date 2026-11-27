@@ -306,7 +306,7 @@ test('pinching deep into a photo swaps in the original without counting a downlo
   await context.close();
 });
 
-test('the single layout shows one photo per row at the content width, tall photos within the screen', async ({ page, browser }) => {
+test('the single layout shows every photo, vertical or not, at the full content width', async ({ page, browser }) => {
   test.setTimeout(90_000);
   const gallery = await seedGallery(page, 'single', 3);
   const visitor = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -316,15 +316,15 @@ test('the single layout shows one photo per row at the content width, tall photo
   const tiles = await visitor.locator('button[data-photo-index]').evaluateAll((els) =>
     els.map((el) => {
       const r = el.getBoundingClientRect();
-      return { width: r.width, height: r.height, center: r.left + r.width / 2 };
+      const ratio = Number((el as HTMLElement).style.getPropertyValue('--ratio'));
+      return { width: r.width, height: r.height, ratio };
     })
   );
   expect(tiles).toHaveLength(3);
-  // 1440 less the grid's 48px gutters.
-  expect(tiles.some((t) => Math.abs(t.width - 1344) < 1)).toBe(true);
+  // 1440 less the grid's 48px gutters, with the height following the photo.
   for (const t of tiles) {
-    expect(t.height).toBeLessThanOrEqual(900 - 64 + 1);
-    expect(Math.abs(t.center - 720)).toBeLessThan(2);
+    expect(Math.abs(t.width - 1344)).toBeLessThan(1);
+    expect(Math.abs(t.height - 1344 / t.ratio)).toBeLessThan(2);
   }
   await visitor.reload();
   await expect(visitor.getByRole('button', { name: 'Single', exact: true })).toHaveAttribute('aria-pressed', 'true');
