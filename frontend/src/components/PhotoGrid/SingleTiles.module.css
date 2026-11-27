@@ -1,7 +1,6 @@
-/* One photo per row. A tile is the grid's width, or narrower and centred
-   when the photo would otherwise be taller than the viewport less the
-   navbar, so a vertical shot is seen whole without scrolling. Keep the
-   width in step with singleTileSizes (SingleTiles.tsx). */
+/* One photo per row, every tile the grid's full width whatever its shape:
+   a vertical shot is as wide as a landscape one and scrolls past at that
+   size. Keep the width in step with singleTileSizes (gridItems.ts). */
 .single {
   display: flex;
   flex-direction: column;
@@ -11,8 +10,7 @@
 
 .single .tile {
   display: block;
-  width: min(100%, calc((100vh - var(--navbar-height)) * var(--ratio)));
-  width: min(100%, calc((100svh - var(--navbar-height)) * var(--ratio)));
+  width: 100%;
   aspect-ratio: var(--ratio);
   margin: 0;
   padding: 0;

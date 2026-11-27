@@ -217,7 +217,7 @@ describe('the single layout', () => {
     expect(screen.getByRole('button', { name: 'Single' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it("sizes each image by its tile's real width, capped by the viewport height for tall photos", async () => {
+  it('sizes every image, vertical or not, at the full width of the grid', async () => {
     localStorage.setItem('gridLayout', 'single');
     renderAllPhotos();
     await screen.findByAltText('Photo 1 of 12');
@@ -226,10 +226,7 @@ describe('the single layout', () => {
       const id = img.getAttribute('data-src')!.match(/\/p(\d+)-/)![1];
       const ratio = Number(id) % 3 === 1 ? 2000 / 3000 : 3000 / 2000;
       expect(tile.style.getPropertyValue('--ratio')).toBe(String(ratio));
-      expect(img.getAttribute('sizes')).toBe(
-        `(max-width: 640px) min(calc(100vw - 48px), calc((100vh - 64px) * ${ratio.toFixed(4)})), ` +
-          `min(calc(100vw - 96px), calc((100vh - 64px) * ${ratio.toFixed(4)}))`
-      );
+      expect(img.getAttribute('sizes')).toBe('(max-width: 640px) calc(100vw - 48px), calc(100vw - 96px)');
       // The shared tile path: held for the scheduler, with no preview.
       expect(img.getAttribute('data-srcset')).toContain(`p${id}-web.jpg`);
       expect(img.previousElementSibling).toBeNull();

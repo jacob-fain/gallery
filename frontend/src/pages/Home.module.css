@@ -152,27 +152,84 @@
   color: var(--color-text-secondary);
 }
 
-/* Covers are shown whole: the image's width and height attributes give the
-   box its proportions, so it is never cropped and nothing shifts as it loads. */
-.doors {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 56px 24px;
+/* The galleries: one row of covers at a shared height, whole and uncropped,
+   scrolled sideways. --cover-height fits about four 3:2 covers across the
+   content width; each door is that height times its cover's --ratio. Keep
+   the heights in step with coverSizes (homeLayout.ts). */
+.stripFrame {
+  --cover-height: calc((min(100vw, 1600px) - 168px) / 6);
+  position: relative;
   max-width: 1600px;
   margin: 0 auto;
+}
+
+.doors {
+  display: flex;
+  gap: 24px;
   padding: 0 48px;
+  scroll-padding: 0 48px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.doors::-webkit-scrollbar {
+  display: none;
 }
 
 .door {
   display: block;
+  flex: none;
+  width: calc(var(--cover-height) * var(--ratio));
+  scroll-snap-align: start;
   color: var(--color-text);
+}
+
+/* Fewer covers than fill the row sit centred; auto margins fall to zero once
+   the row overflows, so scrolling still starts at the first cover. */
+.door:first-child {
+  margin-left: auto;
+}
+
+.door:last-child {
+  margin-right: auto;
+}
+
+.stripArrow {
+  position: absolute;
+  top: calc(var(--cover-height) / 2);
+  translate: 0 -50%;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.92;
+}
+
+.stripArrow:hover {
+  opacity: 1;
+}
+
+.stripPrev {
+  left: 24px;
+}
+
+.stripNext {
+  right: 24px;
 }
 
 .coverImage,
 .coverPlaceholder {
   display: block;
   width: 100%;
-  height: auto;
+  height: var(--cover-height);
   background: var(--color-placeholder);
 }
 
@@ -339,6 +396,12 @@
 /* =========================================
    RESPONSIVE - Mobile
    ========================================= */
+@media (max-width: 1024px) {
+  .stripFrame {
+    --cover-height: calc((100vw - 120px) / 3);
+  }
+}
+
 @media (max-width: 640px) {
   .hero {
     height: auto;
@@ -375,10 +438,19 @@
     display: none;
   }
 
+  .stripFrame {
+    --cover-height: calc((100vw - 32px) / 1.9);
+  }
+
   .doors {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 28px;
+    gap: 16px;
     padding: 0 16px;
+    scroll-padding: 0 16px;
+  }
+
+  /* Phones swipe the row; the arrows would cover the photos. */
+  .stripArrow {
+    display: none;
   }
 
   .featured {

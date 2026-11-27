@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { aspectRatio } from './collage';
-import { singleTileSizes, type AlbumPhoto } from './gridItems';
+import { SINGLE_TILE_SIZES, type AlbumPhoto } from './gridItems';
 import { TILE_IMAGE_PROPS } from './tileImage';
 import TileImage from './TileImage';
 import styles from './SingleTiles.module.css';
@@ -35,7 +35,7 @@ const SingleTiles = memo(function SingleTiles({ photos, onOpen }: SingleTilesPro
               photoId={photo.key}
               src={photo.src}
               srcSet={photo.srcSet.map((c) => `${c.src} ${c.width}w`).join(', ') || undefined}
-              sizes={singleTileSizes(ratio)}
+              sizes={SINGLE_TILE_SIZES}
               width={photo.width}
               height={photo.height}
               alt={photo.alt}

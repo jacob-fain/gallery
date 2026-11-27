@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { PublicPhoto } from '../types';
-import { COVER_SIZES, CoverImage, FEATURED_SIZES, FeaturedImage, HERO_SIZES, HeroImage } from './HomeImages';
+import { CoverImage, FEATURED_SIZES, FeaturedImage, HERO_SIZES, HeroImage } from './HomeImages';
+import { coverSizes } from './homeLayout';
 
 const photo: PublicPhoto = {
   id: 'p1',
@@ -61,17 +62,17 @@ describe('CoverImage', () => {
   };
 
   it('reserves the cover at its own proportions with a layout-matched sizes', () => {
-    const html = renderToStaticMarkup(createElement(CoverImage, { gallery: cover }));
+    const html = renderToStaticMarkup(createElement(CoverImage, { gallery: cover, sizes: coverSizes(0.5) }));
     expect(html).toContain('width="1920"');
     expect(html).toContain('height="2880"');
     expect(html).toContain('srcSet="thumb.webp 600w, web.webp 1920w"');
-    expect(html).toContain(`sizes="${COVER_SIZES}"`);
+    expect(html).toContain(`sizes="${coverSizes(0.5)}"`);
     expect(html).toContain('loading="lazy"');
   });
 
   it('falls back to a single file when the API sent no dimensions', () => {
     const html = renderToStaticMarkup(
-      createElement(CoverImage, { gallery: { ...cover, coverWidth: null, coverHeight: null } })
+      createElement(CoverImage, { gallery: { ...cover, coverWidth: null, coverHeight: null }, sizes: coverSizes(0.5) })
     );
     expect(html).toContain('src="web.webp"');
     expect(html).not.toContain('sizes=');
