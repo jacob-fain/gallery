@@ -1,38 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getFeaturedPhotos, getGalleries } from '../api/client';
-import type { Gallery } from '../types';
 import LoadError from '../components/StatusMessage/LoadError';
 import { photoAlt } from '../utils/photoAlt';
-import { CoverImage, FeaturedImage, HeroImage } from './HomeImages';
-import { coverSizes, doorRows } from './homeLayout';
+import { FeaturedImage, HeroImage } from './HomeImages';
+import HomeGalleries from './HomeGalleries';
 import { startsGalleryRun } from './HomeFeatured';
 import styles from './Home.module.css';
-
-function GalleryDoor({ gallery, ratio, share }: { gallery: Gallery; ratio: number; share: number }) {
-  return (
-    <Link
-      to={`/g/${gallery.slug}`}
-      className={styles.door}
-      style={{ '--ratio': ratio.toFixed(4) } as React.CSSProperties}
-    >
-      <CoverImage gallery={gallery} sizes={coverSizes(share)} />
-      <span className={styles.doorCaption}>
-        <span className={styles.doorTitle}>
-          {gallery.title}{' '}
-          <span className={styles.captionArrow} aria-hidden="true">
-            &#8594;
-          </span>
-        </span>
-        {gallery.photoCount !== undefined && (
-          <span className={styles.doorCount}>
-            {gallery.photoCount} {gallery.photoCount === 1 ? 'photo' : 'photos'}
-          </span>
-        )}
-      </span>
-    </Link>
-  );
-}
 
 /**
  * One of the homepage's two requests. Each can fail and be retried on its
@@ -148,15 +122,7 @@ export default function Home() {
             />
           )}
           {galleries.length > 0 && (
-            <div className={styles.doors}>
-              {doorRows(galleries).map((row) => (
-                <div key={row[0].gallery.id} className={styles.doorRow}>
-                  {row.map(({ gallery, ratio, share }) => (
-                    <GalleryDoor key={gallery.id} gallery={gallery} ratio={ratio} share={share} />
-                  ))}
-                </div>
-              ))}
-            </div>
+            <HomeGalleries galleries={galleries} />
           )}
         </section>
       )}
