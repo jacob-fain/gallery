@@ -199,8 +199,9 @@ export const downloadPhoto = async (req: Request, res: Response) => {
       return res.status(404).json(NOT_FOUND);
     }
 
-    // Not cached: every request counts a download. This is the only public
-    // route that signs an original.
+    // Not cached: every request counts a download. The only other public
+    // route that signs an original is the viewer's (getOriginalForViewing),
+    // which counts nothing.
     recordPhotoDownload(id);
     res.json({
       success: true,
@@ -212,6 +213,33 @@ export const downloadPhoto = async (req: Request, res: Response) => {
   } catch (err) {
     logger.error('Error downloading photo', { err });
     res.status(500).json({ success: false, error: 'Failed to download photo' });
+  }
+};
+
+/**
+ * The original's signed URL for the viewer's deep zoom. The same access
+ * check as a download, but not counted as one: zooming in is looking, not
+ * taking a copy.
+ */
+export const getOriginalForViewing = async (req: Request, res: Response) => {
+  try {
+    const photo = await loadViewablePhoto(req.params.id, galleryAccessToken(req));
+    if (!photo) {
+      return res.status(404).json(NOT_FOUND);
+    }
+    res.json({
+      success: true,
+      data: {
+        originalUrl: await photoService.getOriginalViewUrl(photo),
+        width: photo.width,
+        height: photo.height,
+        // Lets the viewer skip a format browsers cannot show (TIFF, HEIC).
+        contentType: photo.original_content_type ?? null,
+      },
+    });
+  } catch (err) {
+    logger.error('Error signing photo original', { err });
+    res.status(500).json({ success: false, error: 'Failed to load the full-size photo' });
   }
 };
 

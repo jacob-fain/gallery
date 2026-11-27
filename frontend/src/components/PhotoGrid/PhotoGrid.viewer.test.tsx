@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Lightbox from 'yet-another-react-lightbox';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,12 +8,13 @@ import type { PublicPhoto } from '../../types';
 vi.mock('../../api/client', () => ({
   trackPhotoView: vi.fn(),
   getPhotoDownloadUrl: vi.fn(),
+  getPhotoOriginal: vi.fn(),
 }));
 
 const client = await import('../../api/client');
 const { default: PhotoGrid } = await import('./PhotoGrid');
 const { ZoomButtons } = await import('./ViewerChrome');
-const { VIEWER_IDLE_MS } = await import('./viewerIdle');
+const { DOUBLE_TAP_MS, VIEWER_IDLE_MS, useViewerIdle } = await import('./viewerIdle');
 const { default: viewerStyles } = await import('./Viewer.module.css');
 
 // The album lays out nothing until it knows its width, and jsdom has no
@@ -230,9 +231,15 @@ describe('viewer idle fade', () => {
   // A tap: the pointer goes down, the controls wake, and the click lands on
   // whatever is under the finger once it lifts.
   // jsdom has no PointerEvent, so the pointer type is set by hand.
-  function pointer(target: Element, type: 'pointerdown' | 'pointerup', pointerType: string) {
-    const event = new MouseEvent(type, { bubbles: true, cancelable: true });
+  function pointer(
+    target: Element,
+    type: 'pointerdown' | 'pointermove' | 'pointerup',
+    pointerType: string,
+    at: { x?: number; y?: number; id?: number } = {}
+  ) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: at.x ?? 100, clientY: at.y ?? 100 });
     Object.defineProperty(event, 'pointerType', { value: pointerType });
+    Object.defineProperty(event, 'pointerId', { value: at.id ?? 1 });
     fireEvent(target, event);
   }
 
@@ -265,6 +272,8 @@ describe('viewer idle fade', () => {
     wait(VIEWER_IDLE_MS);
 
     tap(control('Download'));
+    // A tap waits out the double-tap window before it shows them.
+    wait(DOUBLE_TAP_MS);
     expect(client.getPhotoDownloadUrl).not.toHaveBeenCalled();
     expect(isIdle()).toBe(false);
 
@@ -272,18 +281,91 @@ describe('viewer idle fade', () => {
     expect(client.getPhotoDownloadUrl).toHaveBeenCalledWith('a', undefined);
   });
 
-  it('drops only the waking tap: a swipe that wakes the controls leaves the next tap working', () => {
+  function swipe(target: Element) {
+    pointer(target, 'pointerdown', 'touch', { x: 300 });
+    pointer(target, 'pointermove', 'touch', { x: 200 });
+    pointer(target, 'pointermove', 'touch', { x: 60 });
+    pointer(target, 'pointerup', 'touch', { x: 60 });
+  }
+
+  it('leaves hidden controls hidden through a swipe to the next photo, until a tap', () => {
     openViewer();
     wait(VIEWER_IDLE_MS);
+    expect(isIdle()).toBe(true);
 
-    // A swipe: down and up with no click.
-    pointer(lightbox(), 'pointerdown', 'touch');
-    pointer(lightbox(), 'pointerup', 'touch');
+    swipe(lightbox());
+    wait(1000);
+    expect(isIdle()).toBe(true);
+
+    tap(lightbox());
+    wait(DOUBLE_TAP_MS);
     expect(isIdle()).toBe(false);
 
     tap(control('Close'));
     wait(1000);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('hides the controls on a tap on the photo, and shows them on the next', () => {
+    openViewer();
+    expect(isIdle()).toBe(false);
+
+    tap(lightbox());
+    wait(DOUBLE_TAP_MS - 1);
+    expect(isIdle()).toBe(false);
+    wait(1);
+    expect(isIdle()).toBe(true);
+
+    tap(lightbox());
+    wait(DOUBLE_TAP_MS);
+    expect(isIdle()).toBe(false);
+    // Shown by a tap, they still fade after a while.
+    wait(VIEWER_IDLE_MS);
+    expect(isIdle()).toBe(true);
+  });
+
+  it('leaves the controls as they are on a double tap, which zooms', () => {
+    openViewer();
+    tap(lightbox());
+    wait(100);
+    tap(lightbox());
+    wait(1000);
+    expect(isIdle()).toBe(false);
+  });
+
+  it('does not take a pinch or a touch moving over the photo for activity', () => {
+    openViewer();
+    wait(VIEWER_IDLE_MS);
+    pointer(lightbox(), 'pointerdown', 'touch', { id: 1, x: 100 });
+    pointer(lightbox(), 'pointerdown', 'touch', { id: 2, x: 200 });
+    pointer(lightbox(), 'pointermove', 'touch', { id: 2, x: 260 });
+    pointer(lightbox(), 'pointerup', 'touch', { id: 2, x: 260 });
+    pointer(lightbox(), 'pointerup', 'touch', { id: 1, x: 100 });
+    wait(1000);
+    expect(isIdle()).toBe(true);
+  });
+
+  it('takes a tap for a tap after a touch whose lift was never reported', () => {
+    openViewer();
+    wait(VIEWER_IDLE_MS);
+    // A swipe whose pointerup went missing.
+    pointer(lightbox(), 'pointerdown', 'touch', { id: 7, x: 300 });
+    pointer(lightbox(), 'pointermove', 'touch', { id: 7, x: 60 });
+    // The next touch starts a new sequence: its first pointer is primary.
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 });
+    Object.defineProperties(down, { pointerType: { value: 'touch' }, pointerId: { value: 8 }, isPrimary: { value: true } });
+    fireEvent(lightbox(), down);
+    pointer(lightbox(), 'pointerup', 'touch', { id: 8 });
+    wait(DOUBLE_TAP_MS);
+    expect(isIdle()).toBe(false);
+  });
+
+  it('keeps the controls up while a shown one is tapped', () => {
+    openViewer();
+    wait(VIEWER_IDLE_MS - 500);
+    tap(control('Zoom in'));
+    wait(VIEWER_IDLE_MS - 500);
+    expect(isIdle()).toBe(false);
   });
 
   // In a browser a mouse press never reaches a control with pointer events
@@ -308,6 +390,37 @@ describe('viewer idle fade', () => {
 
     fireEvent.click(tiles()[1]);
     expect(isIdle()).toBe(false);
+  });
+});
+
+describe('useViewerIdle while zoomed', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function press(pointerType: string) {
+    const event = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'pointerType', { value: pointerType });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    act(() => {
+      document.dispatchEvent(event);
+    });
+  }
+
+  it('hides the controls while a touch has the photo zoomed in, and leaves a mouse zoom as it was', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { result, rerender } = renderHook(({ zoomed }) => useViewerIdle(true, 'root', zoomed), {
+      initialProps: { zoomed: false },
+    });
+    press('touch');
+    rerender({ zoomed: true });
+    expect(result.current).toBe(true);
+    rerender({ zoomed: false });
+    expect(result.current).toBe(false);
+
+    press('mouse');
+    rerender({ zoomed: true });
+    expect(result.current).toBe(false);
   });
 });
 

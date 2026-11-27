@@ -69,6 +69,32 @@ describe.skipIf(!db)('photo routes (database)', () => {
     });
   });
 
+  describe('GET /photos/:id/original', () => {
+    it('signs the original inline, with its size', async () => {
+      const p = await fixtures.photo(null);
+      const res = await request('GET', `/photos/${p.id}/original`, { admin: false });
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ originalUrl: `https://signed.example/${p.s3_key}`, width: p.width, height: p.height });
+      expect(res.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it.each(['review', 'rejected'] as const)('answers a %s photo exactly like a missing one', async (status) => {
+      const hidden = await fixtures.photo(null, { status });
+      const a = await request('GET', `/photos/${hidden.id}/original`, { admin: false });
+      const b = await request('GET', `/photos/${MISSING_ID}/original`, { admin: false });
+      expect(a.status).toBe(404);
+      expect(a.body).toEqual(b.body);
+    });
+
+    it("signs a private gallery's original only with that gallery's token", async () => {
+      const g = await fixtures.gallery({ isPublic: false, password: 'pw' });
+      const p = await fixtures.photo(g.id);
+      expect((await request('GET', `/photos/${p.id}/original`, { admin: false })).status).toBe(404);
+      const headers = { 'X-Gallery-Access': generateGalleryAccessToken(g.id, g.slug, 0) };
+      expect((await request('GET', `/photos/${p.id}/original`, { admin: false, headers })).status).toBe(200);
+    });
+  });
+
   describe('GET /photos', () => {
     it('refuses a bad limit or cursor', async () => {
       expect((await request('GET', '/photos?limit=0', { admin: false })).status).toBe(400);

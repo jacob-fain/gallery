@@ -11,6 +11,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import PageTitle from './components/PageTitle';
 import ScrollRestorer from './components/ScrollRestorer';
+import RotationAnchor from './components/RotationAnchor';
 import { DEFAULT_SITE_TITLE, SiteTitleContext } from './contexts/siteTitle';
 import { startAllPhotosRequest, startGalleryRequests } from './pages/gridRequests';
 import './styles/globals.css';
@@ -54,6 +55,7 @@ export function PublicApp({ settings }: { settings?: Partial<SiteSettings> }) {
   return (
     <>
       <ScrollRestorer />
+      <RotationAnchor />
       <Navbar />
       <main className="main-content">
         <Suspense fallback={<div className="loading">Loading...</div>}>

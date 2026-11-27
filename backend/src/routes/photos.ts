@@ -73,6 +73,9 @@ router.get('/:id', photoController.getPhoto);
 // GET /api/photos/:id/download - Download photo (increments counter)
 router.get('/:id/download', photoController.downloadPhoto);
 
+// GET /api/photos/:id/original - Signed original for the viewer's deep zoom (not a download)
+router.get('/:id/original', photoController.getOriginalForViewing);
+
 // POST /api/photos/:id/view - Track a photo view (analytics)
 router.post('/:id/view', trackingRateLimit, photoController.trackView);
 

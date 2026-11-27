@@ -1,0 +1,29 @@
+/* One photo per row. A tile is the grid's width, or narrower and centred
+   when the photo would otherwise be taller than the viewport less the
+   navbar, so a vertical shot is seen whole without scrolling. Keep the
+   width in step with singleTileSizes (SingleTiles.tsx). */
+.single {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+.single .tile {
+  display: block;
+  width: min(100%, calc((100vh - var(--navbar-height)) * var(--ratio)));
+  width: min(100%, calc((100svh - var(--navbar-height)) * var(--ratio)));
+  aspect-ratio: var(--ratio);
+  margin: 0;
+  padding: 0;
+  border: none;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* Over the album's own image rule, which sizes by its CSS variables. */
+.tile .image {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

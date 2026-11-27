@@ -8,9 +8,10 @@ import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import { trackPhotoView, getPhotoDownloadUrl } from '../../api/client';
 import { STATUS_LABELS } from '../../utils/reviewStatus';
 import ExifOverlay from './ExifOverlay';
-import { ReviewActions, ViewerLabel, ZoomButtons, type ActOutcome, type ReviewToast, type SetPhotoStatus } from './ViewerChrome';
+import { OriginalLoading, ReviewActions, ViewerLabel, ZoomButtons, type ActOutcome, type ReviewToast, type SetPhotoStatus } from './ViewerChrome';
 import type { ReviewStatus } from '../../types';
-import { useViewerIdle } from './viewerIdle';
+import { DOUBLE_TAP_MS, useViewerIdle } from './viewerIdle';
+import { usePointerSeen } from './zoomGestures';
 import viewerStyles from './Viewer.module.css';
 import { createRefreshGuard } from '../../utils/expiredImages';
 import {
@@ -30,6 +31,8 @@ import TileImage from './TileImage';
 import { useTileScheduler } from './tileScheduler';
 import { createHistoryMemory, entryKey } from '../../utils/historyMemory';
 import CollageTiles from './CollageTiles';
+import SingleTiles from './SingleTiles';
+import { useOriginalOnZoom } from './originalZoom';
 import type { GridLayout } from './gridLayout';
 
 /**
@@ -80,6 +83,7 @@ const REFRESH_INTERVAL_MS = 60 * 1000;
  */
 const ACT_GUARD_MS = 400;
 const LIGHTBOX_CLASS = 'photo-grid-lightbox';
+const DOUBLE_CLICK_MS = 300;
 const LIGHTBOX_PLUGINS = [Download, Zoom];
 // The public download route serves only shown photos.
 const REVIEW_PLUGINS = [Zoom];
@@ -169,22 +173,6 @@ export default function PhotoGrid({
   const [mayRefresh] = useState(() => createRefreshGuard(REFRESH_INTERVAL_MS));
   useLightboxFocusTrap(lightboxIndex >= 0, LIGHTBOX_CLASS, lightboxController);
   useTileScheduler(gridRef);
-  const viewerIdle = useViewerIdle(lightboxIndex >= 0, LIGHTBOX_CLASS);
-
-  // Image error events do not bubble, so they are caught in the capture
-  // phase. The lightbox renders in a portal outside the grid and does not
-  // expose its images' errors, so its images are matched by class.
-  useEffect(() => {
-    if (!onImagesExpired) return;
-    const handleError = (event: Event) => {
-      const img = event.target;
-      if (!(img instanceof HTMLImageElement)) return;
-      const ours = gridRef.current?.contains(img) || img.closest(`.${LIGHTBOX_CLASS}`);
-      if (ours && mayRefresh()) onImagesExpired();
-    };
-    document.addEventListener('error', handleError, true);
-    return () => document.removeEventListener('error', handleError, true);
-  }, [onImagesExpired, mayRefresh]);
 
   // A photo counts once per page view, however often the lightbox returns
   // to it. Keyed by id, since a shuffle moves photos to new indexes.
@@ -227,6 +215,29 @@ export default function PhotoGrid({
     [albumPhotos, tileCount]
   );
   const lightboxSlides = useMemo(() => toLightboxSlides(photos, galleryTitle), [photos, galleryTitle]);
+  // The Review view has no download route to sign from, and does not need
+  // the original.
+  const original = useOriginalOnZoom(lightboxSlides, lightboxIndex, accessToken, LIGHTBOX_CLASS, !review);
+  const viewerIdle = useViewerIdle(lightboxIndex >= 0, LIGHTBOX_CLASS, original.zoomed);
+  const pointerSeen = usePointerSeen(lightboxIndex >= 0);
+  const isOriginal = original.isOriginal;
+
+  // Image error events do not bubble, so they are caught in the capture
+  // phase. The lightbox renders in a portal outside the grid and does not
+  // expose its images' errors, so its images are matched by class.
+  useEffect(() => {
+    if (!onImagesExpired) return;
+    const handleError = (event: Event) => {
+      const img = event.target;
+      if (!(img instanceof HTMLImageElement)) return;
+      const ours = gridRef.current?.contains(img) || img.closest(`.${LIGHTBOX_CLASS}`);
+      // A failed original leaves the web size on screen (originalZoom.ts).
+      if (isOriginal(img.getAttribute('src') ?? '')) return;
+      if (ours && mayRefresh()) onImagesExpired();
+    };
+    document.addEventListener('error', handleError, true);
+    return () => document.removeEventListener('error', handleError, true);
+  }, [onImagesExpired, mayRefresh, isOriginal]);
   const onSetStatus = review?.onSetStatus;
   const view = lightbox.view;
   const keeps = review?.keeps;
@@ -275,6 +286,8 @@ export default function PhotoGrid({
     <div className={`${styles.grid}${review ? ` ${styles.reviewGrid}` : ''}`} ref={gridRef}>
       {layout === 'collage' && !review ? (
         <CollageTiles photos={albumPhotos} seed={collageSeed} visibleCount={tileCount} onOpen={lightbox.open} />
+      ) : layout === 'single' && !review ? (
+        <SingleTiles photos={albumTiles} onOpen={lightbox.open} />
       ) : (
         <PhotoTiles photos={albumTiles} onOpen={lightbox.open} review={!!review} />
       )}
@@ -282,12 +295,13 @@ export default function PhotoGrid({
 
       <Lightbox
         className={`${LIGHTBOX_CLASS} ${viewerStyles.viewer}${viewerIdle ? ` ${viewerStyles.idle}` : ''}`}
-        slides={lightboxSlides}
+        slides={original.slides}
         open={lightboxIndex >= 0}
         index={lightboxIndex}
         close={close}
         on={{
           view: ({ index }) => lightbox.view(index),
+          zoom: ({ zoom }) => original.onZoom(zoom),
         }}
         download={{
           download: ({ slide }) => downloadOriginal((slide as SlideWithExif).photoId, accessToken),
@@ -299,15 +313,16 @@ export default function PhotoGrid({
           closeOnPullDown: true,
         }}
         zoom={{
-          maxZoomPixelRatio: 3,
+          maxZoomPixelRatio: original.maxZoomPixelRatio,
           scrollToZoom: true,
-          doubleTapDelay: 300,
-          doubleClickDelay: 300,
+          doubleTapDelay: pointerSeen ? DOUBLE_TAP_MS : 0,
+          doubleClickDelay: pointerSeen ? DOUBLE_CLICK_MS : 0,
         }}
         render={{
           controls: () => (
             <>
               <ViewerLabel />
+              {original.loading && <OriginalLoading />}
               {review && <ReviewActions onAct={reviewAct} toast={viewerToast} />}
             </>
           ),

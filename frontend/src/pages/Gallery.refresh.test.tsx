@@ -59,33 +59,64 @@ function renderGallery() {
 
 describe('Gallery expired image refresh', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.mocked(client.isKnownPrivateGallery).mockReturnValue(false);
+    vi.mocked(client.getGalleryDownloadUrl).mockResolvedValue('/download');
     sessionStorage.clear();
     vi.mocked(client.getGallery).mockResolvedValue(gallery);
   });
 
+  // The photos in the order dealt, as ids. Each tile's alt text names its
+  // place; the masonry's own element order runs column by column.
+  const order = () =>
+    [...document.querySelectorAll<HTMLImageElement>('img[data-tile]')]
+      .map((img) => ({
+        place: Number(img.alt.match(/Photo (\d+) of/)![1]),
+        id: img.getAttribute('data-src')!.match(/\/(\w)-thumb/)![1],
+      }))
+      .sort((a, b) => a.place - b.place)
+      .map((p) => p.id);
+  const tile = (id: string) =>
+    [...document.querySelectorAll<HTMLImageElement>('img[data-tile]')].find((img) =>
+      img.getAttribute('data-src')!.includes(`/${id}-thumb`)
+    )!;
+
   it('refetches the photos when an image fails and swaps the new URLs into the same tiles', async () => {
     vi.mocked(client.getGalleryPhotos)
-      .mockResolvedValueOnce([photo('a', 'old'), photo('b', 'old')])
-      .mockResolvedValueOnce([photo('b', 'new'), photo('a', 'new')]);
+      .mockResolvedValueOnce([photo('a', 'old'), photo('b', 'old'), photo('c', 'old')])
+      .mockResolvedValueOnce([photo('c', 'new'), photo('b', 'new'), photo('a', 'new')]);
     renderGallery();
 
-    const first = await screen.findByAltText('Photo 1 of 2 in Smith Wedding');
-    const second = screen.getByAltText('Photo 2 of 2 in Smith Wedding');
-    await waitFor(() => expect(first.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg?sig=old'));
+    await screen.findByAltText('Photo 1 of 3 in Smith Wedding');
+    const before = order();
+    const [a, b] = [tile('a'), tile('b')];
+    await waitFor(() => expect(a.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg?sig=old'));
 
-    fireEvent.error(first);
+    fireEvent.error(a);
 
-    await waitFor(() =>
-      expect(first.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg?sig=new')
-    );
+    await waitFor(() => expect(a.getAttribute('src')).toBe('https://s3.test/a-thumb.jpg?sig=new'));
     expect(client.getGalleryPhotos).toHaveBeenLastCalledWith('smith', undefined, { fresh: true });
-    // The grid keeps its order even though the API returned another, and the
-    // tiles are the same elements: nothing remounts or reflows.
-    expect(screen.getByAltText('Photo 1 of 2 in Smith Wedding')).toBe(first);
-    expect(screen.getByAltText('Photo 2 of 2 in Smith Wedding')).toBe(second);
-    expect(second.getAttribute('src')).toBe('https://s3.test/b-thumb.jpg?sig=new');
-    expect(second.getAttribute('srcset')).toContain('b-web.jpg?sig=new');
+    // The grid keeps the visit's order even though the API returned another,
+    // and the tiles are the same elements: nothing remounts or reflows.
+    expect(order()).toEqual(before);
+    expect(tile('a')).toBe(a);
+    expect(tile('b')).toBe(b);
+    expect(b.getAttribute('src')).toBe('https://s3.test/b-thumb.jpg?sig=new');
+    expect(b.getAttribute('srcset')).toContain('b-web.jpg?sig=new');
+  });
+
+  it('keeps the order of the rest when the refresh drops a photo', async () => {
+    vi.mocked(client.getGalleryPhotos)
+      .mockResolvedValueOnce(['a', 'b', 'c', 'd', 'e'].map((id) => photo(id, 'old')))
+      .mockResolvedValueOnce(['e', 'd', 'b', 'a'].map((id) => photo(id, 'new')));
+    renderGallery();
+
+    await screen.findByAltText('Photo 1 of 5 in Smith Wedding');
+    const before = order();
+    fireEvent.error(tile('a'));
+
+    await waitFor(() => expect(order()).toHaveLength(4));
+    expect(order()).toEqual(before.filter((id) => id !== 'c'));
   });
 
   it('refetches a private gallery with its access token', async () => {

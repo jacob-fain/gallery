@@ -458,6 +458,17 @@ describe('paged photo lists', () => {
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/photos', '/api/photos?cursor=c%2F1']);
   });
 
+  it('lists a photo once when it comes back on two pages, and skips none', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(page([{ id: 'a' }, { id: 'b' }], { nextCursor: 'c/1' }))
+      .mockResolvedValueOnce(page([{ id: 'b' }, { id: 'c' }], { nextCursor: 'c/2' }))
+      .mockResolvedValueOnce(page([{ id: 'd' }], { nextCursor: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect((await getAllPhotos(undefined, { fresh: true })).map((p) => p.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
   it('asks an admin list for one page with the session cookie and reports the whole length', async () => {
     const fetchMock = vi.fn().mockResolvedValue(page([{ id: 'x' }], { total: 240, nextOffset: 101 }));
     vi.stubGlobal('fetch', fetchMock);

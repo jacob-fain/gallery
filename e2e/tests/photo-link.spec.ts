@@ -23,10 +23,15 @@ test('a shared photo link opens that photo, Back closes it, and the photo counts
 
   const lightbox = visitor.locator('.yarl__root');
   const search = () => new URL(visitor.url()).search;
+  // A visit deals its own order, so a photo's place is read from its tile.
+  const placeOf = async (id: string) =>
+    (await visitor.locator(`img[data-photo="${id}"]`).getAttribute('alt'))!.match(/Photo (\d) of 2/)![1];
 
   await visitor.goto(`${PUBLIC}/g/${slug}?photo=${second}`);
   await expect(lightbox).toBeVisible();
-  await expect(lightbox.getByText('2 / 2')).toBeVisible();
+  const label = lightbox.getByText(/^Link smoke · [12] \/ 2$/);
+  await expect(label).toBeVisible();
+  const linkedLabel = await label.textContent();
   await expectImagesLoaded(visitor, '.yarl__slide_current img');
   expect(search()).toBe(`?photo=${second}`);
 
@@ -35,10 +40,12 @@ test('a shared photo link opens that photo, Back closes it, and the photo counts
   await expect(lightbox).toHaveCount(0);
   expect(new URL(visitor.url()).pathname).toBe(`/g/${slug}`);
   expect(search()).toBe('');
-  await expectImagesLoaded(visitor, 'img[alt="Photo 2 of 2 in Link smoke"]');
+  await expectImagesLoaded(visitor, `img[data-photo="${second}"]`);
+  // The viewer opened the linked photo at its place in this visit's order.
+  expect(linkedLabel).toBe(`Link smoke · ${await placeOf(second)} / 2`);
 
   // Opening and moving between photos keeps the URL on the photo shown.
-  await visitor.getByAltText('Photo 1 of 2 in Link smoke').click();
+  await visitor.locator(`img[data-photo="${first}"]`).click();
   await expect(lightbox).toBeVisible();
   await expect.poll(search).toBe(`?photo=${first}`);
   await visitor.keyboard.press('ArrowRight');
@@ -46,7 +53,7 @@ test('a shared photo link opens that photo, Back closes it, and the photo counts
 
   // A reload of the photo's entry shows the photo again, and Back still closes it.
   await visitor.reload();
-  await expect(lightbox.getByText('2 / 2')).toBeVisible();
+  await expect(lightbox.getByText(linkedLabel!)).toBeVisible();
   await visitor.goBack();
   await expect(lightbox).toHaveCount(0);
   expect(search()).toBe('');

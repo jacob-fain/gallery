@@ -155,13 +155,20 @@ export function getAllPhotos(limit?: number, options: FetchOptions = {}): Promis
   // its lightbox walks all of it, so every page is fetched.
   return cachedRequest('allPhotos', options, async () => {
     const data: PublicPhoto[] = [];
+    // A photo shown or re-dated between two page requests can come back on
+    // both; the list (and so a shuffle of it) holds each photo once.
+    const seen = new Set<string>();
     let cursor: string | null = null;
     do {
       const page: ApiBody<PublicPhoto[]> & { data: PublicPhoto[] } = await fetchApiBody<PublicPhoto[]>(
         cursor ? `/photos?cursor=${encodeURIComponent(cursor)}` : '/photos',
         options
       );
-      data.push(...page.data);
+      for (const photo of page.data) {
+        if (seen.has(photo.id)) continue;
+        seen.add(photo.id);
+        data.push(photo);
+      }
       cursor = page.nextCursor ?? null;
     } while (cursor);
     return data;
@@ -645,6 +652,37 @@ export async function getPhotoDownloadUrl(photoId: string, accessToken?: string)
   const endpoint = `/photos/${encodeURIComponent(photoId)}/download`;
   const data = await fetchApi<{ downloadUrl: string }>(endpoint, {}, accessToken);
   return data.downloadUrl;
+}
+
+export interface PhotoOriginal {
+  originalUrl: string;
+  width: number;
+  height: number;
+  // Null for a photo stored before the type was recorded (JPEG, then).
+  contentType: string | null;
+}
+
+// The API hands out signed URLs with at least 30 minutes left, so one kept
+// this long never expires while it is shown. Reusing it also lets the
+// browser reuse the image it already downloaded.
+const ORIGINAL_URL_TTL_MS = 10 * 60 * 1000;
+const originals = new Map<string, { value: Promise<PhotoOriginal>; until: number }>();
+
+/**
+ * The photo's original, signed for showing inline, for the viewer's deep
+ * zoom. Not a download, and not counted as one.
+ */
+export function getPhotoOriginal(photoId: string, accessToken?: string): Promise<PhotoOriginal> {
+  const key = `${photoId}\n${accessToken ?? ''}`;
+  const now = Date.now();
+  const cached = originals.get(key);
+  if (cached && now < cached.until) return cached.value;
+  const value = fetchApi<PhotoOriginal>(`/photos/${encodeURIComponent(photoId)}/original`, {}, accessToken);
+  originals.set(key, { value, until: now + ORIGINAL_URL_TTL_MS });
+  value.catch(() => {
+    if (originals.get(key)?.value === value) originals.delete(key);
+  });
+  return value;
 }
 
 // ============ Contact Form ============

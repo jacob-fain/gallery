@@ -69,6 +69,14 @@ function tiles() {
   return Array.from(document.querySelectorAll<HTMLElement>('[data-photo-index]'));
 }
 
+// The photo a tile shows, by its number (p<n>). The order is the visit's.
+function photoOf(tile: Element): number {
+  const img = tile.querySelector('img[data-tile]')!;
+  return Number(img.getAttribute('data-src')!.match(/\/p(\d+)-/)![1]);
+}
+
+const order = () => tiles().map(photoOf);
+
 // Each tile's photo and its box, which together are the arrangement.
 function arrangement() {
   return tiles().map((tile) => {
@@ -77,7 +85,7 @@ function arrangement() {
   });
 }
 
-function option(name: 'Columns' | 'Collage') {
+function option(name: 'Columns' | 'Collage' | 'Single') {
   return screen.getByRole('button', { name });
 }
 
@@ -150,15 +158,21 @@ describe('the collage on All Photos', () => {
     await screen.findByAltText('Photo 1 of 24');
     // The grid's scheduler starts the collage's images too.
     const first = screen.getByAltText('Photo 1 of 24');
-    await waitFor(() => expect(first.getAttribute('srcset')).toContain('https://s3.test/p0-web.jpg'));
+    const firstPhoto = photoOf(tiles()[0]);
+    await waitFor(() => expect(first.getAttribute('srcset')).toContain(`https://s3.test/p${firstPhoto}-web.jpg`));
     for (const tile of tiles()) {
-      const index = Number(tile.dataset.photoIndex);
+      const index = photoOf(tile);
       const [w, h] = SHAPES[index % SHAPES.length];
       const width = parseFloat(tile.style.width);
       const height = parseFloat(tile.style.height);
       expect(Math.abs(width / (w / h) - height)).toBeLessThan(0.5);
       const img = tile.querySelector('img[data-tile]')!;
-      expect(img.getAttribute('sizes')).toBe(`${Math.ceil(width)}px`);
+      // The tile's width rounded up. jsdom rounds the style it serializes,
+      // so a width a hair over a whole pixel can read as that pixel.
+      const sized = parseFloat(img.getAttribute('sizes')!);
+      expect(img.getAttribute('sizes')).toMatch(/^\d+px$/);
+      expect(sized).toBeGreaterThanOrEqual(width - 1e-3);
+      expect(sized - width).toBeLessThan(1 + 1e-3);
       // Held for the scheduler (tileScheduler.ts); the tile's only image.
       expect(img.getAttribute('data-srcset')).toContain(`https://s3.test/p${index}-web.jpg`);
       expect(img.getAttribute('data-photo')).toBe(`p${index}`);
@@ -172,8 +186,9 @@ describe('the collage on All Photos', () => {
     await screen.findByAltText('Photo 1 of 24');
     const before = arrangement();
 
+    const opened = photoOf(tiles()[5]);
     await user.click(tiles()[5]);
-    expect(window.location.search).toBe('?photo=p5');
+    expect(window.location.search).toBe(`?photo=p${opened}`);
     expect(screen.getByRole('dialog', { name: 'Lightbox' })).toBeTruthy();
 
     await act(async () => {
@@ -239,22 +254,50 @@ describe('the collage on a gallery page', () => {
     );
   }
 
-  it('keeps the gallery order and the same arrangement on every visit', async () => {
+  const ids = () => photos.map((_, i) => i);
+
+  it('deals a random order and collage on a fresh visit, and the same again in the same entry', async () => {
     vi.mocked(client.getGallery).mockResolvedValue(gallery);
     vi.mocked(client.getGalleryPhotos).mockResolvedValue(photos);
     localStorage.setItem('gridLayout', 'collage');
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.11);
     const first = renderGallery();
     // The page's buttons wait for a photo to show.
     fireEvent.load(await screen.findByAltText('Photo 1 of 24 in Smith Wedding'));
     expect(screen.getByRole('button', { name: 'Collage' }).getAttribute('aria-pressed')).toBe('true');
     const before = arrangement();
-    expect(tiles().map((t) => Number(t.dataset.photoIndex))).toEqual(photos.map((_, i) => i));
+    const dealt = order();
+    expect(dealt).not.toEqual(ids());
+    expect([...dealt].sort((x, y) => x - y)).toEqual(ids());
     first.unmount();
 
-    sessionStorage.clear();
+    // Back to the page, or a reload: the same entry.
+    random.mockReturnValue(0.73);
     renderGallery();
     await screen.findByAltText('Photo 1 of 24 in Smith Wedding');
     expect(arrangement()).toEqual(before);
+  });
+
+  it('deals another order on another fresh visit, and Shuffle deals again', async () => {
+    vi.mocked(client.getGallery).mockResolvedValue(gallery);
+    vi.mocked(client.getGalleryPhotos).mockResolvedValue(photos);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.11);
+    const first = renderGallery();
+    fireEvent.load(await screen.findByAltText('Photo 1 of 24 in Smith Wedding'));
+    const dealt = order();
+    first.unmount();
+
+    window.history.replaceState(null, '', '/g/smith');
+    sessionStorage.clear();
+    random.mockReturnValue(0.73);
+    renderGallery();
+    fireEvent.load(await screen.findByAltText('Photo 1 of 24 in Smith Wedding'));
+    const second = order();
+    expect(second).not.toEqual(dealt);
+
+    random.mockRestore();
+    fireEvent.click(screen.getByRole('button', { name: 'Shuffle photos' }));
+    expect(order()).not.toEqual(second);
   });
 });
 
@@ -310,11 +353,18 @@ describe('the collage grid', () => {
       render(<PhotoGrid photos={photos} layout="collage" collageSeed={3} />);
       const images = tiles().map((tile) => tile.querySelector('img[data-tile]'));
       const before = arrangement();
-      width = 700;
+      // A small change (a window dragged) is debounced: nothing moves
+      // until the width settles.
+      width = 1100;
       act(() => resized());
-      // Debounced: nothing moves until the width settles.
       expect(arrangement()).toEqual(before);
       await waitFor(() => expect(arrangement()).not.toEqual(before));
+      const settled = arrangement();
+      // A jump (a phone rotated) is laid out at once, so the old
+      // arrangement never shows at the new width.
+      width = 700;
+      act(() => resized());
+      expect(arrangement()).not.toEqual(settled);
       const right = Math.max(...tiles().map((t) => parseFloat(t.style.left) + parseFloat(t.style.width)));
       expect(right).toBeCloseTo(700, 6);
       tiles().forEach((tile, i) => expect(tile.querySelector('img[data-tile]')).toBe(images[i]));

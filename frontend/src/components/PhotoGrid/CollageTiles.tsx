@@ -6,8 +6,12 @@ import TileImage from './TileImage';
 import { replanTiles } from './tileScheduler';
 import styles from './CollageTiles.module.css';
 
-// A resize lays the collage out again once the width has settled.
+// A resize lays the collage out again once the width has settled, so a
+// window dragged wider is not laid out on every frame. A jump (a phone
+// rotated, a window snapped) is laid out at once: waiting would leave the
+// old arrangement at the new width, half the screen blank.
 const RESIZE_DEBOUNCE_MS = 150;
+const JUMP_FRACTION = 0.15;
 
 interface CollageTilesProps {
   // Every photo: the arrangement is worked out for the whole set, so tiles
@@ -25,19 +29,35 @@ function useContainerWidth() {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    setWidth(el.clientWidth);
+    let current = el.clientWidth;
+    setWidth(current);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const measure = () => {
+    const apply = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => setWidth(el.clientWidth), RESIZE_DEBOUNCE_MS);
+      current = el.clientWidth;
+      setWidth(current);
     };
+    const measure = () => {
+      const next = el.clientWidth;
+      if (next === current) return;
+      if (current > 0 && Math.abs(next - current) / current < JUMP_FRACTION) {
+        clearTimeout(timer);
+        timer = setTimeout(apply, RESIZE_DEBOUNCE_MS);
+      } else apply();
+    };
+    // iOS reports a rotation's new size on orientationchange and on the
+    // visual viewport before every observer has run.
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    if (observer) observer.observe(el);
-    else window.addEventListener('resize', measure);
+    observer?.observe(el);
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+    window.visualViewport?.addEventListener('resize', measure);
     return () => {
       clearTimeout(timer);
       observer?.disconnect();
       window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+      window.visualViewport?.removeEventListener('resize', measure);
     };
   }, []);
   return [ref, width] as const;
